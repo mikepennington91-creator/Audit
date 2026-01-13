@@ -396,6 +396,7 @@ const Admin = () => {
                   </form>
                 </DialogContent>
               </Dialog>
+              </div>
             </CardHeader>
             <CardContent>
               {loading ? (
