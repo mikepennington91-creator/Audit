@@ -37,6 +37,7 @@ const Layout = ({ children }) => {
     { path: '/admin', label: 'Admin', icon: Users, show: isAdmin() },
     { path: '/groups', label: 'Groups', icon: FolderOpen, show: true },
     { path: '/create-audit', label: 'Create Audit', icon: FilePlus, show: isAuditCreator() },
+    { path: '/schedule', label: 'Schedule', icon: ClipboardCheck, show: isAuditCreator() },
     { path: '/run-audit', label: 'Run Audit', icon: ClipboardCheck, show: true },
     { path: '/reports', label: 'Reports', icon: BarChart3, show: true },
   ];
