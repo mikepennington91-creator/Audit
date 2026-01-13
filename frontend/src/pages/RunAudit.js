@@ -498,12 +498,30 @@ const RunAudit = () => {
 
             {/* Notes */}
             <div className="space-y-2">
-              <Label>Notes (Optional)</Label>
+              <div className="flex items-center justify-between">
+                <Label className={currentAnswer?.is_negative && !currentAnswer?.notes?.trim() ? 'text-destructive' : ''}>
+                  {currentAnswer?.is_negative ? 'Comment (Required for negative response)' : 'Notes (Optional)'}
+                  {currentAnswer?.is_negative && !currentAnswer?.notes?.trim() && (
+                    <span className="ml-2 text-destructive">*</span>
+                  )}
+                </Label>
+                {currentAnswer?.is_negative && (
+                  <Badge variant="destructive" className="text-xs">
+                    <AlertCircle className="w-3 h-3 mr-1" />
+                    Comment Required
+                  </Badge>
+                )}
+              </div>
               <Textarea
-                placeholder="Add any notes or observations..."
+                placeholder={currentAnswer?.is_negative 
+                  ? "Please explain why this item failed or did not pass..." 
+                  : "Add any notes or observations..."}
                 value={currentAnswer?.notes || ''}
                 onChange={(e) => addNoteToAnswer(currentQuestion.id, e.target.value)}
-                rows={2}
+                rows={currentAnswer?.is_negative ? 3 : 2}
+                className={currentAnswer?.is_negative && !currentAnswer?.notes?.trim() 
+                  ? 'border-destructive focus:ring-destructive' 
+                  : ''}
                 data-testid="question-notes"
               />
             </div>
