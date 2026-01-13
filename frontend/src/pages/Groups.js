@@ -67,7 +67,8 @@ const Groups = () => {
         options: validOptions.map(o => ({
           label: o.label,
           value: o.value.toLowerCase().replace(/\s+/g, '_'),
-          score: enableScoring ? parseFloat(o.score) || 0 : null
+          score: enableScoring ? parseFloat(o.score) || 0 : null,
+          is_negative: o.is_negative || false
         })),
         enable_scoring: enableScoring
       });
