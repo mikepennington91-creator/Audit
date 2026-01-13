@@ -1,0 +1,139 @@
+{
+  "identity": {
+    "name": "Infinit-Audit",
+    "persona": "E1 - The Anti-AI Designer",
+    "tone": "Clinical Utility meets Modern SaaS. Trustworthy, Efficient, Precise, yet Human.",
+    "archetype": "Swiss & High-Contrast (Authority) + Organic (Safety)",
+    "vibe": "Sterile but not cold. The cleanliness of a high-end kitchen meets the precision of a Swiss watch."
+  },
+  "typography": {
+    "fonts": {
+      "headings": {
+        "family": "Outfit",
+        "weights": ["500", "600", "700"],
+        "usage": "Headings, KPIs, Navigation",
+        "cdn": "https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap"
+      },
+      "body": {
+        "family": "Inter",
+        "weights": ["400", "500"],
+        "usage": "Paragraphs, Inputs, Data Tables",
+        "cdn": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      }
+    },
+    "rules": {
+      "h1": "text-4xl md:text-5xl font-bold tracking-tight text-slate-900 dark:text-white",
+      "h2": "text-2xl md:text-3xl font-semibold tracking-tight text-slate-800 dark:text-slate-100",
+      "h3": "text-xl font-medium text-slate-800 dark:text-slate-200",
+      "body": "text-base leading-relaxed text-slate-600 dark:text-slate-400",
+      "label": "text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-500",
+      "mono": "font-mono text-sm text-teal-600 dark:text-teal-400"
+    }
+  },
+  "colors": {
+    "palette": {
+      "primary": {
+        "DEFAULT": "#0F766E",
+        "foreground": "#FFFFFF",
+        "hover": "#115E59",
+        "description": "Teal-700. The core brand color. Trust, Safety, Infinity."
+      },
+      "secondary": {
+        "DEFAULT": "#0EA5E9",
+        "foreground": "#FFFFFF",
+        "description": "Sky-500. For accents, active states, and highlights."
+      },
+      "background": {
+        "light": "#F8FAFC",
+        "dark": "#020617",
+        "description": "Slate-50 (Light) / Slate-950 (Dark). Clinical and clean."
+      },
+      "surface": {
+        "light": "#FFFFFF",
+        "dark": "#0F172A",
+        "description": "Pure White / Slate-900. Cards and panels."
+      },
+      "status": {
+        "pass": "#10B981",
+        "fail": "#EF4444",
+        "warning": "#F59E0B",
+        "info": "#3B82F6"
+      }
+    },
+    "gradients": {
+      "brand": "bg-gradient-to-br from-teal-600 to-sky-600",
+      "surface_hover": "hover:bg-slate-50 dark:hover:bg-slate-800/50",
+      "glass": "bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border border-white/20 dark:border-white/10"
+    }
+  },
+  "layout": {
+    "spacing": {
+      "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+      "section": "py-12 md:py-16",
+      "card_padding": "p-6 md:p-8"
+    },
+    "grids": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6",
+      "form": "grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-12",
+      "card_list": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+    },
+    "strategies": {
+      "dashboard_mode": "Control Room Grid. Dense data, high scanability.",
+      "marketing_mode": "Tetris Grid. Asymmetrical, visual tension.",
+      "form_mode": "Split View. Questions on left (col-span-8), Context/Settings on right (col-span-4)."
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-6 rounded-md font-medium transition-all shadow-sm hover:shadow-md active:scale-95",
+      "secondary": "bg-white dark:bg-slate-800 text-slate-900 dark:text-white border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 h-10 px-6 rounded-md font-medium transition-all",
+      "ghost": "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white h-10 px-4 rounded-md transition-all"
+    },
+    "cards": {
+      "base": "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm hover:shadow-md transition-all duration-300",
+      "interactive": "group relative overflow-hidden hover:border-teal-500/50 dark:hover:border-teal-400/50"
+    },
+    "inputs": {
+      "base": "flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-800 bg-transparent px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all"
+    },
+    "badges": {
+      "base": "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+      "pass": "border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
+      "fail": "border-transparent bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+      "neutral": "border-transparent bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-400"
+    }
+  },
+  "visual_enhancers": {
+    "glassmorphism": "Use for sticky headers and floating action bars. Class: 'backdrop-blur-md bg-white/80 dark:bg-slate-950/80 border-b border-slate-200/50 dark:border-slate-800/50'",
+    "noise": "Add a subtle noise texture to the sidebar background to reduce digital flatness.",
+    "tracing_beam": "On 'Run Audit' active cards, use a subtle animated border gradient to indicate progress.",
+    "shadows": "Use 'shadow-sm' for static elements, 'shadow-lg' for dropdowns/modals. Avoid heavy shadows in dark mode."
+  },
+  "assets": {
+    "logo_url": "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png",
+    "login_bg": "https://images.unsplash.com/photo-1669216369040-6a0a910d5bfd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2MzR8MHwxfHNlYXJjaHwyfHxmb29kJTIwcXVhbGl0eSUyMGluc3BlY3RvciUyMHRhYmxldHxlbnwwfHx8fDE3NjgzMzUyNTJ8MA&ixlib=rb-4.1.0&q=85",
+    "icons": "Lucide React (Default). Use Phosphor Icons for specific audit actions if needed."
+  },
+  "instructions_to_main_agent": {
+    "general": "You are building a high-precision tool. Precision is key. Alignments must be perfect. Spacing must be consistent.",
+    "theme_toggle": "Implement a ThemeProvider using 'next-themes' or similar logic. Default to 'system' or 'light'.",
+    "forms": "For the 'Create Audit' page, do NOT use a simple vertical list. Use a 'Builder' layout: Sidebar for tools/question types, Main area for the form canvas.",
+    "mobile": "Ensure the 'Run Audit' page is 100% mobile-optimized. Large touch targets for Pass/Fail buttons. Photo upload must be seamless.",
+    "charts": "Use Recharts for the Reports placeholder. Keep them simple: Bar charts for Pass/Fail rates.",
+    "animations": "Use 'framer-motion' for page transitions and list entrance animations. Stagger the appearance of audit items."
+  },
+  "universal_guidelines": {
+    "do_not": [
+      "Do not use generic 'Inter' for headings.",
+      "Do not use full-screen gradients.",
+      "Do not center text in data tables.",
+      "Do not use 'alert()' for errors. Use 'Sonner' toasts."
+    ],
+    "must_do": [
+      "Use 'data-testid' on all interactive elements.",
+      "Ensure 4.5:1 contrast ratio for text.",
+      "Use 'cursor-pointer' on all clickable elements.",
+      "Handle loading states with skeletons, not spinners."
+    ]
+  }
+}
