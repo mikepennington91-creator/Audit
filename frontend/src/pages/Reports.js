@@ -16,13 +16,18 @@ import { BarChart3, ClipboardCheck, TrendingUp, Calendar, MapPin, Clock, Eye, Me
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const Reports = () => {
+  const { user, isAdmin } = useAuth();
   const [runs, setRuns] = useState([]);
   const [stats, setStats] = useState(null);
+  const [companies, setCompanies] = useState([]);
+  const [selectedCompany, setSelectedCompany] = useState('all');
+  const [companyDashboard, setCompanyDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedRun, setSelectedRun] = useState(null);
   const [runDetails, setRunDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(null);
 
   useEffect(() => {
     fetchData();
