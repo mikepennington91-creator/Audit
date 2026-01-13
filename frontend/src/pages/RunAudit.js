@@ -110,7 +110,18 @@ const RunAudit = () => {
     return [];
   };
 
+  const isNegativeResponse = (option) => {
+    // Check if option is explicitly marked as negative
+    if (option.is_negative) return true;
+    
+    // Check common negative keywords
+    const negativeKeywords = ['fail', 'no', 'reject', 'non-compliant', 'non compliant', 'unsatisfactory', 'poor', 'bad', 'n/a'];
+    const label = option.label.toLowerCase();
+    return negativeKeywords.some(keyword => label.includes(keyword));
+  };
+
   const handleAnswer = (question, option) => {
+    const isNegative = isNegativeResponse(option);
     setAnswers({
       ...answers,
       [question.id]: {
@@ -119,7 +130,8 @@ const RunAudit = () => {
         response_label: option.label,
         score: option.score,
         notes: answers[question.id]?.notes || '',
-        photos: answers[question.id]?.photos || []
+        photos: answers[question.id]?.photos || [],
+        is_negative: isNegative
       }
     });
   };
