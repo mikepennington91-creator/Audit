@@ -148,3 +148,49 @@ Build an auditing system called Infinit-Audit for the food industry. Users can c
 - `GET/POST/PUT /api/run-audits` - Audit execution
 - `POST /api/upload-photo` - Photo evidence upload
 - `GET /api/dashboard/stats` - Dashboard statistics
+
+---
+
+## Update: January 13, 2026 - Enhancement Phase
+
+### New Features Implemented
+
+1. **UK Timezone Support**
+   - All timestamps now use Europe/London timezone
+   - Backend uses `zoneinfo.ZoneInfo("Europe/London")` 
+   - Frontend displays dates in `en-GB` format with `Europe/London` timeZone
+
+2. **Company Management (Admin)**
+   - CRUD operations for companies
+   - Assign users to companies
+   - Company-based data isolation
+
+3. **Data Isolation by Company**
+   - Response groups filtered by company
+   - Audit types filtered by company
+   - Audits filtered by company (with visibility rules)
+   - Users can only see data from their assigned company
+
+4. **Detailed Audit View**
+   - Click on completed audit in Reports to see full details
+   - Shows all questions with responses
+   - Displays comments/notes per question
+   - Shows photo evidence
+   - Shows pass/fail status and scores
+
+5. **Required Comments on Negative Responses**
+   - Auto-detection of negative keywords (fail, no, reject, etc.)
+   - Visual indicator when negative response selected without comment
+   - Validation prevents submission without required comments
+   - `is_negative` flag stored with response options
+
+### API Endpoints Added
+- `GET/POST/PUT/DELETE /api/companies` - Company CRUD
+- `GET /api/run-audits/{id}/details` - Detailed audit view with enriched answers
+
+### Database Schema Updates
+- Users: Added `company_id` field
+- Response Groups: Added `company_id`, `is_negative` on options
+- Audit Types: Added `company_id`
+- Audits: Added `company_id`
+- Run Audit Answers: Added `is_negative` flag
