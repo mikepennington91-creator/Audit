@@ -184,6 +184,59 @@ const Admin = () => {
     return users.filter(u => u.company_id === companyId).length;
   };
 
+  // Bulk import handlers
+  const downloadTemplate = async () => {
+    try {
+      const response = await axios.get(`${API}/users/export-template`, {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'user_import_template.csv');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success('Template downloaded');
+    } catch (error) {
+      toast.error('Failed to download template');
+    }
+  };
+
+  const handleBulkImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await axios.post(`${API}/users/bulk-import`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      const { success, failed, errors } = response.data;
+      
+      if (success > 0) {
+        toast.success(`${success} users imported successfully`);
+      }
+      if (failed > 0) {
+        toast.error(`${failed} users failed to import`);
+        console.log('Import errors:', errors);
+      }
+      
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Import failed');
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-page">
       {/* Header */}
