@@ -119,7 +119,7 @@ const Groups = () => {
   };
 
   const addOption = () => {
-    setOptions([...options, { label: '', value: '', score: null }]);
+    setOptions([...options, { label: '', value: '', score: null, is_negative: false }]);
   };
 
   const removeOption = (index) => {
@@ -133,6 +133,9 @@ const Groups = () => {
     newOptions[index][field] = value;
     if (field === 'label') {
       newOptions[index].value = value;
+      // Auto-detect negative keywords
+      const negativeKeywords = ['fail', 'no', 'reject', 'non-compliant', 'unsatisfactory', 'poor', 'bad'];
+      newOptions[index].is_negative = negativeKeywords.some(kw => value.toLowerCase().includes(kw));
     }
     setOptions(newOptions);
   };
@@ -140,7 +143,7 @@ const Groups = () => {
   const resetResponseForm = () => {
     setGroupName('');
     setEnableScoring(false);
-    setOptions([{ label: '', value: '', score: null }]);
+    setOptions([{ label: '', value: '', score: null, is_negative: false }]);
   };
 
   const resetTypeForm = () => {
