@@ -90,6 +90,12 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       
+      <Route path="/schedule" element={
+        <ProtectedRoute allowedRoles={['admin', 'audit_creator']}>
+          <Schedule />
+        </ProtectedRoute>
+      } />
+      
       <Route path="/run-audit" element={
         <ProtectedRoute>
           <RunAudit />
