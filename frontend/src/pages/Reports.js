@@ -334,14 +334,29 @@ const Reports = () => {
                         )}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={(e) => { e.stopPropagation(); openDetails(run); }}
-                          data-testid={`view-details-${run.id}`}
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={(e) => { e.stopPropagation(); openDetails(run); }}
+                            data-testid={`view-details-${run.id}`}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={(e) => { e.stopPropagation(); downloadPdf(run.id, run.audit_name); }}
+                            disabled={downloadingPdf === run.id}
+                            data-testid={`download-pdf-${run.id}`}
+                          >
+                            {downloadingPdf === run.id ? (
+                              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <FileDown className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
