@@ -1303,6 +1303,8 @@ async def startup_event():
     await db.response_groups.create_index("id", unique=True)
     await db.audit_types.create_index("id", unique=True)
     await db.run_audits.create_index("id", unique=True)
+    await db.scheduled_audits.create_index("id", unique=True)
+    await db.companies.create_index("id", unique=True)
     
     # Create default admin if not exists
     admin = await db.users.find_one({"email": "admin@infinit-audit.co.uk"})
