@@ -449,6 +449,237 @@ class InfinitAuditTester:
         
         self.tests_run += 1
 
+    def test_new_features(self):
+        """Test new features: PDF export, bulk import, scheduling, company dashboard"""
+        self.log("=== NEW FEATURES TESTS ===")
+        
+        # Test company management first
+        self.test_companies()
+        
+        # Test PDF export (requires completed run audit)
+        self.test_pdf_export()
+        
+        # Test bulk user import
+        self.test_bulk_import()
+        
+        # Test audit scheduling
+        self.test_audit_scheduling()
+        
+        # Test company dashboard
+        self.test_company_dashboard()
+
+    def test_companies(self):
+        """Test company CRUD operations"""
+        self.log("=== COMPANY MANAGEMENT TESTS ===")
+        
+        # Create a test company
+        company_data = {
+            "name": "Test Company Ltd",
+            "description": "A test company for audit testing"
+        }
+        
+        success, response = self.run_test(
+            "Create Company",
+            "POST",
+            "companies",
+            200,
+            data=company_data
+        )
+        
+        if success and 'id' in response:
+            company_id = response['id']
+            self.created_resources.setdefault('companies', []).append(company_id)
+            
+            # Test get specific company
+            self.run_test(
+                "Get Company Details",
+                "GET",
+                f"companies/{company_id}",
+                200
+            )
+            
+            # Test company update
+            update_data = {"name": "Updated Test Company Ltd"}
+            self.run_test(
+                "Update Company",
+                "PUT",
+                f"companies/{company_id}",
+                200,
+                data=update_data
+            )
+
+        # Get all companies
+        self.run_test("Get All Companies", "GET", "companies", 200)
+
+    def test_pdf_export(self):
+        """Test PDF export functionality"""
+        self.log("=== PDF EXPORT TESTS ===")
+        
+        if not self.created_resources['run_audits']:
+            self.log("No completed run audits available for PDF export test", "WARNING")
+            return
+        
+        run_id = self.created_resources['run_audits'][0]
+        
+        # Test PDF export
+        try:
+            headers = {}
+            if self.admin_token:
+                headers['Authorization'] = f'Bearer {self.admin_token}'
+            
+            response = requests.get(
+                f"{self.base_url}/run-audits/{run_id}/pdf",
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code == 200 and response.headers.get('content-type') == 'application/pdf':
+                self.tests_passed += 1
+                self.log("✅ PDF Export - Status: 200, Content-Type: application/pdf", "PASS")
+            else:
+                self.log(f"❌ PDF Export - Status: {response.status_code}, Content-Type: {response.headers.get('content-type')}", "FAIL")
+                
+        except Exception as e:
+            self.log(f"❌ PDF Export - Error: {str(e)}", "ERROR")
+        
+        self.tests_run += 1
+
+    def test_bulk_import(self):
+        """Test bulk user import functionality"""
+        self.log("=== BULK IMPORT TESTS ===")
+        
+        # Test download template
+        try:
+            headers = {}
+            if self.admin_token:
+                headers['Authorization'] = f'Bearer {self.admin_token}'
+            
+            response = requests.get(
+                f"{self.base_url}/users/export-template",
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code == 200 and 'text/csv' in response.headers.get('content-type', ''):
+                self.tests_passed += 1
+                self.log("✅ Download CSV Template - Status: 200, Content-Type: text/csv", "PASS")
+            else:
+                self.log(f"❌ Download CSV Template - Status: {response.status_code}", "FAIL")
+                
+        except Exception as e:
+            self.log(f"❌ Download CSV Template - Error: {str(e)}", "ERROR")
+        
+        self.tests_run += 1
+        
+        # Test bulk import with sample CSV
+        import io
+        csv_content = """email,name,role,company_id,password
+test_bulk1@example.com,Test Bulk User 1,user,,TempPass123!
+test_bulk2@example.com,Test Bulk User 2,audit_creator,,SecurePass456!"""
+        
+        try:
+            files = {'file': ('test_users.csv', io.StringIO(csv_content).getvalue().encode(), 'text/csv')}
+            headers = {}
+            if self.admin_token:
+                headers['Authorization'] = f'Bearer {self.admin_token}'
+            
+            response = requests.post(
+                f"{self.base_url}/users/bulk-import",
+                files=files,
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('success', 0) > 0:
+                    self.tests_passed += 1
+                    self.log(f"✅ Bulk Import - {result.get('success')} users imported successfully", "PASS")
+                else:
+                    self.log(f"❌ Bulk Import - No users imported: {result}", "FAIL")
+            else:
+                self.log(f"❌ Bulk Import - Status: {response.status_code}", "FAIL")
+                
+        except Exception as e:
+            self.log(f"❌ Bulk Import - Error: {str(e)}", "ERROR")
+        
+        self.tests_run += 1
+
+    def test_audit_scheduling(self):
+        """Test audit scheduling functionality"""
+        self.log("=== AUDIT SCHEDULING TESTS ===")
+        
+        if not self.created_resources['audits'] or not self.created_resources['users']:
+            self.log("No audits or users available for scheduling test", "WARNING")
+            return
+        
+        # Create a scheduled audit
+        from datetime import datetime, timedelta
+        future_date = (datetime.now() + timedelta(days=7)).isoformat()
+        
+        schedule_data = {
+            "audit_id": self.created_resources['audits'][0],
+            "assigned_to": self.created_resources['users'][0],
+            "scheduled_date": future_date,
+            "location": "Test Location",
+            "notes": "Test scheduling",
+            "reminder_days": 1
+        }
+        
+        success, response = self.run_test(
+            "Create Scheduled Audit",
+            "POST",
+            "scheduled-audits",
+            200,
+            data=schedule_data
+        )
+        
+        if success and 'id' in response:
+            schedule_id = response['id']
+            self.created_resources.setdefault('scheduled_audits', []).append(schedule_id)
+            
+            # Test get scheduled audits
+            self.run_test(
+                "Get Scheduled Audits",
+                "GET",
+                "scheduled-audits",
+                200
+            )
+            
+            # Test get my schedule
+            self.run_test(
+                "Get My Schedule",
+                "GET",
+                "scheduled-audits/my-schedule",
+                200
+            )
+
+    def test_company_dashboard(self):
+        """Test company dashboard functionality"""
+        self.log("=== COMPANY DASHBOARD TESTS ===")
+        
+        if not self.created_resources.get('companies'):
+            self.log("No companies available for dashboard test", "WARNING")
+            return
+        
+        company_id = self.created_resources['companies'][0]
+        
+        # Test company dashboard
+        success, dashboard = self.run_test(
+            "Get Company Dashboard",
+            "GET",
+            f"companies/{company_id}/dashboard",
+            200
+        )
+        
+        if success:
+            expected_fields = ['company', 'stats', 'trends', 'recent_activity']
+            for field in expected_fields:
+                if field in dashboard:
+                    self.log(f"✅ Dashboard field '{field}' present")
+                else:
+                    self.log(f"❌ Missing dashboard field: {field}", "WARNING")
+
     def cleanup_resources(self):
         """Clean up created test resources"""
         self.log("=== CLEANUP ===")
