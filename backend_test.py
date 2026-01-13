@@ -684,6 +684,15 @@ test_bulk2@example.com,Test Bulk User 2,audit_creator,,SecurePass456!"""
         """Clean up created test resources"""
         self.log("=== CLEANUP ===")
         
+        # Delete scheduled audits
+        for schedule_id in self.created_resources.get('scheduled_audits', []):
+            self.run_test(
+                f"Delete Scheduled Audit {schedule_id}",
+                "DELETE",
+                f"scheduled-audits/{schedule_id}",
+                200
+            )
+        
         # Delete run audits (no endpoint available, skip)
         
         # Delete audits
@@ -710,6 +719,15 @@ test_bulk2@example.com,Test Bulk User 2,audit_creator,,SecurePass456!"""
                 f"Delete Response Group {group_id}",
                 "DELETE",
                 f"response-groups/{group_id}",
+                200
+            )
+        
+        # Delete companies
+        for company_id in self.created_resources.get('companies', []):
+            self.run_test(
+                f"Delete Company {company_id}",
+                "DELETE",
+                f"companies/{company_id}",
                 200
             )
         
