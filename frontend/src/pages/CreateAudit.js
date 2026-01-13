@@ -315,16 +315,25 @@ const CreateAudit = () => {
                                 <div className="space-y-2">
                                   <Label>Response Set</Label>
                                   <Select
-                                    value={question.response_group_id}
+                                    value={question.response_group_id || (question.useCustomResponses ? 'custom' : 'select')}
                                     onValueChange={(value) => {
-                                      updateQuestion(qIndex, 'response_group_id', value === 'custom' ? '' : value);
-                                      updateQuestion(qIndex, 'useCustomResponses', value === 'custom');
+                                      if (value === 'custom') {
+                                        updateQuestion(qIndex, 'response_group_id', '');
+                                        updateQuestion(qIndex, 'useCustomResponses', true);
+                                      } else if (value === 'select') {
+                                        updateQuestion(qIndex, 'response_group_id', '');
+                                        updateQuestion(qIndex, 'useCustomResponses', false);
+                                      } else {
+                                        updateQuestion(qIndex, 'response_group_id', value);
+                                        updateQuestion(qIndex, 'useCustomResponses', false);
+                                      }
                                     }}
                                   >
                                     <SelectTrigger data-testid={`question-response-group-${qIndex}`}>
                                       <SelectValue placeholder="Select or create custom" />
                                     </SelectTrigger>
                                     <SelectContent>
+                                      <SelectItem value="select">Select a response set...</SelectItem>
                                       <SelectItem value="custom">Use Custom Responses</SelectItem>
                                       {responseGroups.map(group => (
                                         <SelectItem key={group.id} value={group.id}>
@@ -440,7 +449,7 @@ const CreateAudit = () => {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="auditType">Audit Type</Label>
-                  <Select value={auditTypeId} onValueChange={setAuditTypeId}>
+                  <Select value={auditTypeId || "none"} onValueChange={(val) => setAuditTypeId(val === "none" ? "" : val)}>
                     <SelectTrigger data-testid="audit-type-select">
                       <SelectValue placeholder="Select type (optional)" />
                     </SelectTrigger>
@@ -453,7 +462,7 @@ const CreateAudit = () => {
                           className="mb-2"
                         />
                       </div>
-                      <SelectItem value="">No Type</SelectItem>
+                      <SelectItem value="none">No Type</SelectItem>
                       {filteredAuditTypes.map(type => (
                         <SelectItem key={type.id} value={type.id}>
                           {type.name}
