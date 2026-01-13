@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
 import Groups from "./pages/Groups";
 import CreateAudit from "./pages/CreateAudit";
+import Schedule from "./pages/Schedule";
 import RunAudit from "./pages/RunAudit";
 import Reports from "./pages/Reports";
 
