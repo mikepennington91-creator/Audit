@@ -97,6 +97,29 @@ const Reports = () => {
     setRunDetails(null);
   };
 
+  const downloadPdf = async (runId, auditName) => {
+    setDownloadingPdf(runId);
+    try {
+      const response = await axios.get(`${API}/run-audits/${runId}/pdf`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `audit_report_${auditName.replace(/\s+/g, '_')}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('PDF downloaded');
+    } catch (error) {
+      toast.error('Failed to download PDF');
+    } finally {
+      setDownloadingPdf(null);
+    }
+  };
+
   const formatUKDateTime = (isoString) => {
     if (!isoString) return '-';
     const date = new Date(isoString);
