@@ -10,9 +10,13 @@ from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import bcrypt
 import jwt
 import base64
+
+# UK Timezone
+UK_TZ = ZoneInfo("Europe/London")
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -36,7 +40,30 @@ security = HTTPBearer()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Helper function to get current UK time
+def get_uk_time() -> datetime:
+    return datetime.now(UK_TZ)
+
+def get_uk_time_iso() -> str:
+    return get_uk_time().isoformat()
+
 # ==================== MODELS ====================
+
+# Company Models
+class CompanyCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+class CompanyResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    name: str
+    description: Optional[str]
+    created_at: str
+
+class CompanyUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 # User Models
 class UserRole:
@@ -49,6 +76,7 @@ class UserCreate(BaseModel):
     password: str
     name: str
     role: str = UserRole.USER
+    company_id: Optional[str] = None
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -60,18 +88,22 @@ class UserResponse(BaseModel):
     email: str
     name: str
     role: str
+    company_id: Optional[str] = None
+    company_name: Optional[str] = None
     created_at: str
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None
     password: Optional[str] = None
+    company_id: Optional[str] = None
 
 # Response Group Models
 class ResponseOption(BaseModel):
     label: str
     value: str
     score: Optional[float] = None
+    is_negative: bool = False  # True for Fail, No, Reject etc.
 
 class ResponseGroupCreate(BaseModel):
     name: str
@@ -85,6 +117,7 @@ class ResponseGroupResponse(BaseModel):
     options: List[ResponseOption]
     enable_scoring: bool
     created_by: str
+    company_id: Optional[str] = None
     created_at: str
 
 # Audit Type Models
@@ -98,6 +131,7 @@ class AuditTypeResponse(BaseModel):
     name: str
     description: Optional[str]
     created_by: str
+    company_id: Optional[str] = None
     created_at: str
 
 # Question Models
@@ -140,6 +174,7 @@ class AuditResponse(BaseModel):
     questions: List[Dict]
     created_by: str
     created_by_name: Optional[str]
+    company_id: Optional[str] = None
     created_at: str
     updated_at: str
 
@@ -159,6 +194,7 @@ class AnswerSubmit(BaseModel):
     score: Optional[float] = None
     notes: Optional[str] = None
     photos: Optional[List[str]] = []
+    is_negative: bool = False  # True if this is a fail/negative response
 
 class RunAuditCreate(BaseModel):
     audit_id: str
@@ -239,7 +275,8 @@ async def register(user_data: UserCreate):
         "password": hash_password(user_data.password),
         "name": user_data.name,
         "role": user_data.role,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "company_id": user_data.company_id,
+        "created_at": get_uk_time_iso()
     }
     await db.users.insert_one(user_doc)
     
@@ -250,7 +287,8 @@ async def register(user_data: UserCreate):
             "id": user_id,
             "email": user_data.email,
             "name": user_data.name,
-            "role": user_data.role
+            "role": user_data.role,
+            "company_id": user_data.company_id
         }
     }
 
@@ -267,12 +305,18 @@ async def login(credentials: UserLogin):
             "id": user["id"],
             "email": user["email"],
             "name": user["name"],
-            "role": user["role"]
+            "role": user["role"],
+            "company_id": user.get("company_id")
         }
     }
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(user: dict = Depends(get_current_user)):
+    # Get company name if assigned
+    if user.get("company_id"):
+        company = await db.companies.find_one({"id": user["company_id"]}, {"_id": 0})
+        if company:
+            user["company_name"] = company["name"]
     return UserResponse(**user)
 
 # ==================== USER MANAGEMENT (ADMIN) ====================
