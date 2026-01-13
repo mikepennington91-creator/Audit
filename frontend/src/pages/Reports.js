@@ -35,18 +35,49 @@ const Reports = () => {
 
   const fetchData = async () => {
     try {
-      const [runsRes, statsRes] = await Promise.all([
+      const requests = [
         axios.get(`${API}/run-audits?completed=true`),
         axios.get(`${API}/dashboard/stats`)
-      ]);
-      setRuns(runsRes.data);
-      setStats(statsRes.data);
+      ];
+      
+      if (isAdmin()) {
+        requests.push(axios.get(`${API}/companies`));
+      }
+      
+      const responses = await Promise.all(requests);
+      setRuns(responses[0].data);
+      setStats(responses[1].data);
+      
+      if (isAdmin() && responses[2]) {
+        setCompanies(responses[2].data);
+      }
     } catch (error) {
       console.error('Failed to fetch reports:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  const fetchCompanyDashboard = async (companyId) => {
+    if (!companyId || companyId === 'all') {
+      setCompanyDashboard(null);
+      return;
+    }
+    try {
+      const response = await axios.get(`${API}/companies/${companyId}/dashboard`);
+      setCompanyDashboard(response.data);
+    } catch (error) {
+      console.error('Failed to fetch company dashboard:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedCompany && selectedCompany !== 'all') {
+      fetchCompanyDashboard(selectedCompany);
+    } else {
+      setCompanyDashboard(null);
+    }
+  }, [selectedCompany]);
 
   const openDetails = async (run) => {
     setSelectedRun(run);
