@@ -378,12 +378,28 @@ const Reports = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between pr-8">
               <span>{selectedRun?.audit_name}</span>
-              {selectedRun?.pass_status && (
-                <Badge className={selectedRun.pass_status === 'pass' ? 'badge-pass' : 'badge-fail'}>
-                  {selectedRun.pass_status === 'pass' ? 'Passed' : 'Failed'}
-                  {selectedRun.total_score !== null && ` - ${Math.round(selectedRun.total_score)}%`}
-                </Badge>
-              )}
+              <div className="flex items-center gap-2">
+                {selectedRun?.pass_status && (
+                  <Badge className={selectedRun.pass_status === 'pass' ? 'badge-pass' : 'badge-fail'}>
+                    {selectedRun.pass_status === 'pass' ? 'Passed' : 'Failed'}
+                    {selectedRun.total_score !== null && ` - ${Math.round(selectedRun.total_score)}%`}
+                  </Badge>
+                )}
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => downloadPdf(selectedRun?.id, selectedRun?.audit_name)}
+                  disabled={downloadingPdf === selectedRun?.id}
+                  data-testid="modal-download-pdf"
+                >
+                  {downloadingPdf === selectedRun?.id ? (
+                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  PDF
+                </Button>
+              </div>
             </DialogTitle>
           </DialogHeader>
 
