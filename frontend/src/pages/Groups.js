@@ -27,7 +27,7 @@ const Groups = () => {
   const [responseDialogOpen, setResponseDialogOpen] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [enableScoring, setEnableScoring] = useState(false);
-  const [options, setOptions] = useState([{ label: '', value: '', score: null }]);
+  const [options, setOptions] = useState([{ label: '', value: '', score: null, is_negative: false }]);
   
   // Audit Type Dialog
   const [typeDialogOpen, setTypeDialogOpen] = useState(false);
