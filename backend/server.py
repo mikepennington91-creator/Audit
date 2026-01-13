@@ -319,11 +319,68 @@ async def get_me(user: dict = Depends(get_current_user)):
             user["company_name"] = company["name"]
     return UserResponse(**user)
 
+# ==================== COMPANY MANAGEMENT (ADMIN) ====================
+
+@api_router.post("/companies", response_model=CompanyResponse)
+async def create_company(company_data: CompanyCreate, user: dict = Depends(require_role([UserRole.ADMIN]))):
+    company_id = str(uuid.uuid4())
+    company_doc = {
+        "id": company_id,
+        "name": company_data.name,
+        "description": company_data.description,
+        "created_at": get_uk_time_iso()
+    }
+    await db.companies.insert_one(company_doc)
+    return CompanyResponse(**company_doc)
+
+@api_router.get("/companies", response_model=List[CompanyResponse])
+async def get_companies(user: dict = Depends(get_current_user)):
+    companies = await db.companies.find({}, {"_id": 0}).to_list(1000)
+    return [CompanyResponse(**c) for c in companies]
+
+@api_router.get("/companies/{company_id}", response_model=CompanyResponse)
+async def get_company(company_id: str, user: dict = Depends(get_current_user)):
+    company = await db.companies.find_one({"id": company_id}, {"_id": 0})
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return CompanyResponse(**company)
+
+@api_router.put("/companies/{company_id}", response_model=CompanyResponse)
+async def update_company(company_id: str, update_data: CompanyUpdate, user: dict = Depends(require_role([UserRole.ADMIN]))):
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    result = await db.companies.update_one({"id": company_id}, {"$set": update_dict})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    updated = await db.companies.find_one({"id": company_id}, {"_id": 0})
+    return CompanyResponse(**updated)
+
+@api_router.delete("/companies/{company_id}")
+async def delete_company(company_id: str, user: dict = Depends(require_role([UserRole.ADMIN]))):
+    # Check if any users are assigned to this company
+    user_count = await db.users.count_documents({"company_id": company_id})
+    if user_count > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete company with {user_count} assigned users")
+    
+    result = await db.companies.delete_one({"id": company_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return {"message": "Company deleted successfully"}
+
 # ==================== USER MANAGEMENT (ADMIN) ====================
 
 @api_router.get("/users", response_model=List[UserResponse])
 async def get_users(user: dict = Depends(require_role([UserRole.ADMIN]))):
     users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(1000)
+    # Add company names
+    for u in users:
+        if u.get("company_id"):
+            company = await db.companies.find_one({"id": u["company_id"]}, {"_id": 0})
+            if company:
+                u["company_name"] = company["name"]
     return [UserResponse(**u) for u in users]
 
 @api_router.put("/users/{user_id}", response_model=UserResponse)
@@ -331,6 +388,10 @@ async def update_user(user_id: str, update_data: UserUpdate, user: dict = Depend
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     if "password" in update_dict:
         update_dict["password"] = hash_password(update_dict["password"])
+    
+    # Handle company_id being set to empty string (unassign)
+    if update_data.company_id == "":
+        update_dict["company_id"] = None
     
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -340,6 +401,10 @@ async def update_user(user_id: str, update_data: UserUpdate, user: dict = Depend
         raise HTTPException(status_code=404, detail="User not found")
     
     updated_user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
+    if updated_user.get("company_id"):
+        company = await db.companies.find_one({"id": updated_user["company_id"]}, {"_id": 0})
+        if company:
+            updated_user["company_name"] = company["name"]
     return UserResponse(**updated_user)
 
 @api_router.delete("/users/{user_id}")
@@ -365,14 +430,31 @@ async def create_response_group(
         "options": [opt.model_dump() for opt in group_data.options],
         "enable_scoring": group_data.enable_scoring,
         "created_by": user["id"],
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "company_id": user.get("company_id"),  # Associate with user's company
+        "created_at": get_uk_time_iso()
     }
     await db.response_groups.insert_one(group_doc)
     return ResponseGroupResponse(**group_doc)
 
 @api_router.get("/response-groups", response_model=List[ResponseGroupResponse])
 async def get_response_groups(user: dict = Depends(get_current_user)):
-    groups = await db.response_groups.find({}, {"_id": 0}).to_list(1000)
+    # Admin sees all, others see only their company's groups
+    if user["role"] == UserRole.ADMIN:
+        groups = await db.response_groups.find({}, {"_id": 0}).to_list(1000)
+    else:
+        # Show groups from same company or groups with no company (system defaults)
+        query = {"$or": [
+            {"company_id": user.get("company_id")},
+            {"company_id": None}
+        ]}
+        if user.get("company_id"):
+            query = {"$or": [
+                {"company_id": user.get("company_id")},
+                {"company_id": None}
+            ]}
+        else:
+            query = {"company_id": None}
+        groups = await db.response_groups.find(query, {"_id": 0}).to_list(1000)
     return [ResponseGroupResponse(**g) for g in groups]
 
 @api_router.get("/response-groups/{group_id}", response_model=ResponseGroupResponse)
@@ -405,14 +487,30 @@ async def create_audit_type(
         "name": type_data.name,
         "description": type_data.description,
         "created_by": user["id"],
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "company_id": user.get("company_id"),  # Associate with user's company
+        "created_at": get_uk_time_iso()
     }
     await db.audit_types.insert_one(type_doc)
     return AuditTypeResponse(**type_doc)
 
 @api_router.get("/audit-types", response_model=List[AuditTypeResponse])
 async def get_audit_types(user: dict = Depends(get_current_user)):
-    types = await db.audit_types.find({}, {"_id": 0}).to_list(1000)
+    # Admin sees all, others see only their company's types
+    if user["role"] == UserRole.ADMIN:
+        types = await db.audit_types.find({}, {"_id": 0}).to_list(1000)
+    else:
+        query = {"$or": [
+            {"company_id": user.get("company_id")},
+            {"company_id": None}
+        ]}
+        if user.get("company_id"):
+            query = {"$or": [
+                {"company_id": user.get("company_id")},
+                {"company_id": None}
+            ]}
+        else:
+            query = {"company_id": None}
+        types = await db.audit_types.find(query, {"_id": 0}).to_list(1000)
     return [AuditTypeResponse(**t) for t in types]
 
 @api_router.delete("/audit-types/{type_id}")
@@ -433,7 +531,7 @@ async def create_audit(
     user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     audit_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = get_uk_time_iso()
     
     # Process questions
     questions = []
@@ -467,6 +565,7 @@ async def create_audit(
         "questions": questions,
         "created_by": user["id"],
         "created_by_name": user["name"],
+        "company_id": user.get("company_id"),  # Associate with user's company
         "created_at": now,
         "updated_at": now
     }
@@ -475,10 +574,24 @@ async def create_audit(
 
 @api_router.get("/audits", response_model=List[AuditResponse])
 async def get_audits(user: dict = Depends(get_current_user)):
-    query = {}
-    # Non-admin users can only see public audits or their own
-    if user["role"] == UserRole.USER:
-        query = {"$or": [{"is_private": False}, {"created_by": user["id"]}]}
+    # Admin sees all audits
+    if user["role"] == UserRole.ADMIN:
+        query = {}
+    else:
+        # Users see audits from their company (public ones) or their own private ones
+        company_id = user.get("company_id")
+        if company_id:
+            query = {"$or": [
+                {"company_id": company_id, "is_private": False},
+                {"created_by": user["id"]},
+                {"company_id": None, "is_private": False}
+            ]}
+        else:
+            query = {"$or": [
+                {"is_private": False, "company_id": None},
+                {"created_by": user["id"]}
+            ]}
+    
     audits = await db.audits.find(query, {"_id": 0}).to_list(1000)
     return [AuditResponse(**a) for a in audits]
 
@@ -525,7 +638,7 @@ async def update_audit(
             questions.append(question_doc)
         update_dict["questions"] = questions
     
-    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+    update_dict["updated_at"] = get_uk_time_iso()
     
     result = await db.audits.update_one({"id": audit_id}, {"$set": update_dict})
     if result.matched_count == 0:
@@ -559,13 +672,14 @@ async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(get_cur
         "audit_name": audit["name"],
         "auditor_id": user["id"],
         "auditor_name": user["name"],
+        "company_id": user.get("company_id"),
         "location": run_data.location,
         "answers": [],
         "notes": None,
         "completed": False,
         "total_score": None,
         "pass_status": None,
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": get_uk_time_iso(),
         "completed_at": None
     }
     await db.run_audits.insert_one(run_doc)
@@ -579,10 +693,18 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
     if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
         raise HTTPException(status_code=403, detail="Access denied")
     
+    # Validate that negative responses have comments
+    answers = [a.model_dump() for a in submit_data.answers]
+    for answer in answers:
+        if answer.get("is_negative") and not answer.get("notes"):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Comment required for negative/fail response on question"
+            )
+    
     # Calculate score if scoring enabled
     total_score = None
     pass_status = None
-    answers = [a.model_dump() for a in submit_data.answers]
     
     if submit_data.completed:
         scores = [a["score"] for a in answers if a.get("score") is not None]
@@ -600,7 +722,7 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
         "pass_status": pass_status
     }
     if submit_data.completed:
-        update_dict["completed_at"] = datetime.now(timezone.utc).isoformat()
+        update_dict["completed_at"] = get_uk_time_iso()
     
     await db.run_audits.update_one({"id": run_id}, {"$set": update_dict})
     updated = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
@@ -648,7 +770,7 @@ async def upload_photo(file: UploadFile = File(...), user: dict = Depends(get_cu
         "content_type": content_type,
         "data": f"data:{content_type};base64,{base64_content}",
         "uploaded_by": user["id"],
-        "uploaded_at": datetime.now(timezone.utc).isoformat()
+        "uploaded_at": get_uk_time_iso()
     }
     await db.photos.insert_one(photo_doc)
     
@@ -721,7 +843,8 @@ async def startup_event():
             "password": hash_password("admin123"),
             "name": "System Admin",
             "role": UserRole.ADMIN,
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "company_id": None,
+            "created_at": get_uk_time_iso()
         }
         await db.users.insert_one(admin_doc)
         logger.info("Default admin created: admin@infinit-audit.co.uk / admin123")
