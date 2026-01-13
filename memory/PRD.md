@@ -194,3 +194,57 @@ Build an auditing system called Infinit-Audit for the food industry. Users can c
 - Audit Types: Added `company_id`
 - Audits: Added `company_id`
 - Run Audit Answers: Added `is_negative` flag
+
+---
+
+## Update: January 13, 2026 - Feature Expansion
+
+### New Features Implemented
+
+1. **PDF Export for Audit Reports**
+   - Generate branded PDF reports with ReportLab library
+   - Includes audit metadata, questions, responses, scores
+   - Color-coded pass/fail indicators
+   - Company branding with Infinit-Audit footer
+   - Download via button in Reports table and detail modal
+
+2. **Bulk User Import via CSV**
+   - Download CSV template with example rows
+   - Upload CSV to bulk create users
+   - Columns: email, name, role, company_id, password
+   - Validation with error reporting
+   - Skip duplicate emails
+
+3. **Audit Scheduling**
+   - Schedule audits for specific dates
+   - Assign to specific users
+   - Set location and notes
+   - Configurable reminder days (0, 1, 2, 3, 7 days)
+   - Track status: pending, overdue, completed
+   - Dashboard shows pending/overdue counts
+
+4. **Company Compliance Dashboard**
+   - Select company from dropdown
+   - Shows key metrics: users, completed, pass rate, scheduled
+   - 6-month trend chart with pass rates
+   - Recent activity list
+
+### API Endpoints Added
+- `GET /api/run-audits/{id}/pdf` - Generate PDF report
+- `POST /api/users/bulk-import` - Bulk import from CSV
+- `GET /api/users/export-template` - Download CSV template
+- `GET/POST/DELETE /api/scheduled-audits` - Scheduling CRUD
+- `GET /api/scheduled-audits/my-schedule` - User's scheduled audits
+- `PUT /api/scheduled-audits/{id}/complete` - Mark as completed
+- `GET /api/companies/{id}/dashboard` - Company analytics
+
+### Libraries Added
+- Backend: reportlab (PDF generation)
+- Frontend: date-fns (date formatting for calendar)
+
+### Next Phase Features
+- Email notifications for scheduled audit reminders
+- Multi-location audit templates
+- Audit template versioning
+- Historical trend comparisons
+- Mobile app (React Native)
