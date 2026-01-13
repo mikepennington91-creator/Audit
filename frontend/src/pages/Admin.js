@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -13,16 +13,18 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Users, Shield, UserCircle, Building2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, Shield, UserCircle, Building2, Upload, Download, FileSpreadsheet } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const Admin = () => {
   const { user: currentUser } = useAuth();
+  const fileInputRef = useRef(null);
   const [users, setUsers] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('users');
+  const [importing, setImporting] = useState(false);
   
   // User Dialog
   const [userDialogOpen, setUserDialogOpen] = useState(false);
