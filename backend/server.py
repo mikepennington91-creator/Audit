@@ -751,6 +751,42 @@ async def get_run_audit(run_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Access denied")
     return RunAuditResponse(**run_audit)
 
+@api_router.get("/run-audits/{run_id}/details")
+async def get_run_audit_details(run_id: str, user: dict = Depends(get_current_user)):
+    """Get detailed run audit with full question text and answers"""
+    run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
+    if not run_audit:
+        raise HTTPException(status_code=404, detail="Run audit not found")
+    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get the audit template to get question texts
+    audit = await db.audits.find_one({"id": run_audit["audit_id"]}, {"_id": 0})
+    if not audit:
+        raise HTTPException(status_code=404, detail="Audit template not found")
+    
+    # Create a map of question id to question details
+    question_map = {q["id"]: q for q in audit.get("questions", [])}
+    
+    # Enrich answers with question text
+    enriched_answers = []
+    for answer in run_audit.get("answers", []):
+        question = question_map.get(answer.get("question_id"), {})
+        enriched_answer = {
+            **answer,
+            "question_text": question.get("text", "Question not found"),
+            "question_required": question.get("required", True)
+        }
+        enriched_answers.append(enriched_answer)
+    
+    return {
+        **run_audit,
+        "audit_description": audit.get("description"),
+        "audit_pass_rate": audit.get("pass_rate"),
+        "questions": audit.get("questions", []),
+        "enriched_answers": enriched_answers
+    }
+
 # ==================== PHOTO UPLOAD ====================
 
 @api_router.post("/upload-photo")
