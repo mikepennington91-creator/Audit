@@ -235,6 +235,24 @@ const RunAudit = () => {
       setCurrentQuestionIndex(firstUnanswered);
       return;
     }
+
+    // Check for negative responses without comments
+    const negativeWithoutComments = Object.values(answers).filter(
+      a => a.is_negative && !a.notes?.trim()
+    );
+    
+    if (negativeWithoutComments.length > 0) {
+      toast.error(`Comments are required for all fail/negative responses. ${negativeWithoutComments.length} missing.`);
+      // Find and navigate to the first negative response without comment
+      const firstNegativeIdx = currentAudit.questions.findIndex(q => {
+        const answer = answers[q.id];
+        return answer?.is_negative && !answer?.notes?.trim();
+      });
+      if (firstNegativeIdx !== -1) {
+        setCurrentQuestionIndex(firstNegativeIdx);
+      }
+      return;
+    }
     
     setSubmitting(true);
     try {
@@ -246,7 +264,7 @@ const RunAudit = () => {
       toast.success('Audit submitted successfully!');
       navigate('/reports');
     } catch (error) {
-      toast.error('Failed to submit audit');
+      toast.error(error.response?.data?.detail || 'Failed to submit audit');
     } finally {
       setSubmitting(false);
     }
