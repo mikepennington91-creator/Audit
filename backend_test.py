@@ -759,6 +759,7 @@ test_bulk2@example.com,Test Bulk User 2,audit_creator,,SecurePass456!"""
             self.test_run_audits()
             self.test_dashboard_stats()
             self.test_photo_upload()
+            self.test_new_features()
             
             # Cleanup
             self.cleanup_resources()
