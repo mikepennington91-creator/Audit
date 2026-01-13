@@ -262,15 +262,47 @@ const Admin = () => {
         {/* Users Tab */}
         <TabsContent value="users" className="mt-6">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
               <CardTitle className="text-lg">All Users ({users.length})</CardTitle>
-              <Dialog open={userDialogOpen} onOpenChange={(open) => { setUserDialogOpen(open); if (!open) resetUserForm(); }}>
-                <DialogTrigger asChild>
-                  <Button data-testid="add-user-btn">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add User
-                  </Button>
-                </DialogTrigger>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Bulk Import */}
+                <input
+                  type="file"
+                  accept=".csv"
+                  ref={fileInputRef}
+                  onChange={handleBulkImport}
+                  className="hidden"
+                />
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={downloadTemplate}
+                  data-testid="download-template-btn"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Template
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={importing}
+                  data-testid="bulk-import-btn"
+                >
+                  {importing ? (
+                    <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                  ) : (
+                    <Upload className="w-4 h-4 mr-2" />
+                  )}
+                  Import CSV
+                </Button>
+                <Dialog open={userDialogOpen} onOpenChange={(open) => { setUserDialogOpen(open); if (!open) resetUserForm(); }}>
+                  <DialogTrigger asChild>
+                    <Button data-testid="add-user-btn">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add User
+                    </Button>
+                  </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
