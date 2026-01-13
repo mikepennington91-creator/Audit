@@ -15,7 +15,8 @@ import {
   LogOut, 
   Sun, 
   Moon,
-  ChevronRight
+  ChevronRight,
+  Calendar
 } from 'lucide-react';
 
 const LOGO_URL = "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png";
