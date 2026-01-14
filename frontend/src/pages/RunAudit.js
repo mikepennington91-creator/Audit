@@ -9,7 +9,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
 import { Skeleton } from '../components/ui/skeleton';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import { useOffline } from '../context/OfflineContext';
 import { saveOfflineAudit, getCachedData, cacheData } from '../utils/offlineDB';
@@ -19,15 +19,17 @@ import {
   ArrowRight,
   Camera,
   X,
-  Check,
   AlertCircle,
   ClipboardCheck,
   MapPin,
   Clock,
   Save,
   Send,
-  Image as ImageIcon,
-  WifiOff
+  WifiOff,
+  Layers,
+  Type,
+  Hash,
+  TextCursorInput
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -40,6 +42,7 @@ const RunAudit = () => {
   
   const [audits, setAudits] = useState([]);
   const [responseGroups, setResponseGroups] = useState([]);
+  const [linesShifts, setLinesShifts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
@@ -50,6 +53,7 @@ const RunAudit = () => {
   const [answers, setAnswers] = useState({});
   const [notes, setNotes] = useState('');
   const [location, setLocation] = useState('');
+  const [selectedLineShift, setSelectedLineShift] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [currentPhotoQuestion, setCurrentPhotoQuestion] = useState(null);
 
