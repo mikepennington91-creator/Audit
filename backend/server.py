@@ -853,6 +853,13 @@ async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(get_cur
     if not audit:
         raise HTTPException(status_code=404, detail="Audit not found")
     
+    # Get line/shift info if provided
+    line_shift_title = None
+    if run_data.line_shift_id:
+        line_shift = await db.lines_shifts.find_one({"id": run_data.line_shift_id}, {"_id": 0})
+        if line_shift:
+            line_shift_title = line_shift["title"]
+    
     run_id = str(uuid.uuid4())
     run_doc = {
         "id": run_id,
@@ -862,6 +869,8 @@ async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(get_cur
         "auditor_name": user["name"],
         "company_id": user.get("company_id"),
         "location": run_data.location,
+        "line_shift_id": run_data.line_shift_id,
+        "line_shift_title": line_shift_title,
         "answers": [],
         "notes": None,
         "completed": False,
