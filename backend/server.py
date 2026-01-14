@@ -291,10 +291,27 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 def require_role(allowed_roles: List[str]):
     async def role_checker(user: dict = Depends(get_current_user)):
-        if user["role"] not in allowed_roles:
+        user_role = user["role"]
+        # System admin has access to everything
+        if user_role == UserRole.SYSTEM_ADMIN:
+            return user
+        # Map legacy 'admin' to company_admin for permission checks
+        if user_role == UserRole.ADMIN:
+            user_role = UserRole.COMPANY_ADMIN
+        if user_role not in allowed_roles and UserRole.SYSTEM_ADMIN not in allowed_roles:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
-        return user
+        if user_role in allowed_roles:
+            return user
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
     return role_checker
+
+def is_system_admin(user: dict) -> bool:
+    """Check if user is a system admin"""
+    return user.get("role") == UserRole.SYSTEM_ADMIN
+
+def is_admin(user: dict) -> bool:
+    """Check if user is any type of admin"""
+    return user.get("role") in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]
 
 # ==================== AUTH ENDPOINTS ====================
 
