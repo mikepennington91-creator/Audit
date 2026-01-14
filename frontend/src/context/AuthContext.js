@@ -58,8 +58,9 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  const isAdmin = () => user?.role === 'admin';
-  const isAuditCreator = () => user?.role === 'audit_creator' || user?.role === 'admin';
+  const isSystemAdmin = () => user?.role === 'system_admin';
+  const isAdmin = () => ['system_admin', 'company_admin', 'admin'].includes(user?.role);
+  const isAuditCreator = () => ['system_admin', 'company_admin', 'admin', 'audit_creator'].includes(user?.role);
   const canRunAudits = () => !!user;
   const canViewReports = () => !!user;
 
@@ -71,6 +72,7 @@ export const AuthProvider = ({ children }) => {
       login,
       register,
       logout,
+      isSystemAdmin,
       isAdmin,
       isAuditCreator,
       canRunAudits,
