@@ -1,0 +1,40 @@
+# Render deployment configuration
+# This file defines both frontend and backend services for Render
+
+services:
+  # Backend API Service
+  - type: web
+    name: infinit-audit-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    rootDir: backend
+    envVars:
+      - key: MONGO_URL
+        sync: false  # Set this manually in Render dashboard
+      - key: DB_NAME
+        value: infinit_audit
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
+  # Frontend Static Site
+  - type: web
+    name: infinit-audit-web
+    env: static
+    plan: free
+    buildCommand: yarn install && yarn build
+    staticPublishPath: ./build
+    rootDir: frontend
+    envVars:
+      - key: REACT_APP_BACKEND_URL
+        fromService:
+          name: infinit-audit-api
+          type: web
+          property: hostport
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
