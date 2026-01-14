@@ -795,7 +795,7 @@ async def get_audit(audit_id: str, user: dict = Depends(get_current_user)):
 async def update_audit(
     audit_id: str,
     update_data: AuditUpdate,
-    user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     update_dict = {}
     if update_data.name is not None:
@@ -816,6 +816,7 @@ async def update_audit(
             question_doc = {
                 "id": str(uuid.uuid4()),
                 "text": q.text,
+                "question_type": q.question_type,  # New field
                 "response_group_id": q.response_group_id,
                 "custom_responses": [r.model_dump() for r in q.custom_responses] if q.custom_responses else None,
                 "enable_scoring": q.enable_scoring,
@@ -837,7 +838,7 @@ async def update_audit(
 @api_router.delete("/audits/{audit_id}")
 async def delete_audit(
     audit_id: str,
-    user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     result = await db.audits.delete_one({"id": audit_id})
     if result.deleted_count == 0:
