@@ -707,15 +707,6 @@ const RunAudit = () => {
                 </p>
               </div>
             )}
-                  data-testid={`option-${option.value}`}
-                >
-                  <span className="font-medium">{option.label}</span>
-                  {option.score !== null && (
-                    <span className="text-xs opacity-70">Score: {option.score}</span>
-                  )}
-                </Button>
-              ))}
-            </div>
 
             {/* Photo Upload */}
             <div className="space-y-2">
