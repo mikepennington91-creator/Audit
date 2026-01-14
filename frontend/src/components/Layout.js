@@ -57,7 +57,7 @@ const Layout = ({ children }) => {
           >
             <Menu className="w-6 h-6" />
           </button>
-          <img src={LOGO_URL} alt="Infinit-Audit" className="h-8" />
+          <img src={LOGO_URL} alt="Infinit-Audit" className="h-12" />
           <button 
             onClick={toggleTheme}
             className="p-2 hover:bg-muted rounded-lg transition-colors"
@@ -86,7 +86,7 @@ const Layout = ({ children }) => {
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="h-16 flex items-center justify-between px-4 border-b">
-            <img src={LOGO_URL} alt="Infinit-Audit" className="h-9" />
+          <img src={LOGO_URL} alt="Infinit-Audit" className="h-14" />
             <button 
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden p-2 hover:bg-muted rounded-lg transition-colors"

@@ -83,7 +83,7 @@ const Login = () => {
       <Card className="relative w-full max-w-md glass border-white/20 animate-fadeIn">
         <CardHeader className="text-center space-y-4">
           <div className="flex justify-center">
-            <img src={LOGO_URL} alt="Infinit-Audit" className="h-16" />
+            <img src={LOGO_URL} alt="Infinit-Audit" className="h-24" />
           </div>
           <div>
             <CardTitle className="text-2xl text-white">Welcome</CardTitle>
