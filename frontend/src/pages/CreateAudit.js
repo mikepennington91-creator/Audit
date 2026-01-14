@@ -326,36 +326,22 @@ const CreateAudit = () => {
                                 />
                               </div>
 
+                              {/* Question Type Selector */}
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                  <Label>Response Set</Label>
+                                  <Label>Question Type</Label>
                                   <Select
-                                    value={question.response_group_id || (question.useCustomResponses ? 'custom' : 'select')}
-                                    onValueChange={(value) => {
-                                      if (value === 'custom') {
-                                        updateQuestion(qIndex, 'response_group_id', '');
-                                        updateQuestion(qIndex, 'useCustomResponses', true);
-                                      } else if (value === 'select') {
-                                        updateQuestion(qIndex, 'response_group_id', '');
-                                        updateQuestion(qIndex, 'useCustomResponses', false);
-                                      } else {
-                                        updateQuestion(qIndex, 'response_group_id', value);
-                                        updateQuestion(qIndex, 'useCustomResponses', false);
-                                      }
-                                    }}
+                                    value={question.question_type || 'response_group'}
+                                    onValueChange={(value) => updateQuestion(qIndex, 'question_type', value)}
                                   >
-                                    <SelectTrigger data-testid={`question-response-group-${qIndex}`}>
-                                      <SelectValue placeholder="Select or create custom" />
+                                    <SelectTrigger data-testid={`question-type-${qIndex}`}>
+                                      <SelectValue placeholder="Select question type" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="select">Select a response set...</SelectItem>
-                                      <SelectItem value="custom">Use Custom Responses</SelectItem>
-                                      {responseGroups.map(group => (
-                                        <SelectItem key={group.id} value={group.id}>
-                                          {group.name}
-                                          {group.enable_scoring && ' (Scored)'}
-                                        </SelectItem>
-                                      ))}
+                                      <SelectItem value="response_group">Response Options</SelectItem>
+                                      <SelectItem value="text">Text Input (Free text)</SelectItem>
+                                      <SelectItem value="number">Number Input (Numeric only)</SelectItem>
+                                      <SelectItem value="alphanumeric">Alphanumeric Input (Letters & Numbers)</SelectItem>
                                     </SelectContent>
                                   </Select>
                                 </div>
@@ -369,7 +355,45 @@ const CreateAudit = () => {
                                     />
                                     <Label htmlFor={`required-${qIndex}`} className="text-sm">Required</Label>
                                   </div>
-                                  
+                                </div>
+                              </div>
+
+                              {/* Response Set - Only show for response_group type */}
+                              {(question.question_type === 'response_group' || !question.question_type) && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label>Response Set</Label>
+                                    <Select
+                                      value={question.response_group_id || (question.useCustomResponses ? 'custom' : 'select')}
+                                      onValueChange={(value) => {
+                                        if (value === 'custom') {
+                                          updateQuestion(qIndex, 'response_group_id', '');
+                                          updateQuestion(qIndex, 'useCustomResponses', true);
+                                        } else if (value === 'select') {
+                                          updateQuestion(qIndex, 'response_group_id', '');
+                                          updateQuestion(qIndex, 'useCustomResponses', false);
+                                        } else {
+                                          updateQuestion(qIndex, 'response_group_id', value);
+                                          updateQuestion(qIndex, 'useCustomResponses', false);
+                                        }
+                                      }}
+                                    >
+                                      <SelectTrigger data-testid={`question-response-group-${qIndex}`}>
+                                        <SelectValue placeholder="Select or create custom" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="select">Select a response set...</SelectItem>
+                                        <SelectItem value="custom">Use Custom Responses</SelectItem>
+                                        {responseGroups.map(group => (
+                                          <SelectItem key={group.id} value={group.id}>
+                                            {group.name}
+                                            {group.enable_scoring && ' (Scored)'}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+
                                   {(question.useCustomResponses || !question.response_group_id) && (
                                     <div className="flex items-center gap-2">
                                       <Switch
@@ -377,14 +401,37 @@ const CreateAudit = () => {
                                         onCheckedChange={(checked) => updateQuestion(qIndex, 'enable_scoring', checked)}
                                         id={`scoring-${qIndex}`}
                                       />
-                                      <Label htmlFor={`scoring-${qIndex}`} className="text-sm">Scoring</Label>
+                                      <Label htmlFor={`scoring-${qIndex}`} className="text-sm">Enable Scoring</Label>
                                     </div>
                                   )}
                                 </div>
-                              </div>
+                              )}
 
-                              {/* Custom Responses */}
-                              {(question.useCustomResponses || !question.response_group_id) && (
+                              {/* Text/Number/Alphanumeric Hint */}
+                              {question.question_type === 'text' && (
+                                <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                                    Users will be able to enter free-form text for this question.
+                                  </p>
+                                </div>
+                              )}
+                              {question.question_type === 'number' && (
+                                <div className="p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                                  <p className="text-sm text-purple-700 dark:text-purple-300">
+                                    Users will only be able to enter numeric values (e.g., temperature, count).
+                                  </p>
+                                </div>
+                              )}
+                              {question.question_type === 'alphanumeric' && (
+                                <div className="p-3 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                                  <p className="text-sm text-amber-700 dark:text-amber-300">
+                                    Users will be able to enter letters and numbers (e.g., batch codes, serial numbers).
+                                  </p>
+                                </div>
+                              )}
+
+                              {/* Custom Responses - Only show for response_group type */}
+                              {(question.question_type === 'response_group' || !question.question_type) && (question.useCustomResponses || !question.response_group_id) && (
                                 <div className="space-y-2 p-3 bg-muted/50 rounded-lg">
                                   <div className="flex items-center justify-between">
                                     <Label className="text-sm">Custom Responses</Label>
