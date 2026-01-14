@@ -587,7 +587,7 @@ async def delete_response_group(
 @api_router.post("/audit-types", response_model=AuditTypeResponse)
 async def create_audit_type(
     type_data: AuditTypeCreate,
-    user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     type_id = str(uuid.uuid4())
     type_doc = {
@@ -603,8 +603,8 @@ async def create_audit_type(
 
 @api_router.get("/audit-types", response_model=List[AuditTypeResponse])
 async def get_audit_types(user: dict = Depends(get_current_user)):
-    # Admin sees all, others see only their company's types
-    if user["role"] == UserRole.ADMIN:
+    # System admin sees all, others see only their company's types
+    if is_system_admin(user):
         types = await db.audit_types.find({}, {"_id": 0}).to_list(1000)
     else:
         query = {"$or": [
@@ -624,12 +624,90 @@ async def get_audit_types(user: dict = Depends(get_current_user)):
 @api_router.delete("/audit-types/{type_id}")
 async def delete_audit_type(
     type_id: str,
-    user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     result = await db.audit_types.delete_one({"id": type_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Audit type not found")
     return {"message": "Audit type deleted successfully"}
+
+# ==================== LINES/SHIFTS ====================
+
+@api_router.post("/lines-shifts", response_model=LineShiftResponse)
+async def create_line_shift(
+    data: LineShiftCreate,
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]))
+):
+    """Create a new line/shift (Admin only)"""
+    line_id = str(uuid.uuid4())
+    line_doc = {
+        "id": line_id,
+        "title": data.title,
+        "company_id": user.get("company_id"),
+        "created_by": user["id"],
+        "created_at": get_uk_time_iso()
+    }
+    await db.lines_shifts.insert_one(line_doc)
+    return LineShiftResponse(**line_doc)
+
+@api_router.get("/lines-shifts", response_model=List[LineShiftResponse])
+async def get_lines_shifts(user: dict = Depends(get_current_user)):
+    """Get all lines/shifts for user's company"""
+    if is_system_admin(user):
+        lines = await db.lines_shifts.find({}, {"_id": 0}).to_list(1000)
+    else:
+        # Show lines from same company
+        query = {"company_id": user.get("company_id")} if user.get("company_id") else {"company_id": None}
+        lines = await db.lines_shifts.find(query, {"_id": 0}).to_list(1000)
+    return [LineShiftResponse(**l) for l in lines]
+
+@api_router.get("/lines-shifts/{line_id}", response_model=LineShiftResponse)
+async def get_line_shift(line_id: str, user: dict = Depends(get_current_user)):
+    line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
+    if not line:
+        raise HTTPException(status_code=404, detail="Line/Shift not found")
+    # Check access
+    if not is_system_admin(user) and line.get("company_id") != user.get("company_id"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return LineShiftResponse(**line)
+
+@api_router.put("/lines-shifts/{line_id}", response_model=LineShiftResponse)
+async def update_line_shift(
+    line_id: str,
+    data: LineShiftCreate,
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]))
+):
+    """Update a line/shift (Admin only)"""
+    line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
+    if not line:
+        raise HTTPException(status_code=404, detail="Line/Shift not found")
+    
+    # Company admin can only update their company's lines
+    if not is_system_admin(user) and line.get("company_id") != user.get("company_id"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    await db.lines_shifts.update_one({"id": line_id}, {"$set": {"title": data.title}})
+    updated = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
+    return LineShiftResponse(**updated)
+
+@api_router.delete("/lines-shifts/{line_id}")
+async def delete_line_shift(
+    line_id: str,
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]))
+):
+    """Delete a line/shift (Admin only)"""
+    line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
+    if not line:
+        raise HTTPException(status_code=404, detail="Line/Shift not found")
+    
+    # Company admin can only delete their company's lines
+    if not is_system_admin(user) and line.get("company_id") != user.get("company_id"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    result = await db.lines_shifts.delete_one({"id": line_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Line/Shift not found")
+    return {"message": "Line/Shift deleted successfully"}
 
 # ==================== AUDITS ====================
 
