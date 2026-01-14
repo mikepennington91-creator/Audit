@@ -1518,8 +1518,9 @@ async def startup_event():
     await db.run_audits.create_index("id", unique=True)
     await db.scheduled_audits.create_index("id", unique=True)
     await db.companies.create_index("id", unique=True)
+    await db.lines_shifts.create_index("id", unique=True)
     
-    # Create default admin if not exists
+    # Create default system admin if not exists
     admin = await db.users.find_one({"email": "admin@infinit-audit.co.uk"})
     if not admin:
         admin_doc = {
@@ -1527,12 +1528,20 @@ async def startup_event():
             "email": "admin@infinit-audit.co.uk",
             "password": hash_password("admin123"),
             "name": "System Admin",
-            "role": UserRole.ADMIN,
+            "role": UserRole.SYSTEM_ADMIN,
             "company_id": None,
             "created_at": get_uk_time_iso()
         }
         await db.users.insert_one(admin_doc)
-        logger.info("Default admin created: admin@infinit-audit.co.uk / admin123")
+        logger.info("Default system admin created: admin@infinit-audit.co.uk / admin123")
+    else:
+        # Upgrade existing admin to system_admin if they're the original default admin
+        if admin.get("role") == UserRole.ADMIN and admin.get("company_id") is None:
+            await db.users.update_one(
+                {"email": "admin@infinit-audit.co.uk"},
+                {"$set": {"role": UserRole.SYSTEM_ADMIN}}
+            )
+            logger.info("Upgraded default admin to system_admin")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
