@@ -433,11 +433,20 @@ async def delete_company(company_id: str, user: dict = Depends(require_role([Use
         raise HTTPException(status_code=404, detail="Company not found")
     return {"message": "Company deleted successfully"}
 
-# ==================== USER MANAGEMENT (ADMIN) ====================
+# ==================== USER MANAGEMENT ====================
 
 @api_router.get("/users", response_model=List[UserResponse])
-async def get_users(user: dict = Depends(require_role([UserRole.ADMIN]))):
-    users = await db.users.find({}, {"_id": 0, "password": 0}).to_list(1000)
+async def get_users(user: dict = Depends(get_current_user)):
+    # System admin sees all users
+    # Company admin sees only users in their company
+    if is_system_admin(user):
+        query = {}
+    elif is_admin(user) and user.get("company_id"):
+        query = {"company_id": user["company_id"]}
+    else:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    users = await db.users.find(query, {"_id": 0, "password": 0}).to_list(1000)
     # Add company names
     for u in users:
         if u.get("company_id"):
@@ -447,7 +456,26 @@ async def get_users(user: dict = Depends(require_role([UserRole.ADMIN]))):
     return [UserResponse(**u) for u in users]
 
 @api_router.put("/users/{user_id}", response_model=UserResponse)
-async def update_user(user_id: str, update_data: UserUpdate, user: dict = Depends(require_role([UserRole.ADMIN]))):
+async def update_user(user_id: str, update_data: UserUpdate, user: dict = Depends(get_current_user)):
+    # Check permissions
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    # Get target user
+    target_user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Company admin can only update users in their company
+    if not is_system_admin(user):
+        if target_user.get("company_id") != user.get("company_id"):
+            raise HTTPException(status_code=403, detail="Cannot modify users from other companies")
+        # Company admin cannot change company_id or create system admins
+        if update_data.company_id and update_data.company_id != user.get("company_id"):
+            raise HTTPException(status_code=403, detail="Cannot assign users to other companies")
+        if update_data.role == UserRole.SYSTEM_ADMIN:
+            raise HTTPException(status_code=403, detail="Cannot create system administrators")
+    
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     if "password" in update_dict:
         update_dict["password"] = hash_password(update_dict["password"])
@@ -471,9 +499,26 @@ async def update_user(user_id: str, update_data: UserUpdate, user: dict = Depend
     return UserResponse(**updated_user)
 
 @api_router.delete("/users/{user_id}")
-async def delete_user(user_id: str, user: dict = Depends(require_role([UserRole.ADMIN]))):
+async def delete_user(user_id: str, user: dict = Depends(get_current_user)):
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
     if user_id == user["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    
+    # Get target user
+    target_user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Company admin can only delete users in their company
+    if not is_system_admin(user):
+        if target_user.get("company_id") != user.get("company_id"):
+            raise HTTPException(status_code=403, detail="Cannot delete users from other companies")
+        # Cannot delete system admins
+        if target_user.get("role") == UserRole.SYSTEM_ADMIN:
+            raise HTTPException(status_code=403, detail="Cannot delete system administrators")
+    
     result = await db.users.delete_one({"id": user_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
