@@ -83,7 +83,7 @@ const Dashboard = () => {
             Welcome back, {user?.name?.split(' ')[0]}
           </h1>
           <p className="text-muted-foreground mt-1">
-            Here's an overview of your audit activity
+            Here&apos;s an overview of your audit activity
           </p>
         </div>
         <div className="flex gap-3">
