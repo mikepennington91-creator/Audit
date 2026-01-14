@@ -546,6 +546,7 @@ const RunAudit = () => {
   const currentQuestion = currentAudit?.questions[currentQuestionIndex];
   const options = currentQuestion ? getResponseOptions(currentQuestion) : [];
   const currentAnswer = currentQuestion ? answers[currentQuestion.id] : null;
+  const questionType = currentQuestion?.question_type || 'response_group';
 
   return (
     <div className="space-y-4" data-testid="active-audit">
@@ -557,7 +558,7 @@ const RunAudit = () => {
           </Button>
           <div>
             <h1 className="text-xl font-bold">{currentAudit?.name}</h1>
-            <p className="text-sm text-muted-foreground flex items-center gap-2">
+            <p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
               <Clock className="w-3 h-3" />
               Started {new Date(activeRun.started_at).toLocaleTimeString()}
               {activeRun.location && (
@@ -565,6 +566,13 @@ const RunAudit = () => {
                   <span>•</span>
                   <MapPin className="w-3 h-3" />
                   {activeRun.location}
+                </>
+              )}
+              {activeRun.line_shift_title && (
+                <>
+                  <span>•</span>
+                  <Layers className="w-3 h-3" />
+                  {activeRun.line_shift_title}
                 </>
               )}
             </p>
@@ -593,31 +601,112 @@ const RunAudit = () => {
           <CardHeader>
             <div className="flex items-start justify-between">
               <div>
-                <Badge variant={currentQuestion.required ? 'default' : 'secondary'} className="mb-2">
-                  {currentQuestion.required ? 'Required' : 'Optional'}
-                </Badge>
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge variant={currentQuestion.required ? 'default' : 'secondary'}>
+                    {currentQuestion.required ? 'Required' : 'Optional'}
+                  </Badge>
+                  {questionType === 'text' && (
+                    <Badge variant="outline" className="gap-1">
+                      <Type className="w-3 h-3" />
+                      Text
+                    </Badge>
+                  )}
+                  {questionType === 'number' && (
+                    <Badge variant="outline" className="gap-1">
+                      <Hash className="w-3 h-3" />
+                      Number
+                    </Badge>
+                  )}
+                  {questionType === 'alphanumeric' && (
+                    <Badge variant="outline" className="gap-1">
+                      <TextCursorInput className="w-3 h-3" />
+                      Alphanumeric
+                    </Badge>
+                  )}
+                </div>
                 <CardTitle className="text-xl">{currentQuestion.text}</CardTitle>
               </div>
               <span className="text-sm text-muted-foreground">#{currentQuestionIndex + 1}</span>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Response Options */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {options.map((option, i) => (
-                <Button
-                  key={i}
-                  variant={currentAnswer?.response_value === option.value ? 'default' : 'outline'}
-                  className={`h-auto py-4 px-3 flex flex-col items-center gap-1 ${
-                    currentAnswer?.response_value === option.value 
-                      ? option.label.toLowerCase().includes('pass') || option.label.toLowerCase().includes('yes') || option.label.toLowerCase().includes('accept')
-                        ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-600'
-                        : option.label.toLowerCase().includes('fail') || option.label.toLowerCase().includes('no') || option.label.toLowerCase().includes('reject')
-                        ? 'bg-red-600 hover:bg-red-700 border-red-600'
+            {/* Response Options - For response_group type only */}
+            {questionType === 'response_group' && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {options.map((option, i) => (
+                  <Button
+                    key={i}
+                    variant={currentAnswer?.response_value === option.value ? 'default' : 'outline'}
+                    className={`h-auto py-4 px-3 flex flex-col items-center gap-1 ${
+                      currentAnswer?.response_value === option.value 
+                        ? option.label.toLowerCase().includes('pass') || option.label.toLowerCase().includes('yes') || option.label.toLowerCase().includes('accept')
+                          ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-600'
+                          : option.label.toLowerCase().includes('fail') || option.label.toLowerCase().includes('no') || option.label.toLowerCase().includes('reject')
+                          ? 'bg-red-600 hover:bg-red-700 border-red-600'
+                          : ''
                         : ''
-                      : ''
-                  }`}
-                  onClick={() => handleAnswer(currentQuestion, option)}
+                    }`}
+                    onClick={() => handleAnswer(currentQuestion, option)}
+                    data-testid={`option-${option.value}`}
+                  >
+                    <span className="font-medium">{option.label}</span>
+                    {option.score !== null && (
+                      <span className="text-xs opacity-70">Score: {option.score}</span>
+                    )}
+                  </Button>
+                ))}
+              </div>
+            )}
+
+            {/* Text Input */}
+            {questionType === 'text' && (
+              <div className="space-y-2">
+                <Label>Your Answer</Label>
+                <Textarea
+                  placeholder="Enter your response..."
+                  value={currentAnswer?.response_value || ''}
+                  onChange={(e) => handleTextAnswer(currentQuestion, e.target.value)}
+                  rows={4}
+                  data-testid="text-answer-input"
+                />
+              </div>
+            )}
+
+            {/* Number Input */}
+            {questionType === 'number' && (
+              <div className="space-y-2">
+                <Label>Your Answer (Numbers only)</Label>
+                <Input
+                  type="number"
+                  placeholder="Enter a number..."
+                  value={currentAnswer?.response_value || ''}
+                  onChange={(e) => handleTextAnswer(currentQuestion, e.target.value)}
+                  data-testid="number-answer-input"
+                  className="text-lg"
+                />
+              </div>
+            )}
+
+            {/* Alphanumeric Input */}
+            {questionType === 'alphanumeric' && (
+              <div className="space-y-2">
+                <Label>Your Answer (Letters & Numbers)</Label>
+                <Input
+                  placeholder="Enter value (e.g., batch code, serial number)..."
+                  value={currentAnswer?.response_value || ''}
+                  onChange={(e) => {
+                    // Only allow alphanumeric characters
+                    const value = e.target.value.replace(/[^a-zA-Z0-9\s-]/g, '');
+                    handleTextAnswer(currentQuestion, value);
+                  }}
+                  data-testid="alphanumeric-answer-input"
+                  className="text-lg"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Only letters, numbers, spaces, and hyphens are allowed
+                </p>
+              </div>
+            )}
                   data-testid={`option-${option.value}`}
                 >
                   <span className="font-medium">{option.label}</span>
