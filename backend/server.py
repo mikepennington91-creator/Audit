@@ -1167,8 +1167,11 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(get_current_user)):
 # ==================== BULK USER IMPORT ====================
 
 @api_router.post("/users/bulk-import")
-async def bulk_import_users(file: UploadFile = File(...), user: dict = Depends(require_role([UserRole.ADMIN]))):
+async def bulk_import_users(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     """Import users from CSV file. Expected columns: email, name, role, company_id (optional)"""
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="File must be a CSV")
     
@@ -1200,8 +1203,22 @@ async def bulk_import_users(file: UploadFile = File(...), user: dict = Depends(r
                 continue
             
             # Validate role
-            if role not in ['admin', 'audit_creator', 'user']:
+            valid_roles = ['system_admin', 'company_admin', 'admin', 'audit_creator', 'user']
+            if role not in valid_roles:
                 role = 'user'
+            
+            # Non-system-admins can only import users to their own company
+            if not is_system_admin(user):
+                if role == 'system_admin':
+                    results["errors"].append(f"Row {row_num}: Cannot create system administrators")
+                    results["failed"] += 1
+                    continue
+                if company_id and company_id != user.get("company_id"):
+                    results["errors"].append(f"Row {row_num}: Cannot assign users to other companies")
+                    results["failed"] += 1
+                    continue
+                # Force company_id to current user's company
+                company_id = user.get("company_id")
             
             # Validate company if provided
             if company_id:
@@ -1231,8 +1248,11 @@ async def bulk_import_users(file: UploadFile = File(...), user: dict = Depends(r
     return results
 
 @api_router.get("/users/export-template")
-async def get_user_import_template(user: dict = Depends(require_role([UserRole.ADMIN]))):
+async def get_user_import_template(user: dict = Depends(get_current_user)):
     """Download CSV template for bulk user import"""
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['email', 'name', 'role', 'company_id', 'password'])
