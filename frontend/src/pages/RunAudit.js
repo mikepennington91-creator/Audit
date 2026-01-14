@@ -201,6 +201,21 @@ const RunAudit = () => {
     });
   };
 
+  const handleTextAnswer = (question, value) => {
+    setAnswers({
+      ...answers,
+      [question.id]: {
+        question_id: question.id,
+        response_value: value,
+        response_label: value,
+        score: null,
+        notes: answers[question.id]?.notes || '',
+        photos: answers[question.id]?.photos || [],
+        is_negative: false
+      }
+    });
+  };
+
   const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !currentPhotoQuestion) return;
