@@ -1296,7 +1296,7 @@ class ScheduledAuditResponse(BaseModel):
 @api_router.post("/scheduled-audits", response_model=ScheduledAuditResponse)
 async def create_scheduled_audit(
     schedule_data: ScheduledAuditCreate,
-    user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     # Validate audit exists
     audit = await db.audits.find_one({"id": schedule_data.audit_id}, {"_id": 0})
@@ -1307,6 +1307,11 @@ async def create_scheduled_audit(
     assigned_user = await db.users.find_one({"id": schedule_data.assigned_to}, {"_id": 0, "password": 0})
     if not assigned_user:
         raise HTTPException(status_code=404, detail="Assigned user not found")
+    
+    # Company admin can only schedule for users in their company
+    if not is_system_admin(user):
+        if assigned_user.get("company_id") != user.get("company_id"):
+            raise HTTPException(status_code=403, detail="Cannot schedule audits for users from other companies")
     
     schedule_id = str(uuid.uuid4())
     schedule_doc = {
