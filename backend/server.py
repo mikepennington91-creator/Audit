@@ -529,7 +529,7 @@ async def delete_user(user_id: str, user: dict = Depends(get_current_user)):
 @api_router.post("/response-groups", response_model=ResponseGroupResponse)
 async def create_response_group(
     group_data: ResponseGroupCreate,
-    user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     group_id = str(uuid.uuid4())
     group_doc = {
@@ -546,8 +546,8 @@ async def create_response_group(
 
 @api_router.get("/response-groups", response_model=List[ResponseGroupResponse])
 async def get_response_groups(user: dict = Depends(get_current_user)):
-    # Admin sees all, others see only their company's groups
-    if user["role"] == UserRole.ADMIN:
+    # System admin sees all, others see only their company's groups
+    if is_system_admin(user):
         groups = await db.response_groups.find({}, {"_id": 0}).to_list(1000)
     else:
         # Show groups from same company or groups with no company (system defaults)
@@ -575,7 +575,7 @@ async def get_response_group(group_id: str, user: dict = Depends(get_current_use
 @api_router.delete("/response-groups/{group_id}")
 async def delete_response_group(
     group_id: str,
-    user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     result = await db.response_groups.delete_one({"id": group_id})
     if result.deleted_count == 0:
