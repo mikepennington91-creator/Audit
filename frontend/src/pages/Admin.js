@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Users, Shield, UserCircle, Building2, Upload, Download, FileSpreadsheet } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, Shield, UserCircle, Building2, Upload, Download, Layers, Crown } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -22,9 +22,12 @@ const Admin = () => {
   const fileInputRef = useRef(null);
   const [users, setUsers] = useState([]);
   const [companies, setCompanies] = useState([]);
+  const [linesShifts, setLinesShifts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('users');
   const [importing, setImporting] = useState(false);
+  
+  const isSystemAdmin = currentUser?.role === 'system_admin';
   
   // User Dialog
   const [userDialogOpen, setUserDialogOpen] = useState(false);
@@ -45,18 +48,27 @@ const Admin = () => {
     description: ''
   });
 
+  // Line/Shift Dialog
+  const [lineShiftDialogOpen, setLineShiftDialogOpen] = useState(false);
+  const [editingLineShift, setEditingLineShift] = useState(null);
+  const [lineShiftFormData, setLineShiftFormData] = useState({
+    title: ''
+  });
+
   useEffect(() => {
     fetchData();
   }, []);
 
   const fetchData = async () => {
     try {
-      const [usersRes, companiesRes] = await Promise.all([
+      const [usersRes, companiesRes, linesShiftsRes] = await Promise.all([
         axios.get(`${API}/users`),
-        axios.get(`${API}/companies`)
+        axios.get(`${API}/companies`),
+        axios.get(`${API}/lines-shifts`)
       ]);
       setUsers(usersRes.data);
       setCompanies(companiesRes.data);
+      setLinesShifts(linesShiftsRes.data);
     } catch (error) {
       toast.error('Failed to fetch data');
     } finally {
@@ -164,8 +176,53 @@ const Admin = () => {
     setCompanyFormData({ name: '', description: '' });
   };
 
+  // Line/Shift handlers
+  const handleLineShiftSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingLineShift) {
+        await axios.put(`${API}/lines-shifts/${editingLineShift.id}`, lineShiftFormData);
+        toast.success('Line/Shift updated successfully');
+      } else {
+        await axios.post(`${API}/lines-shifts`, lineShiftFormData);
+        toast.success('Line/Shift created successfully');
+      }
+      setLineShiftDialogOpen(false);
+      resetLineShiftForm();
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Operation failed');
+    }
+  };
+
+  const handleDeleteLineShift = async (lineId) => {
+    if (!window.confirm('Are you sure you want to delete this line/shift?')) return;
+    try {
+      await axios.delete(`${API}/lines-shifts/${lineId}`);
+      toast.success('Line/Shift deleted successfully');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete line/shift');
+    }
+  };
+
+  const openEditLineShiftDialog = (lineShift) => {
+    setEditingLineShift(lineShift);
+    setLineShiftFormData({
+      title: lineShift.title
+    });
+    setLineShiftDialogOpen(true);
+  };
+
+  const resetLineShiftForm = () => {
+    setEditingLineShift(null);
+    setLineShiftFormData({ title: '' });
+  };
+
   const getRoleIcon = (role) => {
     switch (role) {
+      case 'system_admin': return <Crown className="w-4 h-4" />;
+      case 'company_admin':
       case 'admin': return <Shield className="w-4 h-4" />;
       case 'audit_creator': return <UserCircle className="w-4 h-4" />;
       default: return <Users className="w-4 h-4" />;
@@ -174,9 +231,21 @@ const Admin = () => {
 
   const getRoleBadgeVariant = (role) => {
     switch (role) {
-      case 'admin': return 'destructive';
-      case 'audit_creator': return 'default';
-      default: return 'secondary';
+      case 'system_admin': return 'destructive';
+      case 'company_admin':
+      case 'admin': return 'default';
+      case 'audit_creator': return 'secondary';
+      default: return 'outline';
+    }
+  };
+
+  const getRoleDisplayName = (role) => {
+    switch (role) {
+      case 'system_admin': return 'System Admin';
+      case 'company_admin': return 'Company Admin';
+      case 'admin': return 'Company Admin';
+      case 'audit_creator': return 'Audit Creator';
+      default: return 'User';
     }
   };
 
@@ -243,19 +312,25 @@ const Admin = () => {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Administration</h1>
         <p className="text-muted-foreground mt-1">
-          Manage companies and system users
+          {isSystemAdmin ? 'Manage companies, users, and lines/shifts across the system' : 'Manage users and lines/shifts for your company'}
         </p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className={`grid w-full max-w-lg ${isSystemAdmin ? 'grid-cols-3' : 'grid-cols-2'}`}>
           <TabsTrigger value="users" data-testid="users-tab">
             <Users className="w-4 h-4 mr-2" />
             Users
           </TabsTrigger>
-          <TabsTrigger value="companies" data-testid="companies-tab">
-            <Building2 className="w-4 h-4 mr-2" />
-            Companies
+          {isSystemAdmin && (
+            <TabsTrigger value="companies" data-testid="companies-tab">
+              <Building2 className="w-4 h-4 mr-2" />
+              Companies
+            </TabsTrigger>
+          )}
+          <TabsTrigger value="lines-shifts" data-testid="lines-shifts-tab">
+            <Layers className="w-4 h-4 mr-2" />
+            Lines/Shifts
           </TabsTrigger>
         </TabsList>
 
@@ -360,30 +435,35 @@ const Admin = () => {
                         <SelectContent>
                           <SelectItem value="user">User</SelectItem>
                           <SelectItem value="audit_creator">Audit Creator</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
+                          <SelectItem value="company_admin">Company Admin</SelectItem>
+                          {isSystemAdmin && (
+                            <SelectItem value="system_admin">System Admin</SelectItem>
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="company">Company</Label>
-                      <Select 
-                        value={userFormData.company_id || "none"} 
-                        onValueChange={(value) => setUserFormData({ ...userFormData, company_id: value === "none" ? "" : value })}
-                      >
-                        <SelectTrigger data-testid="user-company-select">
-                          <SelectValue placeholder="Select company (optional)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">No Company</SelectItem>
-                          {companies.map(company => (
-                            <SelectItem key={company.id} value={company.id}>
-                              {company.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {isSystemAdmin && (
+                      <div className="space-y-2">
+                        <Label htmlFor="company">Company</Label>
+                        <Select 
+                          value={userFormData.company_id || "none"} 
+                          onValueChange={(value) => setUserFormData({ ...userFormData, company_id: value === "none" ? "" : value })}
+                        >
+                          <SelectTrigger data-testid="user-company-select">
+                            <SelectValue placeholder="Select company (optional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No Company</SelectItem>
+                            {companies.map(company => (
+                              <SelectItem key={company.id} value={company.id}>
+                                {company.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                     
                     <div className="flex gap-3 pt-4">
                       <Button type="button" variant="outline" onClick={() => setUserDialogOpen(false)} className="flex-1">
@@ -452,7 +532,7 @@ const Admin = () => {
                           <TableCell>
                             <Badge variant={getRoleBadgeVariant(user.role)} className="gap-1">
                               {getRoleIcon(user.role)}
-                              {user.role.replace('_', ' ')}
+                              {getRoleDisplayName(user.role)}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-muted-foreground">
@@ -491,53 +571,191 @@ const Admin = () => {
           </Card>
         </TabsContent>
 
-        {/* Companies Tab */}
-        <TabsContent value="companies" className="mt-6">
+        {/* Companies Tab - System Admin Only */}
+        {isSystemAdmin && (
+          <TabsContent value="companies" className="mt-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-lg">Companies ({companies.length})</CardTitle>
+                <Dialog open={companyDialogOpen} onOpenChange={(open) => { setCompanyDialogOpen(open); if (!open) resetCompanyForm(); }}>
+                  <DialogTrigger asChild>
+                    <Button data-testid="add-company-btn">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Company
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{editingCompany ? 'Edit Company' : 'Add New Company'}</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={handleCompanySubmit} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="companyName">Company Name</Label>
+                        <Input
+                          id="companyName"
+                          value={companyFormData.name}
+                          onChange={(e) => setCompanyFormData({ ...companyFormData, name: e.target.value })}
+                          required
+                          placeholder="e.g., ABC Foods Ltd"
+                          data-testid="company-name-input"
+                        />
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor="companyDesc">Description (Optional)</Label>
+                        <Textarea
+                          id="companyDesc"
+                          value={companyFormData.description}
+                          onChange={(e) => setCompanyFormData({ ...companyFormData, description: e.target.value })}
+                          placeholder="Brief description of the company..."
+                          rows={3}
+                          data-testid="company-description-input"
+                        />
+                      </div>
+                      
+                      <div className="flex gap-3 pt-4">
+                        <Button type="button" variant="outline" onClick={() => setCompanyDialogOpen(false)} className="flex-1">
+                          Cancel
+                        </Button>
+                        <Button type="submit" className="flex-1" data-testid="save-company-btn">
+                          {editingCompany ? 'Update' : 'Create'}
+                        </Button>
+                      </div>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="space-y-4">
+                    {[1, 2, 3].map(i => (
+                      <div key={i} className="flex items-center gap-4">
+                        <Skeleton className="h-12 w-12 rounded-lg" />
+                        <div className="flex-1 space-y-2">
+                          <Skeleton className="h-4 w-1/3" />
+                          <Skeleton className="h-3 w-1/4" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : companies.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Company</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead>Users</TableHead>
+                          <TableHead>Created</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {companies.map((company) => (
+                          <TableRow key={company.id} data-testid={`company-row-${company.id}`}>
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                                  <Building2 className="w-5 h-5 text-primary" />
+                                </div>
+                                <span className="font-medium">{company.name}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground max-w-xs truncate">
+                              {company.description || '-'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="secondary">
+                                {getCompanyUserCount(company.id)} users
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {new Date(company.created_at).toLocaleDateString('en-GB')}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => openEditCompanyDialog(company)}
+                                  data-testid={`edit-company-${company.id}`}
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => handleDeleteCompany(company.id)}
+                                  className="text-destructive hover:text-destructive"
+                                  data-testid={`delete-company-${company.id}`}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <Building2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" />
+                    <p className="text-muted-foreground mb-4">No companies created yet</p>
+                    <Button onClick={() => setCompanyDialogOpen(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create Your First Company
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* Lines/Shifts Tab */}
+        <TabsContent value="lines-shifts" className="mt-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Companies ({companies.length})</CardTitle>
-              <Dialog open={companyDialogOpen} onOpenChange={(open) => { setCompanyDialogOpen(open); if (!open) resetCompanyForm(); }}>
+              <div>
+                <CardTitle className="text-lg">Lines / Shifts ({linesShifts.length})</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Create entries that users can assign when running audits (e.g., Line 1, Morning Shift, Area A)
+                </p>
+              </div>
+              <Dialog open={lineShiftDialogOpen} onOpenChange={(open) => { setLineShiftDialogOpen(open); if (!open) resetLineShiftForm(); }}>
                 <DialogTrigger asChild>
-                  <Button data-testid="add-company-btn">
+                  <Button data-testid="add-line-shift-btn">
                     <Plus className="w-4 h-4 mr-2" />
-                    Add Company
+                    Add Line/Shift
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>{editingCompany ? 'Edit Company' : 'Add New Company'}</DialogTitle>
+                    <DialogTitle>{editingLineShift ? 'Edit Line/Shift' : 'Add New Line/Shift'}</DialogTitle>
                   </DialogHeader>
-                  <form onSubmit={handleCompanySubmit} className="space-y-4">
+                  <form onSubmit={handleLineShiftSubmit} className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="companyName">Company Name</Label>
+                      <Label htmlFor="lineShiftTitle">Title</Label>
                       <Input
-                        id="companyName"
-                        value={companyFormData.name}
-                        onChange={(e) => setCompanyFormData({ ...companyFormData, name: e.target.value })}
+                        id="lineShiftTitle"
+                        value={lineShiftFormData.title}
+                        onChange={(e) => setLineShiftFormData({ ...lineShiftFormData, title: e.target.value })}
                         required
-                        placeholder="e.g., ABC Foods Ltd"
-                        data-testid="company-name-input"
+                        placeholder="e.g., Line 1, Morning Shift, Production Area A"
+                        data-testid="line-shift-title-input"
                       />
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="companyDesc">Description (Optional)</Label>
-                      <Textarea
-                        id="companyDesc"
-                        value={companyFormData.description}
-                        onChange={(e) => setCompanyFormData({ ...companyFormData, description: e.target.value })}
-                        placeholder="Brief description of the company..."
-                        rows={3}
-                        data-testid="company-description-input"
-                      />
+                      <p className="text-xs text-muted-foreground">
+                        This can be a production line, shift name, area, or any other identifier
+                      </p>
                     </div>
                     
                     <div className="flex gap-3 pt-4">
-                      <Button type="button" variant="outline" onClick={() => setCompanyDialogOpen(false)} className="flex-1">
+                      <Button type="button" variant="outline" onClick={() => setLineShiftDialogOpen(false)} className="flex-1">
                         Cancel
                       </Button>
-                      <Button type="submit" className="flex-1" data-testid="save-company-btn">
-                        {editingCompany ? 'Update' : 'Create'}
+                      <Button type="submit" className="flex-1" data-testid="save-line-shift-btn">
+                        {editingLineShift ? 'Update' : 'Create'}
                       </Button>
                     </div>
                   </form>
@@ -549,64 +767,53 @@ const Admin = () => {
                 <div className="space-y-4">
                   {[1, 2, 3].map(i => (
                     <div key={i} className="flex items-center gap-4">
-                      <Skeleton className="h-12 w-12 rounded-lg" />
+                      <Skeleton className="h-10 w-10 rounded-lg" />
                       <div className="flex-1 space-y-2">
                         <Skeleton className="h-4 w-1/3" />
-                        <Skeleton className="h-3 w-1/4" />
                       </div>
                     </div>
                   ))}
                 </div>
-              ) : companies.length > 0 ? (
+              ) : linesShifts.length > 0 ? (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Company</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Users</TableHead>
+                        <TableHead>Title</TableHead>
                         <TableHead>Created</TableHead>
                         <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {companies.map((company) => (
-                        <TableRow key={company.id} data-testid={`company-row-${company.id}`}>
+                      {linesShifts.map((lineShift) => (
+                        <TableRow key={lineShift.id} data-testid={`line-shift-row-${lineShift.id}`}>
                           <TableCell>
                             <div className="flex items-center gap-3">
                               <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                                <Building2 className="w-5 h-5 text-primary" />
+                                <Layers className="w-5 h-5 text-primary" />
                               </div>
-                              <span className="font-medium">{company.name}</span>
+                              <span className="font-medium">{lineShift.title}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="text-muted-foreground max-w-xs truncate">
-                            {company.description || '-'}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="secondary">
-                              {getCompanyUserCount(company.id)} users
-                            </Badge>
-                          </TableCell>
                           <TableCell className="text-muted-foreground">
-                            {new Date(company.created_at).toLocaleDateString('en-GB')}
+                            {new Date(lineShift.created_at).toLocaleDateString('en-GB')}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Button 
                                 variant="ghost" 
                                 size="sm"
-                                onClick={() => openEditCompanyDialog(company)}
-                                data-testid={`edit-company-${company.id}`}
+                                onClick={() => openEditLineShiftDialog(lineShift)}
+                                data-testid={`edit-line-shift-${lineShift.id}`}
                               >
                                 <Pencil className="w-4 h-4" />
                               </Button>
                               <Button 
                                 variant="ghost" 
                                 size="sm"
-                                onClick={() => handleDeleteCompany(company.id)}
+                                onClick={() => handleDeleteLineShift(lineShift.id)}
                                 className="text-destructive hover:text-destructive"
-                                data-testid={`delete-company-${company.id}`}
+                                data-testid={`delete-line-shift-${lineShift.id}`}
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
@@ -619,11 +826,11 @@ const Admin = () => {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <Building2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" />
-                  <p className="text-muted-foreground mb-4">No companies created yet</p>
-                  <Button onClick={() => setCompanyDialogOpen(true)}>
+                  <Layers className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" />
+                  <p className="text-muted-foreground mb-4">No lines/shifts created yet</p>
+                  <Button onClick={() => setLineShiftDialogOpen(true)}>
                     <Plus className="w-4 h-4 mr-2" />
-                    Create Your First Company
+                    Create Your First Line/Shift
                   </Button>
                 </div>
               )}
