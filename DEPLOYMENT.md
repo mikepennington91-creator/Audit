@@ -79,7 +79,7 @@
 
 3. **Default Login**
    - Email: `admin@infinit-audit.co.uk`
-   - Password: `adminpassword`
+   - Password: `admin123`
    - ⚠️ Change this password immediately after first login!
 
 ## Cost Breakdown
