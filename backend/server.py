@@ -1394,7 +1394,7 @@ async def complete_scheduled_audit(
 @api_router.delete("/scheduled-audits/{schedule_id}")
 async def delete_scheduled_audit(
     schedule_id: str,
-    user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     result = await db.scheduled_audits.delete_one({"id": schedule_id})
     if result.deleted_count == 0:
