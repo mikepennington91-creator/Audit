@@ -714,7 +714,7 @@ async def delete_line_shift(
 @api_router.post("/audits", response_model=AuditResponse)
 async def create_audit(
     audit_data: AuditCreate,
-    user: dict = Depends(require_role([UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
 ):
     audit_id = str(uuid.uuid4())
     now = get_uk_time_iso()
@@ -725,6 +725,7 @@ async def create_audit(
         question_doc = {
             "id": str(uuid.uuid4()),
             "text": q.text,
+            "question_type": q.question_type,  # New field
             "response_group_id": q.response_group_id,
             "custom_responses": [r.model_dump() for r in q.custom_responses] if q.custom_responses else None,
             "enable_scoring": q.enable_scoring,
@@ -760,8 +761,8 @@ async def create_audit(
 
 @api_router.get("/audits", response_model=List[AuditResponse])
 async def get_audits(user: dict = Depends(get_current_user)):
-    # Admin sees all audits
-    if user["role"] == UserRole.ADMIN:
+    # System admin sees all audits
+    if is_system_admin(user):
         query = {}
     else:
         # Users see audits from their company (public ones) or their own private ones
