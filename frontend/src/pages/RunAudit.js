@@ -11,6 +11,8 @@ import { Progress } from '../components/ui/progress';
 import { Skeleton } from '../components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { toast } from 'sonner';
+import { useOffline } from '../context/OfflineContext';
+import { saveOfflineAudit, getCachedData, cacheData } from '../utils/offlineDB';
 import { 
   Play, 
   ArrowLeft, 
@@ -24,7 +26,8 @@ import {
   Clock,
   Save,
   Send,
-  Image as ImageIcon
+  Image as ImageIcon,
+  WifiOff
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -33,6 +36,7 @@ const RunAudit = () => {
   const navigate = useNavigate();
   const { runId } = useParams();
   const fileInputRef = useRef(null);
+  const { isOnline, updatePendingCount } = useOffline();
   
   const [audits, setAudits] = useState([]);
   const [responseGroups, setResponseGroups] = useState([]);
@@ -55,17 +59,36 @@ const RunAudit = () => {
 
   const fetchData = async () => {
     try {
-      const [auditsRes, groupsRes] = await Promise.all([
-        axios.get(`${API}/audits`),
-        axios.get(`${API}/response-groups`)
-      ]);
-      setAudits(auditsRes.data);
-      setResponseGroups(groupsRes.data);
+      let auditsData, groupsData;
       
-      if (runId) {
+      if (isOnline) {
+        const [auditsRes, groupsRes] = await Promise.all([
+          axios.get(`${API}/audits`),
+          axios.get(`${API}/response-groups`)
+        ]);
+        auditsData = auditsRes.data;
+        groupsData = groupsRes.data;
+        
+        // Cache data for offline use
+        await cacheData('audits', auditsData);
+        await cacheData('responseGroups', groupsData);
+      } else {
+        // Load from cache when offline
+        auditsData = await getCachedData('audits') || [];
+        groupsData = await getCachedData('responseGroups') || [];
+        
+        if (auditsData.length === 0) {
+          toast.warning('No cached data available. Connect to internet to load audits.');
+        }
+      }
+      
+      setAudits(auditsData);
+      setResponseGroups(groupsData);
+      
+      if (runId && isOnline) {
         const runRes = await axios.get(`${API}/run-audits/${runId}`);
         setActiveRun(runRes.data);
-        const audit = auditsRes.data.find(a => a.id === runRes.data.audit_id);
+        const audit = auditsData.find(a => a.id === runRes.data.audit_id);
         setCurrentAudit(audit);
         
         // Restore answers
@@ -77,25 +100,52 @@ const RunAudit = () => {
         setNotes(runRes.data.notes || '');
       }
     } catch (error) {
-      toast.error('Failed to load data');
+      // Try to load from cache on any error
+      const cachedAudits = await getCachedData('audits');
+      const cachedGroups = await getCachedData('responseGroups');
+      
+      if (cachedAudits) {
+        setAudits(cachedAudits);
+        setResponseGroups(cachedGroups || []);
+        toast.info('Loaded cached data');
+      } else {
+        toast.error('Failed to load data');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const startAudit = async (audit) => {
-    try {
-      const response = await axios.post(`${API}/run-audits`, {
+    if (isOnline) {
+      try {
+        const response = await axios.post(`${API}/run-audits`, {
+          audit_id: audit.id,
+          location: location || null
+        });
+        setActiveRun(response.data);
+        setCurrentAudit(audit);
+        setCurrentQuestionIndex(0);
+        setAnswers({});
+        navigate(`/run-audit/${response.data.id}`);
+      } catch (error) {
+        toast.error('Failed to start audit');
+      }
+    } else {
+      // Start offline audit
+      const offlineRun = {
+        id: `offline_${Date.now()}`,
         audit_id: audit.id,
-        location: location || null
-      });
-      setActiveRun(response.data);
+        location: location || null,
+        started_at: new Date().toISOString(),
+        status: 'in_progress',
+        offline: true
+      };
+      setActiveRun(offlineRun);
       setCurrentAudit(audit);
       setCurrentQuestionIndex(0);
       setAnswers({});
-      navigate(`/run-audit/${response.data.id}`);
-    } catch (error) {
-      toast.error('Failed to start audit');
+      toast.info('Starting offline audit. It will sync when you\'re back online.');
     }
   };
 
@@ -255,6 +305,41 @@ const RunAudit = () => {
     }
     
     setSubmitting(true);
+    
+    // Handle offline submission
+    if (!isOnline || activeRun.offline) {
+      try {
+        const offlineAuditData = {
+          audit_id: currentAudit.id,
+          location: activeRun.location,
+          answers: Object.values(answers),
+          notes,
+          started_at: activeRun.started_at,
+          completed_at: new Date().toISOString(),
+          data: {
+            audit_id: currentAudit.id,
+            location: activeRun.location,
+            answers: Object.values(answers),
+            notes
+          }
+        };
+        
+        await saveOfflineAudit(offlineAuditData);
+        await updatePendingCount();
+        
+        toast.success('Audit saved offline! It will sync when you\'re back online.', {
+          icon: <WifiOff className="w-4 h-4" />
+        });
+        navigate('/reports');
+      } catch (error) {
+        toast.error('Failed to save offline audit');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+    
+    // Online submission
     try {
       await axios.put(`${API}/run-audits/${activeRun.id}`, {
         answers: Object.values(answers),
@@ -264,7 +349,33 @@ const RunAudit = () => {
       toast.success('Audit submitted successfully!');
       navigate('/reports');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit audit');
+      // If online submission fails, save offline
+      if (error.message === 'Network Error' || !navigator.onLine) {
+        try {
+          const offlineAuditData = {
+            audit_id: currentAudit.id,
+            run_id: activeRun.id,
+            location: activeRun.location,
+            answers: Object.values(answers),
+            notes,
+            data: {
+              answers: Object.values(answers),
+              notes,
+              completed: true
+            }
+          };
+          
+          await saveOfflineAudit(offlineAuditData);
+          await updatePendingCount();
+          
+          toast.success('Audit saved offline! It will sync when you\'re back online.');
+          navigate('/reports');
+        } catch (offlineError) {
+          toast.error('Failed to save audit');
+        }
+      } else {
+        toast.error(error.response?.data?.detail || 'Failed to submit audit');
+      }
     } finally {
       setSubmitting(false);
     }
