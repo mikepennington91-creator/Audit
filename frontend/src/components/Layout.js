@@ -98,8 +98,8 @@ const Layout = ({ children }) => {
       `}>
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="h-16 flex items-center justify-between px-4 border-b">
-          <img src={LOGO_URL} alt="Infinit-Audit" className="h-14" />
+          <div className="h-20 flex items-center justify-between px-4 border-b">
+            <img src={LOGO_URL} alt="Infinit-Audit" className="h-14" />
             <button 
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden p-2 hover:bg-muted rounded-lg transition-colors"
@@ -108,6 +108,46 @@ const Layout = ({ children }) => {
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {/* Offline Status Banner */}
+          {!isOnline && (
+            <div className="mx-4 mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+              <div className="flex items-center gap-2 text-amber-500">
+                <WifiOff className="w-4 h-4" />
+                <span className="text-sm font-medium">Offline Mode</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Changes will sync when back online
+              </p>
+              {pendingCount > 0 && (
+                <p className="text-xs text-amber-500 mt-1">
+                  {pendingCount} item(s) pending sync
+                </p>
+              )}
+            </div>
+          )}
+          
+          {/* Online with pending items */}
+          {isOnline && pendingCount > 0 && (
+            <div className="mx-4 mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-blue-500">
+                  <Cloud className="w-4 h-4" />
+                  <span className="text-sm font-medium">{pendingCount} pending</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={triggerSync}
+                  disabled={isSyncing}
+                  className="h-7 px-2"
+                  data-testid="sync-btn"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
