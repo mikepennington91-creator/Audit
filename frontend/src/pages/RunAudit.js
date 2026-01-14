@@ -404,7 +404,7 @@ const RunAudit = () => {
               <div>
                 <p className="font-medium text-amber-500">Offline Mode</p>
                 <p className="text-sm text-muted-foreground">
-                  You can still run audits. They will sync automatically when you're back online.
+                  You can still run audits. They will sync automatically when you&apos;re back online.
                 </p>
               </div>
             </div>
