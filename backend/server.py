@@ -76,9 +76,13 @@ class CompanyUpdate(BaseModel):
 
 # User Models
 class UserRole:
-    ADMIN = "admin"
+    SYSTEM_ADMIN = "system_admin"  # Global admin - controls everything
+    COMPANY_ADMIN = "company_admin"  # Company-specific admin
     AUDIT_CREATOR = "audit_creator"
     USER = "user"
+    
+    # Legacy support - map old 'admin' to new roles
+    ADMIN = "admin"  # Kept for backwards compatibility, treated as company_admin
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -143,9 +147,28 @@ class AuditTypeResponse(BaseModel):
     company_id: Optional[str] = None
     created_at: str
 
+# Line/Shift Models
+class LineShiftCreate(BaseModel):
+    title: str
+
+class LineShiftResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    title: str
+    company_id: Optional[str] = None
+    created_by: str
+    created_at: str
+
 # Question Models
+class QuestionType:
+    RESPONSE_GROUP = "response_group"  # Use predefined or custom response options
+    TEXT = "text"  # Free text input
+    NUMBER = "number"  # Numeric input only
+    ALPHANUMERIC = "alphanumeric"  # Letters and numbers
+
 class QuestionCreate(BaseModel):
     text: str
+    question_type: str = QuestionType.RESPONSE_GROUP  # response_group, text, number, alphanumeric
     response_group_id: Optional[str] = None
     custom_responses: Optional[List[ResponseOption]] = None
     enable_scoring: bool = False
@@ -156,6 +179,7 @@ class QuestionResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
     text: str
+    question_type: str = QuestionType.RESPONSE_GROUP
     response_group_id: Optional[str]
     custom_responses: Optional[List[ResponseOption]]
     enable_scoring: bool
@@ -208,6 +232,7 @@ class AnswerSubmit(BaseModel):
 class RunAuditCreate(BaseModel):
     audit_id: str
     location: Optional[str] = None
+    line_shift_id: Optional[str] = None  # Optional line/shift selection
 
 class RunAuditSubmit(BaseModel):
     answers: List[AnswerSubmit]
@@ -222,6 +247,8 @@ class RunAuditResponse(BaseModel):
     auditor_id: str
     auditor_name: str
     location: Optional[str]
+    line_shift_id: Optional[str] = None
+    line_shift_title: Optional[str] = None
     answers: List[Dict]
     notes: Optional[str]
     completed: bool
