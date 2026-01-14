@@ -70,6 +70,7 @@ const CreateAudit = () => {
       {
         id: Date.now(),
         text: '',
+        question_type: 'response_group', // response_group, text, number, alphanumeric
         response_group_id: '',
         custom_responses: [],
         enable_scoring: false,
@@ -88,6 +89,16 @@ const CreateAudit = () => {
       const group = responseGroups.find(g => g.id === value);
       if (group) {
         newQuestions[index].enable_scoring = group.enable_scoring;
+      }
+    }
+    
+    // Reset related fields when changing question type
+    if (field === 'question_type') {
+      if (value !== 'response_group') {
+        newQuestions[index].response_group_id = '';
+        newQuestions[index].custom_responses = [];
+        newQuestions[index].useCustomResponses = false;
+        newQuestions[index].enable_scoring = false;
       }
     }
     
