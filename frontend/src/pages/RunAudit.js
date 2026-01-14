@@ -132,7 +132,8 @@ const RunAudit = () => {
       try {
         const response = await axios.post(`${API}/run-audits`, {
           audit_id: audit.id,
-          location: location || null
+          location: location || null,
+          line_shift_id: selectedLineShift || null
         });
         setActiveRun(response.data);
         setCurrentAudit(audit);
@@ -144,10 +145,13 @@ const RunAudit = () => {
       }
     } else {
       // Start offline audit
+      const selectedLine = linesShifts.find(l => l.id === selectedLineShift);
       const offlineRun = {
         id: `offline_${Date.now()}`,
         audit_id: audit.id,
         location: location || null,
+        line_shift_id: selectedLineShift || null,
+        line_shift_title: selectedLine?.title || null,
         started_at: new Date().toISOString(),
         status: 'in_progress',
         offline: true
