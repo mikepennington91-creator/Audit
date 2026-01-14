@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 class NewFeaturesTester:
-    def __init__(self, base_url="https://foodsafe-checks.preview.emergentagent.com/api"):
+    def __init__(self, base_url="https://auditmate-3.preview.emergentagent.com/api"):
         self.base_url = base_url
         self.admin_token = None
         self.user_token = None
