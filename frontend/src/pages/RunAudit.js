@@ -63,23 +63,27 @@ const RunAudit = () => {
 
   const fetchData = async () => {
     try {
-      let auditsData, groupsData;
+      let auditsData, groupsData, linesShiftsData;
       
       if (isOnline) {
-        const [auditsRes, groupsRes] = await Promise.all([
+        const [auditsRes, groupsRes, linesShiftsRes] = await Promise.all([
           axios.get(`${API}/audits`),
-          axios.get(`${API}/response-groups`)
+          axios.get(`${API}/response-groups`),
+          axios.get(`${API}/lines-shifts`)
         ]);
         auditsData = auditsRes.data;
         groupsData = groupsRes.data;
+        linesShiftsData = linesShiftsRes.data;
         
         // Cache data for offline use
         await cacheData('audits', auditsData);
         await cacheData('responseGroups', groupsData);
+        await cacheData('linesShifts', linesShiftsData);
       } else {
         // Load from cache when offline
         auditsData = await getCachedData('audits') || [];
         groupsData = await getCachedData('responseGroups') || [];
+        linesShiftsData = await getCachedData('linesShifts') || [];
         
         if (auditsData.length === 0) {
           toast.warning('No cached data available. Connect to internet to load audits.');
@@ -88,6 +92,7 @@ const RunAudit = () => {
       
       setAudits(auditsData);
       setResponseGroups(groupsData);
+      setLinesShifts(linesShiftsData);
       
       if (runId && isOnline) {
         const runRes = await axios.get(`${API}/run-audits/${runId}`);
@@ -107,10 +112,12 @@ const RunAudit = () => {
       // Try to load from cache on any error
       const cachedAudits = await getCachedData('audits');
       const cachedGroups = await getCachedData('responseGroups');
+      const cachedLinesShifts = await getCachedData('linesShifts');
       
       if (cachedAudits) {
         setAudits(cachedAudits);
         setResponseGroups(cachedGroups || []);
+        setLinesShifts(cachedLinesShifts || []);
         toast.info('Loaded cached data');
       } else {
         toast.error('Failed to load data');
