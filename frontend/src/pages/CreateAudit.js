@@ -162,9 +162,12 @@ const CreateAudit = () => {
         toast.error(`Question ${i + 1} text is required`);
         return;
       }
-      if (!q.response_group_id && (!q.custom_responses || q.custom_responses.length < 2)) {
-        toast.error(`Question ${i + 1} needs a response group or at least 2 custom responses`);
-        return;
+      // Only validate response options for response_group type questions
+      if (q.question_type === 'response_group') {
+        if (!q.response_group_id && (!q.custom_responses || q.custom_responses.length < 2)) {
+          toast.error(`Question ${i + 1} needs a response group or at least 2 custom responses`);
+          return;
+        }
       }
     }
 
@@ -178,8 +181,9 @@ const CreateAudit = () => {
         is_private: isPrivate,
         questions: questions.map((q, i) => ({
           text: q.text.trim(),
-          response_group_id: q.response_group_id || null,
-          custom_responses: q.custom_responses?.length > 0 ? q.custom_responses.map(r => ({
+          question_type: q.question_type || 'response_group',
+          response_group_id: q.question_type === 'response_group' ? (q.response_group_id || null) : null,
+          custom_responses: q.question_type === 'response_group' && q.custom_responses?.length > 0 ? q.custom_responses.map(r => ({
             label: r.label,
             value: r.value || r.label.toLowerCase().replace(/\s+/g, '_'),
             score: q.enable_scoring ? parseFloat(r.score) || 0 : null
