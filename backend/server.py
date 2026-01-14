@@ -372,10 +372,10 @@ async def get_me(user: dict = Depends(get_current_user)):
             user["company_name"] = company["name"]
     return UserResponse(**user)
 
-# ==================== COMPANY MANAGEMENT (ADMIN) ====================
+# ==================== COMPANY MANAGEMENT (SYSTEM ADMIN ONLY) ====================
 
 @api_router.post("/companies", response_model=CompanyResponse)
-async def create_company(company_data: CompanyCreate, user: dict = Depends(require_role([UserRole.ADMIN]))):
+async def create_company(company_data: CompanyCreate, user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN]))):
     company_id = str(uuid.uuid4())
     company_doc = {
         "id": company_id,
@@ -388,18 +388,28 @@ async def create_company(company_data: CompanyCreate, user: dict = Depends(requi
 
 @api_router.get("/companies", response_model=List[CompanyResponse])
 async def get_companies(user: dict = Depends(get_current_user)):
-    companies = await db.companies.find({}, {"_id": 0}).to_list(1000)
+    # System admin sees all companies
+    # Company admin/users only see their own company
+    if is_system_admin(user):
+        companies = await db.companies.find({}, {"_id": 0}).to_list(1000)
+    elif user.get("company_id"):
+        companies = await db.companies.find({"id": user["company_id"]}, {"_id": 0}).to_list(1)
+    else:
+        companies = []
     return [CompanyResponse(**c) for c in companies]
 
 @api_router.get("/companies/{company_id}", response_model=CompanyResponse)
 async def get_company(company_id: str, user: dict = Depends(get_current_user)):
+    # Check access
+    if not is_system_admin(user) and user.get("company_id") != company_id:
+        raise HTTPException(status_code=403, detail="Access denied")
     company = await db.companies.find_one({"id": company_id}, {"_id": 0})
     if not company:
         raise HTTPException(status_code=404, detail="Company not found")
     return CompanyResponse(**company)
 
 @api_router.put("/companies/{company_id}", response_model=CompanyResponse)
-async def update_company(company_id: str, update_data: CompanyUpdate, user: dict = Depends(require_role([UserRole.ADMIN]))):
+async def update_company(company_id: str, update_data: CompanyUpdate, user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN]))):
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -412,7 +422,7 @@ async def update_company(company_id: str, update_data: CompanyUpdate, user: dict
     return CompanyResponse(**updated)
 
 @api_router.delete("/companies/{company_id}")
-async def delete_company(company_id: str, user: dict = Depends(require_role([UserRole.ADMIN]))):
+async def delete_company(company_id: str, user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN]))):
     # Check if any users are assigned to this company
     user_count = await db.users.count_documents({"company_id": company_id})
     if user_count > 0:
