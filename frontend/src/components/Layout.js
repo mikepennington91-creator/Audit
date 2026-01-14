@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { useOffline } from '../context/OfflineContext';
 import { Button } from './ui/button';
 import { 
   LayoutDashboard, 
@@ -16,7 +17,10 @@ import {
   Sun, 
   Moon,
   ChevronRight,
-  Calendar
+  Calendar,
+  WifiOff,
+  RefreshCw,
+  Cloud
 } from 'lucide-react';
 
 const LOGO_URL = "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png";
@@ -25,6 +29,7 @@ const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, logout, isAdmin, isAuditCreator } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { isOnline, pendingCount, isSyncing, triggerSync } = useOffline();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -57,7 +62,15 @@ const Layout = ({ children }) => {
           >
             <Menu className="w-6 h-6" />
           </button>
-          <img src={LOGO_URL} alt="Infinit-Audit" className="h-12" />
+          <div className="flex items-center gap-2">
+            <img src={LOGO_URL} alt="Infinit-Audit" className="h-12" />
+            {!isOnline && (
+              <span className="flex items-center gap-1 text-xs bg-amber-500/20 text-amber-500 px-2 py-1 rounded-full">
+                <WifiOff className="w-3 h-3" />
+                Offline
+              </span>
+            )}
+          </div>
           <button 
             onClick={toggleTheme}
             className="p-2 hover:bg-muted rounded-lg transition-colors"
