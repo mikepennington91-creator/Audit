@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 class InfinitAuditTester:
-    def __init__(self, base_url="https://audit-maker.preview.emergentagent.com/api"):
+    def __init__(self, base_url="https://audit-master-19.preview.emergentagent.com/api"):
         self.base_url = base_url
         self.token = None
         self.admin_token = None
