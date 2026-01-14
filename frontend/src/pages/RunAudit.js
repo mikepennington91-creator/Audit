@@ -441,9 +441,9 @@ const RunAudit = () => {
           </div>
         )}
 
-        {/* Location Input */}
+        {/* Location and Line/Shift Input */}
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="pt-6 space-y-4">
             <div className="flex items-center gap-4">
               <MapPin className="w-5 h-5 text-muted-foreground" />
               <div className="flex-1">
@@ -455,6 +455,30 @@ const RunAudit = () => {
                 />
               </div>
             </div>
+            
+            {linesShifts.length > 0 && (
+              <div className="flex items-center gap-4">
+                <Layers className="w-5 h-5 text-muted-foreground" />
+                <div className="flex-1">
+                  <Select
+                    value={selectedLineShift || "none"}
+                    onValueChange={(value) => setSelectedLineShift(value === "none" ? "" : value)}
+                  >
+                    <SelectTrigger data-testid="line-shift-select">
+                      <SelectValue placeholder="Select line/shift (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No Line/Shift</SelectItem>
+                      {linesShifts.map(line => (
+                        <SelectItem key={line.id} value={line.id}>
+                          {line.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
