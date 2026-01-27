@@ -5,19 +5,17 @@ import { useTheme } from '../context/ThemeContext';
 import { useOffline } from '../context/OfflineContext';
 import { Button } from './ui/button';
 import { 
-  LayoutDashboard, 
-  Users, 
-  FolderOpen, 
-  FilePlus, 
-  ClipboardCheck, 
-  BarChart3, 
+  ClipboardList,
+  ClipboardCheck,
+  Package,
+  Factory,
+  Settings,
   Menu, 
   X, 
   LogOut, 
   Sun, 
   Moon,
   ChevronRight,
-  Calendar,
   WifiOff,
   RefreshCw,
   Cloud
@@ -27,7 +25,7 @@ const LOGO_URL = "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-49
 
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user, logout, isAdmin, isAuditCreator } = useAuth();
+  const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { isOnline, pendingCount, isSyncing, triggerSync } = useOffline();
   const location = useLocation();
@@ -38,17 +36,19 @@ const Layout = ({ children }) => {
     navigate('/login');
   };
 
-  const navItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, show: true },
-    { path: '/admin', label: 'Admin', icon: Users, show: isAdmin() },
-    { path: '/groups', label: 'Groups', icon: FolderOpen, show: true },
-    { path: '/create-audit', label: 'Create Audit', icon: FilePlus, show: isAuditCreator() },
-    { path: '/schedule', label: 'Schedule', icon: Calendar, show: isAuditCreator() },
-    { path: '/run-audit', label: 'Run Audit', icon: ClipboardCheck, show: true },
-    { path: '/reports', label: 'Reports', icon: BarChart3, show: true },
+  const navSections = [
+    {
+      title: 'Traceability',
+      items: [
+        { path: '/traceability', label: 'Overview', icon: ClipboardList },
+        { path: '/traceability#intake', label: 'Raw Material Intake', icon: Package },
+        { path: '/traceability#finished', label: 'Finished Batches', icon: Factory },
+        { path: '/traceability#usage', label: 'Material Usage', icon: ClipboardCheck },
+        { path: '/traceability#reports', label: 'Reports', icon: ClipboardList },
+        { path: '/traceability#config', label: 'Config', icon: Settings },
+      ],
+    },
   ];
-
-  const filteredNav = navItems.filter(item => item.show);
 
   return (
     <div className="min-h-screen bg-background">
@@ -150,30 +150,41 @@ const Layout = ({ children }) => {
           )}
 
           {/* Navigation */}
-          <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-            {filteredNav.map((item) => {
-              const isActive = location.pathname === item.path;
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setSidebarOpen(false)}
-                  data-testid={`nav-${item.path.slice(1)}`}
-                  className={`
-                    flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
-                    ${isActive 
-                      ? 'bg-primary text-primary-foreground shadow-sm' 
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }
-                  `}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span className="font-medium">{item.label}</span>
-                  {isActive && <ChevronRight className="w-4 h-4 ml-auto" />}
-                </Link>
-              );
-            })}
+          <nav className="flex-1 overflow-y-auto p-4 space-y-6">
+            {navSections.map(section => (
+              <div key={section.title} className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-3">
+                  {section.title}
+                </p>
+                <div className="space-y-1">
+                  {section.items.map((item) => {
+                    const isActive = location.pathname === item.path && !item.path.includes('#');
+                    const hash = item.path.split('#')[1];
+                    const isHashActive = hash && location.hash === `#${hash}`;
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => setSidebarOpen(false)}
+                        data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                        className={`
+                          flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
+                          ${(isActive || isHashActive)
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                          }
+                        `}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span className="font-medium">{item.label}</span>
+                        {(isActive || isHashActive) && <ChevronRight className="w-4 h-4 ml-auto" />}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </nav>
 
           {/* User Section */}

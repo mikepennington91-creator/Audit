@@ -6,13 +6,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { OfflineProvider } from "./context/OfflineContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Admin from "./pages/Admin";
-import Groups from "./pages/Groups";
-import CreateAudit from "./pages/CreateAudit";
-import Schedule from "./pages/Schedule";
-import RunAudit from "./pages/RunAudit";
-import Reports from "./pages/Reports";
+import Traceability from "./pages/Traceability";
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -67,57 +61,15 @@ function AppRoutes() {
       } />
       
       {/* Protected Routes */}
-      <Route path="/dashboard" element={
+      <Route path="/traceability" element={
         <ProtectedRoute>
-          <Dashboard />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/admin" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}>
-          <Admin />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/groups" element={
-        <ProtectedRoute>
-          <Groups />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/create-audit" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
-          <CreateAudit />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/schedule" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
-          <Schedule />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/run-audit" element={
-        <ProtectedRoute>
-          <RunAudit />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/run-audit/:runId" element={
-        <ProtectedRoute>
-          <RunAudit />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/reports" element={
-        <ProtectedRoute>
-          <Reports />
+          <Traceability />
         </ProtectedRoute>
       } />
       
       {/* Default redirect */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<Navigate to="/traceability" replace />} />
+      <Route path="*" element={<Navigate to="/traceability" replace />} />
     </Routes>
   );
 }
