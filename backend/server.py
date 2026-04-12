@@ -1535,13 +1535,15 @@ async def startup_event():
         await db.users.insert_one(admin_doc)
         logger.info("Default system admin created: admin@infinit-audit.co.uk / admin123")
     else:
-        # Upgrade existing admin to system_admin if they're the original default admin
-        if admin.get("role") == UserRole.ADMIN and admin.get("company_id") is None:
-            await db.users.update_one(
-                {"email": "admin@infinit-audit.co.uk"},
-                {"$set": {"role": UserRole.SYSTEM_ADMIN}}
-            )
-            logger.info("Upgraded default admin to system_admin")
+        # Always ensure the default admin has correct role and password
+        await db.users.update_one(
+            {"email": "admin@infinit-audit.co.uk"},
+            {"$set": {
+                "role": UserRole.SYSTEM_ADMIN,
+                "password": hash_password("admin123")
+            }}
+        )
+        logger.info("Default system admin credentials ensured: admin@infinit-audit.co.uk / admin123")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
