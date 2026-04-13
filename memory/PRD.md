@@ -12,285 +12,83 @@ Build an auditing system called Infinit-Audit for the food industry. Users can c
 - Groups (response sets and audit types)
 - Run Audit (with photo uploads)
 - Reports section
+- Traceability page
 
 ## User Personas
 
-### Admin
-- Full system access
-- User management (CRUD)
-- Can create audits, groups, run audits, view reports
-
+### System Admin
+- Full system access, user management, company management
+### Company Admin
+- Company-specific admin, manage users within company
 ### Audit Creator
-- Can create response groups and audit types
-- Can create and manage audit templates
-- Can run audits and view reports
-- Cannot access user management
-
+- Create response groups, audit types, audit templates, run audits, view reports
 ### User (Normal User)
-- Can run audits
-- Can view reports
-- Cannot create audits or manage groups
+- Run audits, view reports
 
-## Core Requirements (Static)
+## Core Requirements
 
-1. **Authentication**
-   - JWT-based authentication
-   - Role-based access control (admin, audit_creator, user)
-   - Default admin: admin@infinit-audit.co.uk / admin123
+1. **Authentication** - JWT-based, role-based access control
+2. **Response Groups** - Reusable response sets with scoring and pass/fail per option
+3. **Audit Types** - Categorize audits (GMP, HACCP, etc.)
+4. **Audit Creation** - Builder with questions, response sets, pass rate threshold, pass/fail per option
+5. **Run Audit** - Execute templates, location, photos, notes, pass/fail toggles, signature sign-off
+6. **Reports** - Completed audits, stats, PDF export
+7. **Audit Overview** - Per-audit stats, date range filter, pass/fail filter, completed runs list
+8. **Traceability** - Standalone traceability page (localStorage-based)
+9. **Scheduling** - Schedule audits, assign users, track status
+10. **Offline Support** - PWA with service worker, IndexedDB
 
-2. **Response Groups**
-   - Create reusable response sets (Pass/Fail, Yes/No, Accept/Reject)
-   - Optional scoring per response option (0-1 scale)
-   - Used in audit questions
+## Technical Stack
+- **Backend:** FastAPI, MongoDB (motor), JWT, bcrypt, ReportLab (PDF)
+- **Frontend:** React, Tailwind CSS, Shadcn/UI, Axios, react-day-picker
+- **Deployment:** Vercel (Frontend), Render (Backend), MongoDB Atlas
 
-3. **Audit Types**
-   - Categorize audits (GMP, HACCP, Food Safety, etc.)
-   - Name and description
+## API Endpoints
+- Auth: POST /api/auth/register, /api/auth/login, GET /api/auth/me
+- Users: CRUD /api/users, POST /api/users/bulk-import, GET /api/users/export-template
+- Companies: CRUD /api/companies, GET /api/companies/{id}/dashboard
+- Response Groups: CRUD /api/response-groups
+- Audit Types: CRUD /api/audit-types
+- Lines/Shifts: CRUD /api/lines-shifts
+- Audits: CRUD /api/audits, GET /api/audits/{id}/runs (overview with filters)
+- Run Audits: CRUD /api/run-audits, GET /api/run-audits/{id}/details, GET /api/run-audits/{id}/pdf
+- Scheduling: CRUD /api/scheduled-audits
+- Dashboard: GET /api/dashboard/stats
+- Photos: POST /api/upload-photo
 
-4. **Audit Creation**
-   - Name, description, audit type selection
-   - Pass rate percentage (optional)
-   - Private/public visibility
-   - Add questions with response sets or custom responses
-   - Scoring enablement per question
+## What's Been Implemented
 
-5. **Run Audit**
-   - Select and execute audit templates
-   - Location tracking
-   - Photo uploads for evidence
-   - Notes per question and overall
-   - Progress saving
-   - Score calculation and pass/fail status
+### Phase 1 - Core (Jan 2026)
+- Authentication, User Management, Company Management
+- Response Groups, Audit Types, Lines/Shifts
+- Audit Creation & Execution
+- Reports with PDF export
+- UK Timezone support, Company data isolation
+- Negative response comments requirement
 
-6. **Reports**
-   - View completed audits
-   - Pass rate statistics
-   - Analytics placeholder for future charts
+### Phase 2 - Enhancement (Jan 2026)
+- Bulk user import via CSV
+- Audit scheduling with status tracking
+- Company compliance dashboard
+- Offline PWA support (service worker + IndexedDB)
+- Traceability page
 
-7. **Theme**
-   - Light and dark mode toggle
-   - Professional, clean design
-
-## What's Been Implemented (January 2026)
-
-### Backend (FastAPI + MongoDB)
-- ✅ User authentication (register, login, JWT tokens)
-- ✅ User management CRUD (admin only)
-- ✅ Response Groups CRUD
-- ✅ Audit Types CRUD
-- ✅ Audits CRUD with questions
-- ✅ Run Audits with answers, photos, scoring
-- ✅ Photo upload (base64 storage)
-- ✅ Dashboard statistics
-
-### Frontend (React + Tailwind + Shadcn)
-- ✅ Login/Register page with branded design
-- ✅ Dashboard with stats and quick actions
-- ✅ Sidebar navigation
-- ✅ Admin page - user management
-- ✅ Groups page - response sets and audit types
-- ✅ Create Audit page - builder layout
-- ✅ Run Audit page - mobile-friendly questionnaire
-- ✅ Reports page - completed audits table
-- ✅ Theme toggle (light/dark mode)
-
-### Design
-- Outfit font for headings, Inter for body
-- Teal/Blue primary colors matching logo
-- Glassmorphism login card
-- Clean, minimalistic interface
+### Phase 3 - New Features (Apr 2026)
+- **Audit Overview Page** (/audits/:auditId) - Per-audit stats (pass %, completed count, failed count), date range calendar filter, pass/fail status filter, completed runs table with view/download actions
+- **Pass/Fail Scoring System** - Each question has pass/fail tracking. Response group options have is_negative flag (set at creation). Text/number/alphanumeric questions have manual Pass/Fail toggle during audit. Score = (pass_count / total_questions) * 100. Auto-flag as fail if below pass_rate threshold
+- **Audit Sign-off** - Signature canvas at end of each audit. Auto-logs user name and email. Signature required before submission. Signature stored and displayed in reports/PDF
 
 ## Prioritized Backlog
 
-### P0 - Critical (Done)
-- ✅ Authentication system
-- ✅ Core CRUD operations
-- ✅ Audit creation and execution flow
-
 ### P1 - High Priority (Next)
-- [ ] PDF export for completed audits
-- [ ] Detailed report view with all answers
-- [ ] Analytics charts (Recharts integration)
-- [ ] Edit existing audits
+- [ ] Email reminders for scheduled audits (requires email service integration)
 
 ### P2 - Medium Priority
-- [ ] Offline capability (Service Workers)
-- [ ] Audit scheduling
-- [ ] Email notifications
-- [ ] Bulk user import
+- [ ] Refactor backend (split server.py into modular routers)
+- [ ] Company Dashboard Analytics enhancements
 
 ### P3 - Nice to Have
 - [ ] Mobile app (React Native)
 - [ ] Multi-language support
 - [ ] Custom branding per organization
 - [ ] Audit templates marketplace
-
-## Next Tasks
-1. Implement PDF export for audit reports
-2. Add detailed view for completed audit runs
-3. Integrate analytics charts on Reports page
-4. Add ability to edit existing audits
-5. Implement offline capability with service workers
-
-## Technical Stack
-- **Backend:** FastAPI, MongoDB, JWT, bcrypt
-- **Frontend:** React, Tailwind CSS, Shadcn/UI, Axios
-- **Deployment:** Emergent Platform
-
-## API Endpoints
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `GET /api/auth/me` - Get current user
-- `GET/POST/PUT/DELETE /api/users` - User management
-- `GET/POST/DELETE /api/response-groups` - Response sets
-- `GET/POST/DELETE /api/audit-types` - Audit categories
-- `GET/POST/PUT/DELETE /api/audits` - Audit templates
-- `GET/POST/PUT /api/run-audits` - Audit execution
-- `POST /api/upload-photo` - Photo evidence upload
-- `GET /api/dashboard/stats` - Dashboard statistics
-
----
-
-## Update: January 13, 2026 - Enhancement Phase
-
-### New Features Implemented
-
-1. **UK Timezone Support**
-   - All timestamps now use Europe/London timezone
-   - Backend uses `zoneinfo.ZoneInfo("Europe/London")` 
-   - Frontend displays dates in `en-GB` format with `Europe/London` timeZone
-
-2. **Company Management (Admin)**
-   - CRUD operations for companies
-   - Assign users to companies
-   - Company-based data isolation
-
-3. **Data Isolation by Company**
-   - Response groups filtered by company
-   - Audit types filtered by company
-   - Audits filtered by company (with visibility rules)
-   - Users can only see data from their assigned company
-
-4. **Detailed Audit View**
-   - Click on completed audit in Reports to see full details
-   - Shows all questions with responses
-   - Displays comments/notes per question
-   - Shows photo evidence
-   - Shows pass/fail status and scores
-
-5. **Required Comments on Negative Responses**
-   - Auto-detection of negative keywords (fail, no, reject, etc.)
-   - Visual indicator when negative response selected without comment
-   - Validation prevents submission without required comments
-   - `is_negative` flag stored with response options
-
-### API Endpoints Added
-- `GET/POST/PUT/DELETE /api/companies` - Company CRUD
-- `GET /api/run-audits/{id}/details` - Detailed audit view with enriched answers
-
-### Database Schema Updates
-- Users: Added `company_id` field
-- Response Groups: Added `company_id`, `is_negative` on options
-- Audit Types: Added `company_id`
-- Audits: Added `company_id`
-- Run Audit Answers: Added `is_negative` flag
-
----
-
-## Update: January 13, 2026 - Feature Expansion
-
-### New Features Implemented
-
-1. **PDF Export for Audit Reports**
-   - Generate branded PDF reports with ReportLab library
-   - Includes audit metadata, questions, responses, scores
-   - Color-coded pass/fail indicators
-   - Company branding with Infinit-Audit footer
-   - Download via button in Reports table and detail modal
-
-2. **Bulk User Import via CSV**
-   - Download CSV template with example rows
-   - Upload CSV to bulk create users
-   - Columns: email, name, role, company_id, password
-   - Validation with error reporting
-   - Skip duplicate emails
-
-3. **Audit Scheduling**
-   - Schedule audits for specific dates
-   - Assign to specific users
-   - Set location and notes
-   - Configurable reminder days (0, 1, 2, 3, 7 days)
-   - Track status: pending, overdue, completed
-   - Dashboard shows pending/overdue counts
-
-4. **Company Compliance Dashboard**
-   - Select company from dropdown
-   - Shows key metrics: users, completed, pass rate, scheduled
-   - 6-month trend chart with pass rates
-   - Recent activity list
-
-### API Endpoints Added
-- `GET /api/run-audits/{id}/pdf` - Generate PDF report
-- `POST /api/users/bulk-import` - Bulk import from CSV
-- `GET /api/users/export-template` - Download CSV template
-- `GET/POST/DELETE /api/scheduled-audits` - Scheduling CRUD
-- `GET /api/scheduled-audits/my-schedule` - User's scheduled audits
-- `PUT /api/scheduled-audits/{id}/complete` - Mark as completed
-- `GET /api/companies/{id}/dashboard` - Company analytics
-
-### Libraries Added
-- Backend: reportlab (PDF generation)
-- Frontend: date-fns (date formatting for calendar)
-
-### Next Phase Features
-- Email notifications for scheduled audit reminders
-- Multi-location audit templates
-- Audit template versioning
-- Historical trend comparisons
-- Mobile app (React Native)
-
----
-
-## Update: January 14, 2026 - Offline Capability & UI Improvements
-
-### New Features Implemented
-
-1. **Full Offline Support (PWA)**
-   - Service Worker for caching app assets and API data
-   - IndexedDB for storing offline audit submissions
-   - Automatic sync when connectivity restores
-   - Visual offline indicators in sidebar
-   - Cache API responses for offline browsing
-
-2. **UI Improvements**
-   - **Bigger Logo**: Increased logo size across app
-     - Login page: h-24 (was h-16)
-     - Sidebar: h-14 (was h-9)  
-     - Mobile header: h-12 (was h-8)
-   - **Removed Emergent Badge**: Cleaned up index.html
-   - Updated app metadata and manifest
-
-3. **Render Deployment Configuration**
-   - `render.yaml` for blueprint deployment
-   - Backend Dockerfile with WeasyPrint dependencies
-   - Comprehensive deployment guide (DEPLOYMENT.md)
-   - Free tier hosting: Render + MongoDB Atlas
-
-### Files Added
-- `/app/frontend/public/service-worker.js` - SW for offline caching
-- `/app/frontend/public/manifest.json` - PWA manifest
-- `/app/frontend/src/utils/offlineDB.js` - IndexedDB utilities
-- `/app/frontend/src/context/OfflineContext.js` - Offline state management
-- `/app/render.yaml` - Render deployment config
-- `/app/backend/Dockerfile` - Backend container config
-- `/app/DEPLOYMENT.md` - Deployment instructions
-
-### Hosting Recommendations (Free Tier)
-- **Frontend**: Render Static Site (free)
-- **Backend**: Render Web Service (free, 750 hrs/month)
-- **Database**: MongoDB Atlas (free, 512MB)
-- **Total**: $0/month
-
-### Remaining Tasks
-- [ ] Email reminders for scheduled audits (requires email service integration)
-- [ ] Backend refactoring (split server.py into routers)
