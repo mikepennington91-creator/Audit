@@ -374,7 +374,7 @@ const Reports = () => {
 
       {/* Details Modal */}
       <Dialog open={!!selectedRun} onOpenChange={(open) => !open && closeDetails()}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-3xl w-[95vw] h-[90vh] sm:h-auto sm:max-h-[85vh] overflow-y-auto flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between pr-8">
               <span>{selectedRun?.audit_name}</span>
@@ -413,7 +413,7 @@ const Reports = () => {
               ))}
             </div>
           ) : runDetails ? (
-            <ScrollArea className="flex-1 pr-4">
+            <div className="flex-1 overflow-y-auto pr-2">
               <div className="space-y-6 pb-4">
                 {/* Meta Info */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
@@ -535,7 +535,7 @@ const Reports = () => {
                   </>
                 )}
               </div>
-            </ScrollArea>
+            </div>
           ) : null}
         </DialogContent>
       </Dialog>
