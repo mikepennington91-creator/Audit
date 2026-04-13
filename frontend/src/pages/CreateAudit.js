@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -28,7 +28,10 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const CreateAudit = () => {
   const navigate = useNavigate();
+  const { auditId } = useParams();
+  const isEditMode = !!auditId;
   const [loading, setLoading] = useState(false);
+  const [loadingAudit, setLoadingAudit] = useState(false);
   const [auditTypes, setAuditTypes] = useState([]);
   const [responseGroups, setResponseGroups] = useState([]);
   
@@ -46,6 +49,40 @@ const CreateAudit = () => {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (isEditMode) {
+      loadAudit();
+    }
+  }, [auditId]);
+
+  const loadAudit = async () => {
+    setLoadingAudit(true);
+    try {
+      const response = await axios.get(`${API}/audits/${auditId}`);
+      const audit = response.data;
+      setAuditName(audit.name || '');
+      setDescription(audit.description || '');
+      setAuditTypeId(audit.audit_type_id || '');
+      setPassRate(audit.pass_rate != null ? String(audit.pass_rate) : '');
+      setIsPrivate(audit.is_private || false);
+      setQuestions((audit.questions || []).map(q => ({
+        id: q.id || Date.now() + Math.random(),
+        text: q.text || '',
+        question_type: q.question_type || 'response_group',
+        response_group_id: q.response_group_id || '',
+        custom_responses: q.custom_responses || [],
+        enable_scoring: q.enable_scoring || false,
+        required: q.required !== false,
+        useCustomResponses: !q.response_group_id && (q.custom_responses?.length > 0)
+      })));
+    } catch (error) {
+      toast.error('Failed to load audit');
+      navigate('/create-audit');
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -194,11 +231,16 @@ const CreateAudit = () => {
         }))
       };
 
-      await axios.post(`${API}/audits`, payload);
-      toast.success('Audit created successfully!');
+      if (isEditMode) {
+        await axios.put(`${API}/audits/${auditId}`, payload);
+        toast.success('Audit updated successfully!');
+      } else {
+        await axios.post(`${API}/audits`, payload);
+        toast.success('Audit created successfully!');
+      }
       navigate('/run-audit');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create audit');
+      toast.error(error.response?.data?.detail || (isEditMode ? 'Failed to update audit' : 'Failed to create audit'));
     } finally {
       setLoading(false);
     }
@@ -212,14 +254,22 @@ const CreateAudit = () => {
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Create New Audit</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{isEditMode ? 'Edit Audit' : 'Create New Audit'}</h1>
           <p className="text-muted-foreground mt-1">
-            Build a custom audit template with questions and response options
+            {isEditMode 
+              ? 'Update this audit template — changes apply to future runs only'
+              : 'Build a custom audit template with questions and response options'
+            }
           </p>
         </div>
       </div>
 
       <form onSubmit={handleSubmit}>
+        {loadingAudit ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Main Content - Questions */}
           <div className="lg:col-span-8 space-y-4">
@@ -578,12 +628,13 @@ const CreateAudit = () => {
                   data-testid="create-audit-submit"
                 >
                   <Save className="w-4 h-4 mr-2" />
-                  {loading ? 'Creating...' : 'Create Audit'}
+                  {loading ? (isEditMode ? 'Updating...' : 'Creating...') : (isEditMode ? 'Update Audit' : 'Create Audit')}
                 </Button>
               </CardContent>
             </Card>
           </div>
         </div>
+        )}
       </form>
     </div>
   );

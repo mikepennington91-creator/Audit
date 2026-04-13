@@ -12,6 +12,7 @@ import { Skeleton } from '../components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import { useOffline } from '../context/OfflineContext';
+import { useAuth } from '../context/AuthContext';
 import { saveOfflineAudit, getCachedData, cacheData } from '../utils/offlineDB';
 import { 
   Play, 
@@ -29,7 +30,8 @@ import {
   Layers,
   Type,
   Hash,
-  TextCursorInput
+  TextCursorInput,
+  Pencil
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -39,6 +41,7 @@ const RunAudit = () => {
   const { runId } = useParams();
   const fileInputRef = useRef(null);
   const { isOnline, updatePendingCount } = useOffline();
+  const { isAuditCreator } = useAuth();
   
   const [audits, setAudits] = useState([]);
   const [responseGroups, setResponseGroups] = useState([]);
@@ -515,14 +518,26 @@ const RunAudit = () => {
                       <span>Pass rate: {audit.pass_rate}%</span>
                     )}
                   </div>
-                  <Button 
-                    className="w-full" 
-                    onClick={() => startAudit(audit)}
-                    data-testid={`start-audit-${audit.id}`}
-                  >
-                    <Play className="w-4 h-4 mr-2" />
-                    Start Audit
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      className="flex-1" 
+                      onClick={() => startAudit(audit)}
+                      data-testid={`start-audit-${audit.id}`}
+                    >
+                      <Play className="w-4 h-4 mr-2" />
+                      Start Audit
+                    </Button>
+                    {isAuditCreator() && (
+                      <Button 
+                        variant="outline"
+                        size="icon"
+                        onClick={() => navigate(`/create-audit/${audit.id}`)}
+                        data-testid={`edit-audit-${audit.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             ))}
