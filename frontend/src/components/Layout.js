@@ -63,7 +63,7 @@ const Layout = ({ children }) => {
             <Menu className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-2">
-            <img src={LOGO_URL} alt="Infinit-Audit" className="h-12" />
+            <img src={LOGO_URL} alt="Infinit-Audit" className="h-16" />
             {!isOnline && (
               <span className="flex items-center gap-1 text-xs bg-amber-500/20 text-amber-500 px-2 py-1 rounded-full">
                 <WifiOff className="w-3 h-3" />
@@ -98,8 +98,8 @@ const Layout = ({ children }) => {
       `}>
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="h-20 flex items-center justify-between px-4 border-b">
-            <img src={LOGO_URL} alt="Infinit-Audit" className="h-14" />
+          <div className="h-24 flex items-center justify-between px-5 border-b">
+            <img src={LOGO_URL} alt="Infinit-Audit" className="h-20" />
             <button 
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden p-2 hover:bg-muted rounded-lg transition-colors"
