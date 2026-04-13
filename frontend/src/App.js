@@ -13,6 +13,7 @@ import CreateAudit from "./pages/CreateAudit";
 import Schedule from "./pages/Schedule";
 import RunAudit from "./pages/RunAudit";
 import Reports from "./pages/Reports";
+import Traceability from "./pages/Traceability";
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -112,6 +113,12 @@ function AppRoutes() {
       <Route path="/reports" element={
         <ProtectedRoute>
           <Reports />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/traceability" element={
+        <ProtectedRoute>
+          <Traceability />
         </ProtectedRoute>
       } />
       

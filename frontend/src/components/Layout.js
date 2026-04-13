@@ -20,7 +20,8 @@ import {
   Calendar,
   WifiOff,
   RefreshCw,
-  Cloud
+  Cloud,
+  ClipboardList
 } from 'lucide-react';
 
 const LOGO_URL = "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png";
@@ -46,6 +47,7 @@ const Layout = ({ children }) => {
     { path: '/schedule', label: 'Schedule', icon: Calendar, show: isAuditCreator() },
     { path: '/run-audit', label: 'Run Audit', icon: ClipboardCheck, show: true },
     { path: '/reports', label: 'Reports', icon: BarChart3, show: true },
+    { path: '/traceability', label: 'Traceability', icon: ClipboardList, show: true },
   ];
 
   const filteredNav = navItems.filter(item => item.show);
@@ -54,7 +56,7 @@ const Layout = ({ children }) => {
     <div className="min-h-screen bg-background">
       {/* Mobile Header */}
       <header className="lg:hidden fixed top-0 left-0 right-0 z-50 glass border-b">
-        <div className="flex items-center justify-between h-16 px-4">
+        <div className="flex items-center justify-between h-20 px-4">
           <button 
             onClick={() => setSidebarOpen(true)}
             className="p-2 hover:bg-muted rounded-lg transition-colors"
@@ -63,7 +65,7 @@ const Layout = ({ children }) => {
             <Menu className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-2">
-            <img src={LOGO_URL} alt="Infinit-Audit" className="h-16" />
+            <img src={LOGO_URL} alt="Infinit-Audit" className="h-16 w-auto" />
             {!isOnline && (
               <span className="flex items-center gap-1 text-xs bg-amber-500/20 text-amber-500 px-2 py-1 rounded-full">
                 <WifiOff className="w-3 h-3" />
@@ -98,8 +100,8 @@ const Layout = ({ children }) => {
       `}>
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="h-24 flex items-center justify-between px-5 border-b">
-            <img src={LOGO_URL} alt="Infinit-Audit" className="h-20" />
+          <div className="py-6 flex items-center justify-between px-4 border-b">
+            <img src={LOGO_URL} alt="Infinit-Audit" className="w-44" />
             <button 
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden p-2 hover:bg-muted rounded-lg transition-colors"
@@ -217,7 +219,7 @@ const Layout = ({ children }) => {
       </aside>
 
       {/* Main Content */}
-      <main className="lg:ml-64 pt-16 lg:pt-0 min-h-screen">
+      <main className="lg:ml-64 pt-20 lg:pt-0 min-h-screen">
         <div className="p-4 md:p-6 lg:p-8">
           {children}
         </div>
