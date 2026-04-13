@@ -228,6 +228,7 @@ class AnswerSubmit(BaseModel):
     notes: Optional[str] = None
     photos: Optional[List[str]] = []
     is_negative: bool = False  # True if this is a fail/negative response
+    pass_fail: Optional[str] = None  # "pass" or "fail" - manual assignment for text questions
 
 class RunAuditCreate(BaseModel):
     audit_id: str
@@ -238,6 +239,9 @@ class RunAuditSubmit(BaseModel):
     answers: List[AnswerSubmit]
     notes: Optional[str] = None
     completed: bool = False
+    signature: Optional[str] = None  # base64 signature image
+    signoff_name: Optional[str] = None
+    signoff_email: Optional[str] = None
 
 class RunAuditResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -256,6 +260,9 @@ class RunAuditResponse(BaseModel):
     pass_status: Optional[str]
     started_at: str
     completed_at: Optional[str]
+    signature: Optional[str] = None
+    signoff_name: Optional[str] = None
+    signoff_email: Optional[str] = None
 
 # ==================== AUTH HELPERS ====================
 
@@ -845,6 +852,52 @@ async def delete_audit(
         raise HTTPException(status_code=404, detail="Audit not found")
     return {"message": "Audit deleted successfully"}
 
+# ==================== AUDIT RUNS OVERVIEW ====================
+
+@api_router.get("/audits/{audit_id}/runs")
+async def get_audit_runs(
+    audit_id: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    pass_status: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """Get all completed runs for a specific audit with stats and filtering"""
+    audit = await db.audits.find_one({"id": audit_id}, {"_id": 0})
+    if not audit:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    
+    # Build query for filtered runs
+    query = {"audit_id": audit_id, "completed": True}
+    
+    if date_from:
+        query.setdefault("completed_at", {})
+        query["completed_at"]["$gte"] = date_from
+    if date_to:
+        query.setdefault("completed_at", {})
+        query["completed_at"]["$lte"] = date_to
+    if pass_status and pass_status != "all":
+        query["pass_status"] = pass_status
+    
+    runs = await db.run_audits.find(query, {"_id": 0, "signature": 0}).sort("completed_at", -1).to_list(1000)
+    
+    # Calculate overall stats (unfiltered)
+    all_completed = await db.run_audits.count_documents({"audit_id": audit_id, "completed": True})
+    passed = await db.run_audits.count_documents({"audit_id": audit_id, "completed": True, "pass_status": "pass"})
+    failed = await db.run_audits.count_documents({"audit_id": audit_id, "completed": True, "pass_status": "fail"})
+    pass_percentage = (passed / all_completed * 100) if all_completed > 0 else 0
+    
+    return {
+        "audit": {k: v for k, v in audit.items() if k != "_id"},
+        "stats": {
+            "total_completed": all_completed,
+            "passed": passed,
+            "failed": failed,
+            "pass_percentage": round(pass_percentage, 1)
+        },
+        "runs": runs
+    }
+
 # ==================== RUN AUDITS ====================
 
 @api_router.post("/run-audits", response_model=RunAuditResponse)
@@ -877,7 +930,10 @@ async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(get_cur
         "total_score": None,
         "pass_status": None,
         "started_at": get_uk_time_iso(),
-        "completed_at": None
+        "completed_at": None,
+        "signature": None,
+        "signoff_name": None,
+        "signoff_email": None
     }
     await db.run_audits.insert_one(run_doc)
     return RunAuditResponse(**run_doc)
@@ -899,14 +955,24 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
                 detail=f"Comment required for negative/fail response on question"
             )
     
-    # Calculate score if scoring enabled
+    # Calculate score based on pass/fail per question
     total_score = None
     pass_status = None
     
     if submit_data.completed:
-        scores = [a["score"] for a in answers if a.get("score") is not None]
-        if scores:
-            total_score = sum(scores) / len(scores) * 100
+        total_questions = len(answers)
+        if total_questions > 0:
+            pass_count = 0
+            for answer in answers:
+                pf = answer.get("pass_fail")
+                if pf == "pass":
+                    pass_count += 1
+                elif pf == "fail":
+                    pass  # counted as fail
+                elif not answer.get("is_negative"):
+                    pass_count += 1  # backward compat: non-negative = pass
+            
+            total_score = (pass_count / total_questions) * 100
             audit = await db.audits.find_one({"id": run_audit["audit_id"]}, {"_id": 0})
             if audit and audit.get("pass_rate"):
                 pass_status = "pass" if total_score >= audit["pass_rate"] else "fail"
@@ -916,7 +982,10 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
         "notes": submit_data.notes,
         "completed": submit_data.completed,
         "total_score": total_score,
-        "pass_status": pass_status
+        "pass_status": pass_status,
+        "signature": submit_data.signature,
+        "signoff_name": submit_data.signoff_name,
+        "signoff_email": submit_data.signoff_email
     }
     if submit_data.completed:
         update_dict["completed_at"] = get_uk_time_iso()
@@ -1146,6 +1215,38 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(get_current_user)):
         story.append(Spacer(1, 0.2*inch))
         story.append(Paragraph("General Notes", heading_style))
         story.append(Paragraph(run_audit.get("notes"), normal_style))
+    
+    # Sign-off section
+    if run_audit.get("signoff_name"):
+        story.append(Spacer(1, 0.3*inch))
+        story.append(Paragraph("Sign Off", heading_style))
+        signoff_data = [
+            ["Signed by:", run_audit.get("signoff_name", "N/A")],
+            ["Email:", run_audit.get("signoff_email", "N/A")],
+        ]
+        signoff_table = Table(signoff_data, colWidths=[2*inch, 4*inch])
+        signoff_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), HexColor('#f0f9f8')),
+            ('TEXTCOLOR', (0, 0), (0, -1), HexColor('#1a7a6e')),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e0e0e0')),
+            ('PADDING', (0, 0), (-1, -1), 8),
+        ]))
+        story.append(signoff_table)
+        
+        # Add signature image if available
+        if run_audit.get("signature") and run_audit["signature"].startswith("data:image"):
+            try:
+                sig_data = run_audit["signature"].split(",", 1)[1]
+                sig_bytes = base64.b64decode(sig_data)
+                sig_buffer = io.BytesIO(sig_bytes)
+                sig_img = RLImage(sig_buffer, width=3*inch, height=1*inch)
+                story.append(Spacer(1, 0.1*inch))
+                story.append(sig_img)
+            except Exception:
+                pass
     
     # Footer
     story.append(Spacer(1, 0.5*inch))

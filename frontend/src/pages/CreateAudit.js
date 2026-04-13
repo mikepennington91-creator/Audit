@@ -160,7 +160,7 @@ const CreateAudit = () => {
     if (!newQuestions[questionIndex].custom_responses) {
       newQuestions[questionIndex].custom_responses = [];
     }
-    newQuestions[questionIndex].custom_responses.push({ label: '', value: '', score: null });
+    newQuestions[questionIndex].custom_responses.push({ label: '', value: '', score: null, is_negative: false });
     setQuestions(newQuestions);
   };
 
@@ -223,7 +223,8 @@ const CreateAudit = () => {
           custom_responses: q.question_type === 'response_group' && q.custom_responses?.length > 0 ? q.custom_responses.map(r => ({
             label: r.label,
             value: r.value || r.label.toLowerCase().replace(/\s+/g, '_'),
-            score: q.enable_scoring ? parseFloat(r.score) || 0 : null
+            score: q.enable_scoring ? parseFloat(r.score) || 0 : null,
+            is_negative: r.is_negative || false
           })) : null,
           enable_scoring: q.enable_scoring,
           required: q.required,
@@ -503,6 +504,16 @@ const CreateAudit = () => {
                                         onChange={(e) => updateCustomResponse(qIndex, rIndex, 'label', e.target.value)}
                                         className="flex-1"
                                       />
+                                      <Button
+                                        type="button"
+                                        variant={response.is_negative ? "destructive" : "outline"}
+                                        size="sm"
+                                        className="min-w-[60px] text-xs"
+                                        onClick={() => updateCustomResponse(qIndex, rIndex, 'is_negative', !response.is_negative)}
+                                        data-testid={`response-passfail-${qIndex}-${rIndex}`}
+                                      >
+                                        {response.is_negative ? 'Fail' : 'Pass'}
+                                      </Button>
                                       {question.enable_scoring && (
                                         <Input
                                           type="number"
@@ -599,7 +610,7 @@ const CreateAudit = () => {
                     data-testid="pass-rate-input"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Minimum score required to pass (only applies if scoring is enabled)
+                    Minimum pass percentage - audits scoring below this will be flagged as failed
                   </p>
                 </div>
 

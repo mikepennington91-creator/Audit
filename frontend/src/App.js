@@ -14,6 +14,7 @@ import Schedule from "./pages/Schedule";
 import RunAudit from "./pages/RunAudit";
 import Reports from "./pages/Reports";
 import Traceability from "./pages/Traceability";
+import AuditOverview from "./pages/AuditOverview";
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -101,6 +102,12 @@ function AppRoutes() {
       <Route path="/schedule" element={
         <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <Schedule />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/audits/:auditId" element={
+        <ProtectedRoute>
+          <AuditOverview />
         </ProtectedRoute>
       } />
       

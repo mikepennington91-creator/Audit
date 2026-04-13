@@ -31,7 +31,11 @@ import {
   Type,
   Hash,
   TextCursorInput,
-  Pencil
+  Pencil,
+  CheckCircle2,
+  XCircle,
+  PenLine,
+  BarChart3
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -41,7 +45,7 @@ const RunAudit = () => {
   const { runId } = useParams();
   const fileInputRef = useRef(null);
   const { isOnline, updatePendingCount } = useOffline();
-  const { isAuditCreator } = useAuth();
+  const { isAuditCreator, user } = useAuth();
   
   const [audits, setAudits] = useState([]);
   const [responseGroups, setResponseGroups] = useState([]);
@@ -59,6 +63,11 @@ const RunAudit = () => {
   const [selectedLineShift, setSelectedLineShift] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [currentPhotoQuestion, setCurrentPhotoQuestion] = useState(null);
+  
+  // Signature state
+  const [signature, setSignature] = useState(null);
+  const signatureCanvasRef = useRef(null);
+  const [isSignatureDrawing, setIsSignatureDrawing] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -199,7 +208,8 @@ const RunAudit = () => {
         score: option.score,
         notes: answers[question.id]?.notes || '',
         photos: answers[question.id]?.photos || [],
-        is_negative: isNegative
+        is_negative: isNegative,
+        pass_fail: isNegative ? 'fail' : 'pass'
       }
     });
   };
@@ -214,9 +224,82 @@ const RunAudit = () => {
         score: null,
         notes: answers[question.id]?.notes || '',
         photos: answers[question.id]?.photos || [],
-        is_negative: false
+        is_negative: answers[question.id]?.pass_fail === 'fail',
+        pass_fail: answers[question.id]?.pass_fail || null
       }
     });
+  };
+
+  const handlePassFail = (questionId, status) => {
+    const currentAns = answers[questionId] || {
+      question_id: questionId,
+      response_value: '',
+      response_label: '',
+      score: null,
+      notes: '',
+      photos: [],
+    };
+    setAnswers({
+      ...answers,
+      [questionId]: {
+        ...currentAns,
+        pass_fail: status,
+        is_negative: status === 'fail'
+      }
+    });
+  };
+
+  // Signature drawing methods
+  const startSignatureDrawing = (e) => {
+    e.preventDefault();
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = ((e.touches?.[0]?.clientX ?? e.clientX) - rect.left) * scaleX;
+    const y = ((e.touches?.[0]?.clientY ?? e.clientY) - rect.top) * scaleY;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#000';
+    ctx.lineCap = 'round';
+    setIsSignatureDrawing(true);
+  };
+
+  const drawSignature = (e) => {
+    e.preventDefault();
+    if (!isSignatureDrawing) return;
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = ((e.touches?.[0]?.clientX ?? e.clientX) - rect.left) * scaleX;
+    const y = ((e.touches?.[0]?.clientY ?? e.clientY) - rect.top) * scaleY;
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopSignatureDrawing = () => {
+    if (isSignatureDrawing) {
+      setIsSignatureDrawing(false);
+      const canvas = signatureCanvasRef.current;
+      if (canvas) {
+        setSignature(canvas.toDataURL('image/png'));
+      }
+    }
+  };
+
+  const clearSignature = () => {
+    const canvas = signatureCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    setSignature(null);
   };
 
   const handlePhotoUpload = async (e) => {
@@ -336,6 +419,12 @@ const RunAudit = () => {
       }
       return;
     }
+
+    // Check signature
+    if (!signature) {
+      toast.error('Please sign off the audit before submitting');
+      return;
+    }
     
     setSubmitting(true);
     
@@ -377,7 +466,10 @@ const RunAudit = () => {
       await axios.put(`${API}/run-audits/${activeRun.id}`, {
         answers: Object.values(answers),
         notes,
-        completed: true
+        completed: true,
+        signature,
+        signoff_name: user?.name,
+        signoff_email: user?.email
       });
       toast.success('Audit submitted successfully!');
       navigate('/reports');
@@ -502,8 +594,11 @@ const RunAudit = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {audits.map((audit) => (
               <Card key={audit.id} className="hover:border-primary transition-colors" data-testid={`audit-card-${audit.id}`}>
-                <CardHeader>
-                  <CardTitle className="text-lg">{audit.name}</CardTitle>
+                <CardHeader className="cursor-pointer" onClick={() => navigate(`/audits/${audit.id}`)}>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{audit.name}</CardTitle>
+                    <BarChart3 className="w-4 h-4 text-muted-foreground" />
+                  </div>
                   {audit.audit_type_name && (
                     <Badge variant="secondary">{audit.audit_type_name}</Badge>
                   )}
@@ -723,6 +818,37 @@ const RunAudit = () => {
               </div>
             )}
 
+            {/* Pass/Fail Toggle for text-based questions */}
+            {questionType !== 'response_group' && (
+              <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg" data-testid="pass-fail-toggle">
+                <Label className="text-sm font-medium">Assessment:</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={currentAnswer?.pass_fail === 'pass' ? 'default' : 'outline'}
+                    size="sm"
+                    className={currentAnswer?.pass_fail === 'pass' ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white' : ''}
+                    onClick={() => handlePassFail(currentQuestion.id, 'pass')}
+                    data-testid="pass-btn"
+                  >
+                    <CheckCircle2 className="w-4 h-4 mr-1" />
+                    Pass
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={currentAnswer?.pass_fail === 'fail' ? 'default' : 'outline'}
+                    size="sm"
+                    className={currentAnswer?.pass_fail === 'fail' ? 'bg-red-600 hover:bg-red-700 border-red-600 text-white' : ''}
+                    onClick={() => handlePassFail(currentQuestion.id, 'fail')}
+                    data-testid="fail-btn"
+                  >
+                    <XCircle className="w-4 h-4 mr-1" />
+                    Fail
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Photo Upload */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -875,6 +1001,65 @@ const RunAudit = () => {
             rows={3}
             data-testid="general-notes"
           />
+        </CardContent>
+      </Card>
+
+      {/* Sign Off */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <PenLine className="w-4 h-4 text-primary" />
+            <CardTitle className="text-sm">Sign Off</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs text-muted-foreground">Name</Label>
+              <p className="text-sm font-medium" data-testid="signoff-name">{user?.name}</p>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Email</Label>
+              <p className="text-sm font-medium" data-testid="signoff-email">{user?.email}</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Signature *</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={clearSignature}
+                data-testid="clear-signature-btn"
+              >
+                Clear
+              </Button>
+            </div>
+            <canvas
+              ref={signatureCanvasRef}
+              width={600}
+              height={200}
+              className="w-full border rounded-lg bg-white cursor-crosshair touch-none"
+              style={{ maxHeight: '150px' }}
+              onMouseDown={startSignatureDrawing}
+              onMouseMove={drawSignature}
+              onMouseUp={stopSignatureDrawing}
+              onMouseLeave={stopSignatureDrawing}
+              onTouchStart={startSignatureDrawing}
+              onTouchMove={drawSignature}
+              onTouchEnd={stopSignatureDrawing}
+              data-testid="signature-canvas"
+            />
+            {!signature && (
+              <p className="text-xs text-muted-foreground">
+                Draw your signature above to sign off the audit
+              </p>
+            )}
+            {signature && (
+              <p className="text-xs text-emerald-600">Signature captured</p>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>
