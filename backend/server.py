@@ -887,7 +887,7 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
     if not run_audit:
         raise HTTPException(status_code=404, detail="Run audit not found")
-    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
+    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Validate that negative responses have comments
@@ -944,7 +944,7 @@ async def get_run_audit(run_id: str, user: dict = Depends(get_current_user)):
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
     if not run_audit:
         raise HTTPException(status_code=404, detail="Run audit not found")
-    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
+    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
         raise HTTPException(status_code=403, detail="Access denied")
     return RunAuditResponse(**run_audit)
 
@@ -954,7 +954,7 @@ async def get_run_audit_details(run_id: str, user: dict = Depends(get_current_us
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
     if not run_audit:
         raise HTTPException(status_code=404, detail="Run audit not found")
-    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
+    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Get the audit template to get question texts
@@ -1056,7 +1056,7 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(get_current_user)):
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
     if not run_audit:
         raise HTTPException(status_code=404, detail="Run audit not found")
-    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
+    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Get audit template
@@ -1381,7 +1381,7 @@ async def complete_scheduled_audit(
     if not schedule:
         raise HTTPException(status_code=404, detail="Scheduled audit not found")
     
-    if schedule["assigned_to"] != user["id"] and user["role"] not in [UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
+    if schedule["assigned_to"] != user["id"] and user["role"] not in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     await db.scheduled_audits.update_one(
