@@ -1,25 +1,22 @@
-const CACHE_NAME = 'infinit-audit-v1';
+const CACHE_NAME = 'infinit-audit-v2';
 const OFFLINE_QUEUE_KEY = 'offline-queue';
 
-// Assets to cache for offline use
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/static/js/bundle.js',
-  '/static/css/main.css',
   '/manifest.json'
 ];
 
-// API routes that can be cached
 const CACHEABLE_API_ROUTES = [
   '/api/audits',
   '/api/response-groups',
   '/api/audit-types',
-  '/api/stats'
+  '/api/traceability/templates'
 ];
 
-// Install event - cache static assets
+// Force immediate activation - skip waiting for old tabs to close
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('[SW] Caching static assets');
@@ -28,21 +25,20 @@ self.addEventListener('install', (event) => {
       });
     })
   );
-  self.skipWaiting();
 });
 
-// Activate event - clean up old caches
+// Activate event - clean old caches and take control immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
+        cacheNames.filter(name => name !== CACHE_NAME).map(name => {
+          console.log('[SW] Deleting old cache:', name);
+          return caches.delete(name);
+        })
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 // Fetch event - serve from cache, fallback to network
