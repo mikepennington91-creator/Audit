@@ -7,11 +7,12 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Checkbox } from '../components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import {
   Plus, FileText, ChevronRight, Calendar, Trash2,
-  AlertTriangle, Eye, FileDown, ClipboardCheck, PenLine
+  AlertTriangle, Eye, FileDown, ClipboardCheck, PenLine, Copy
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -24,6 +25,11 @@ const DocumentList = () => {
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [duplicating, setDuplicating] = useState(null);
+
+  // Batch PDF state
+  const [selectedDocs, setSelectedDocs] = useState(new Set());
+  const [downloadingBatch, setDownloadingBatch] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -66,6 +72,61 @@ const DocumentList = () => {
     }
   };
 
+  const handleDuplicate = async (template) => {
+    setDuplicating(template.id);
+    try {
+      const res = await axios.post(`${API}/traceability/templates/${template.id}/duplicate`);
+      toast.success(`Template duplicated as "${res.data.title}"`);
+      setTemplates(prev => [res.data, ...prev]);
+    } catch (error) {
+      toast.error('Failed to duplicate');
+    } finally {
+      setDuplicating(null);
+    }
+  };
+
+  const toggleDocSelection = (docId) => {
+    setSelectedDocs(prev => {
+      const next = new Set(prev);
+      if (next.has(docId)) next.delete(docId);
+      else next.add(docId);
+      return next;
+    });
+  };
+
+  const selectAllCompleted = () => {
+    const completed = documents.filter(d => d.completed);
+    if (selectedDocs.size === completed.length) {
+      setSelectedDocs(new Set());
+    } else {
+      setSelectedDocs(new Set(completed.map(d => d.id)));
+    }
+  };
+
+  const downloadBatchPdf = async () => {
+    if (selectedDocs.size === 0) return toast.error('Select at least one document');
+    setDownloadingBatch(true);
+    try {
+      const res = await axios.post(`${API}/traceability/documents/batch-pdf`,
+        { document_ids: Array.from(selectedDocs) },
+        { responseType: 'blob' }
+      );
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `batch_documents.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success(`Downloaded ${selectedDocs.size} document(s) as PDF`);
+    } catch (error) {
+      toast.error('Failed to download batch PDF');
+    } finally {
+      setDownloadingBatch(false);
+    }
+  };
+
   const formatDate = (iso) => {
     if (!iso) return '-';
     return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/London' });
@@ -98,6 +159,7 @@ const DocumentList = () => {
           )}
         </TabsList>
 
+        {/* Templates Tab */}
         <TabsContent value="templates" className="mt-4">
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -126,9 +188,24 @@ const DocumentList = () => {
                         Fill In
                       </Button>
                       {isAuditCreator() && (
-                        <Button variant="outline" size="sm" onClick={() => navigate(`/documents/design/${t.id}`)} data-testid={`edit-template-${t.id}`}>
-                          Edit
-                        </Button>
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => navigate(`/documents/design/${t.id}`)} data-testid={`edit-template-${t.id}`}>
+                            Edit
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDuplicate(t)}
+                            disabled={duplicating === t.id}
+                            data-testid={`duplicate-template-${t.id}`}
+                          >
+                            {duplicating === t.id ? (
+                              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <Copy className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </>
                       )}
                       {isAdmin() && (
                         <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => setDeleteTarget(t)} data-testid={`delete-template-${t.id}`}>
@@ -155,22 +232,55 @@ const DocumentList = () => {
           )}
         </TabsContent>
 
+        {/* Completed Tab */}
         <TabsContent value="completed" className="mt-4">
           {completedDocs.length > 0 ? (
             <div className="space-y-3">
+              {/* Batch actions bar */}
+              <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <Checkbox
+                    checked={selectedDocs.size === completedDocs.length && completedDocs.length > 0}
+                    onCheckedChange={selectAllCompleted}
+                    data-testid="select-all-docs"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    {selectedDocs.size > 0 ? `${selectedDocs.size} selected` : 'Select all'}
+                  </span>
+                </div>
+                {selectedDocs.size > 0 && (
+                  <Button size="sm" variant="outline" onClick={downloadBatchPdf} disabled={downloadingBatch} data-testid="batch-pdf-btn">
+                    {downloadingBatch ? (
+                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
+                    ) : (
+                      <FileDown className="w-4 h-4 mr-2" />
+                    )}
+                    Download {selectedDocs.size} as PDF
+                  </Button>
+                )}
+              </div>
+
               {completedDocs.map(d => (
-                <Card key={d.id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(`/documents/view/${d.id}`)} data-testid={`completed-doc-${d.id}`}>
-                  <CardContent className="py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <ClipboardCheck className="w-5 h-5 text-emerald-600" />
-                      <div>
-                        <p className="font-medium">{d.template_title}</p>
-                        <p className="text-xs text-muted-foreground">{d.document_reference} | v{d.version} | {formatDate(d.completed_at)} | by {d.completed_by_name}</p>
+                <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`completed-doc-${d.id}`}>
+                  <CardContent className="py-4 flex items-center gap-3">
+                    <Checkbox
+                      checked={selectedDocs.has(d.id)}
+                      onCheckedChange={() => toggleDocSelection(d.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      data-testid={`select-doc-${d.id}`}
+                    />
+                    <div className="flex-1 cursor-pointer flex items-center justify-between" onClick={() => navigate(`/documents/view/${d.id}`)}>
+                      <div className="flex items-center gap-3">
+                        <ClipboardCheck className="w-5 h-5 text-emerald-600" />
+                        <div>
+                          <p className="font-medium">{d.template_title}</p>
+                          <p className="text-xs text-muted-foreground">{d.document_reference} | v{d.version} | {formatDate(d.completed_at)} | by {d.completed_by_name}</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Eye className="w-4 h-4 text-muted-foreground" />
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                      <div className="flex items-center gap-2">
+                        <Eye className="w-4 h-4 text-muted-foreground" />
+                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -186,6 +296,7 @@ const DocumentList = () => {
           )}
         </TabsContent>
 
+        {/* In Progress Tab */}
         {inProgressDocs.length > 0 && (
           <TabsContent value="progress" className="mt-4">
             <div className="space-y-3">
@@ -208,6 +319,7 @@ const DocumentList = () => {
         )}
       </Tabs>
 
+      {/* Delete Dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>

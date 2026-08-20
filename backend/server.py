@@ -1847,6 +1847,105 @@ async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(get
     filename = f"{doc['document_reference']}_{doc['template_title'].replace(' ', '_')}.pdf"
     return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
+@api_router.post("/traceability/documents/batch-pdf")
+async def batch_export_traceability_pdf(data: dict, user: dict = Depends(get_current_user)):
+    """Combine multiple completed documents into a single PDF"""
+    doc_ids = data.get("document_ids", [])
+    if not doc_ids:
+        raise HTTPException(status_code=400, detail="No document IDs provided")
+
+    docs = []
+    for did in doc_ids:
+        doc = await db.traceability_documents.find_one({"id": did, "completed": True}, {"_id": 0})
+        if doc:
+            docs.append(doc)
+    if not docs:
+        raise HTTPException(status_code=404, detail="No completed documents found")
+
+    buffer = io.BytesIO()
+    pdf_doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=2*cm, bottomMargin=2.5*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('BTitle', parent=styles['Heading1'], fontSize=22, textColor=HexColor('#1a7a6e'), alignment=TA_CENTER, spaceAfter=20)
+    heading_style = ParagraphStyle('BLabel', parent=styles['Normal'], fontSize=10, textColor=HexColor('#666666'), spaceBefore=8)
+    value_style = ParagraphStyle('BValue', parent=styles['Normal'], fontSize=12, spaceBefore=2, spaceAfter=6)
+    sep_style = ParagraphStyle('BSep', parent=styles['Normal'], fontSize=8, textColor=grey, alignment=TA_CENTER)
+
+    story = []
+    for i, doc in enumerate(docs):
+        if i > 0:
+            from reportlab.platypus import PageBreak
+            story.append(PageBreak())
+
+        story.append(Paragraph(doc["template_title"], title_style))
+        story.append(Spacer(1, 0.3*inch))
+
+        field_map = {f["id"]: f for f in doc.get("fields", [])}
+        for fv in doc.get("field_values", []):
+            field = field_map.get(fv.get("field_id"), {})
+            label = field.get("label", fv.get("field_id", ""))
+            val = fv.get("value", "")
+            if field.get("field_type") == "checkbox":
+                val = "Yes" if val else "No"
+            story.append(Paragraph(f"<b>{label}</b>", heading_style))
+            story.append(Paragraph(str(val) if val else "-", value_style))
+
+        story.append(Spacer(1, 0.5*inch))
+        footer_data = [
+            ["Date:", format_uk_datetime(doc.get("completed_at") or doc.get("created_at"))],
+            ["Version:", str(doc.get("version", 1))],
+            ["Document Ref:", doc.get("document_reference", "N/A")],
+            ["Authorised By:", doc.get("authorised_by", "N/A")],
+            ["Completed By:", doc.get("completed_by_name", "N/A")],
+        ]
+        ft = Table(footer_data, colWidths=[2*inch, 4*inch])
+        ft.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), HexColor('#f0f9f8')),
+            ('TEXTCOLOR', (0, 0), (0, -1), HexColor('#1a7a6e')),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e0e0e0')),
+            ('PADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(ft)
+
+    pdf_doc.build(story)
+    buffer.seek(0)
+    filename = f"batch_documents_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+@api_router.post("/traceability/templates/{template_id}/duplicate")
+async def duplicate_traceability_template(
+    template_id: str,
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+):
+    """Clone an existing template"""
+    t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    new_id = str(uuid.uuid4())
+    now = get_uk_time_iso()
+    new_fields = []
+    for f in t.get("fields", []):
+        new_fields.append({**f, "id": str(uuid.uuid4())})
+
+    new_doc = {
+        "id": new_id,
+        "title": f"Copy of {t['title']}",
+        "document_reference": f"{t['document_reference']}-COPY",
+        "version": 1,
+        "authorised_by": user["name"],
+        "authorised_by_id": user["id"],
+        "fields": new_fields,
+        "company_id": user.get("company_id"),
+        "created_by": user["id"],
+        "created_at": now,
+        "updated_at": now
+    }
+    await db.traceability_templates.insert_one(new_doc)
+    new_doc.pop("_id", None)
+    return new_doc
+
 # Include router and configure CORS
 app.include_router(api_router)
 
