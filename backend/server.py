@@ -1591,11 +1591,261 @@ async def get_company_dashboard(company_id: str, user: dict = Depends(get_curren
 
 @api_router.get("/")
 async def root():
-    return {"message": "Infinit-Audit API", "version": "1.1.0"}
+    return {"message": "Infinit-Audit API", "version": "1.2.0"}
 
 @api_router.get("/health")
 async def health():
     return {"status": "healthy"}
+
+# ==================== TRACEABILITY DOCUMENTS ====================
+
+class TraceabilityFieldCreate(BaseModel):
+    label: str
+    field_type: str = "text"  # text, number, time, checkbox, blank
+    required: bool = False
+    min_length: Optional[int] = None
+    max_length: Optional[int] = None
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    order: int = 0
+
+class TraceabilityTemplateCreate(BaseModel):
+    title: str
+    document_reference: str
+    fields: List[TraceabilityFieldCreate] = []
+
+class TraceabilityTemplateUpdate(BaseModel):
+    title: Optional[str] = None
+    document_reference: Optional[str] = None
+    fields: Optional[List[TraceabilityFieldCreate]] = None
+
+class TraceabilityDocumentSubmit(BaseModel):
+    field_values: List[Dict[str, Any]]
+    completed: bool = False
+
+# --- Template CRUD ---
+
+@api_router.post("/traceability/templates")
+async def create_traceability_template(
+    data: TraceabilityTemplateCreate,
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+):
+    template_id = str(uuid.uuid4())
+    now = get_uk_time_iso()
+    fields = []
+    for i, f in enumerate(data.fields):
+        fields.append({
+            "id": str(uuid.uuid4()),
+            "label": f.label,
+            "field_type": f.field_type,
+            "required": f.required,
+            "min_length": f.min_length,
+            "max_length": f.max_length,
+            "min_value": f.min_value,
+            "max_value": f.max_value,
+            "order": i
+        })
+    doc = {
+        "id": template_id,
+        "title": data.title,
+        "document_reference": data.document_reference,
+        "version": 1,
+        "authorised_by": user["name"],
+        "authorised_by_id": user["id"],
+        "fields": fields,
+        "company_id": user.get("company_id"),
+        "created_by": user["id"],
+        "created_at": now,
+        "updated_at": now
+    }
+    await db.traceability_templates.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/traceability/templates")
+async def get_traceability_templates(user: dict = Depends(get_current_user)):
+    if is_system_admin(user):
+        query = {}
+    else:
+        query = {"$or": [{"company_id": user.get("company_id")}, {"company_id": None}]}
+    templates = await db.traceability_templates.find(query, {"_id": 0}).sort("updated_at", -1).to_list(1000)
+    return templates
+
+@api_router.get("/traceability/templates/{template_id}")
+async def get_traceability_template(template_id: str, user: dict = Depends(get_current_user)):
+    t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return t
+
+@api_router.put("/traceability/templates/{template_id}")
+async def update_traceability_template(
+    template_id: str,
+    data: TraceabilityTemplateUpdate,
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+):
+    t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Template not found")
+    update = {"updated_at": get_uk_time_iso(), "version": t["version"] + 1, "authorised_by": user["name"], "authorised_by_id": user["id"]}
+    if data.title is not None:
+        update["title"] = data.title
+    if data.document_reference is not None:
+        update["document_reference"] = data.document_reference
+    if data.fields is not None:
+        fields = []
+        for i, f in enumerate(data.fields):
+            fields.append({
+                "id": str(uuid.uuid4()),
+                "label": f.label,
+                "field_type": f.field_type,
+                "required": f.required,
+                "min_length": f.min_length,
+                "max_length": f.max_length,
+                "min_value": f.min_value,
+                "max_value": f.max_value,
+                "order": i
+            })
+        update["fields"] = fields
+    await db.traceability_templates.update_one({"id": template_id}, {"$set": update})
+    updated = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/traceability/templates/{template_id}")
+async def delete_traceability_template(
+    template_id: str,
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]))
+):
+    result = await db.traceability_templates.delete_one({"id": template_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"message": "Template deleted"}
+
+# --- Document CRUD ---
+
+@api_router.post("/traceability/documents")
+async def create_traceability_document(data: dict, user: dict = Depends(get_current_user)):
+    template_id = data.get("template_id")
+    t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Template not found")
+    doc_id = str(uuid.uuid4())
+    now = get_uk_time_iso()
+    doc = {
+        "id": doc_id,
+        "template_id": template_id,
+        "template_title": t["title"],
+        "document_reference": t["document_reference"],
+        "version": t["version"],
+        "authorised_by": t["authorised_by"],
+        "fields": t["fields"],
+        "completed_by": user["id"],
+        "completed_by_name": user["name"],
+        "field_values": [],
+        "company_id": user.get("company_id"),
+        "completed": False,
+        "created_at": now,
+        "completed_at": None
+    }
+    await db.traceability_documents.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/traceability/documents/{doc_id}")
+async def update_traceability_document(doc_id: str, data: TraceabilityDocumentSubmit, user: dict = Depends(get_current_user)):
+    doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    update = {"field_values": data.field_values, "completed": data.completed}
+    if data.completed:
+        update["completed_at"] = get_uk_time_iso()
+    await db.traceability_documents.update_one({"id": doc_id}, {"$set": update})
+    updated = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
+    return updated
+
+@api_router.get("/traceability/documents")
+async def get_traceability_documents(template_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    query = {}
+    if user["role"] == UserRole.USER:
+        query["completed_by"] = user["id"]
+    if template_id:
+        query["template_id"] = template_id
+    docs = await db.traceability_documents.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return docs
+
+@api_router.get("/traceability/documents/{doc_id}")
+async def get_traceability_document(doc_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return doc
+
+@api_router.delete("/traceability/documents/{doc_id}")
+async def delete_traceability_document(doc_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc["completed_by"] != user["id"] and not is_admin(user):
+        raise HTTPException(status_code=403, detail="Access denied")
+    await db.traceability_documents.delete_one({"id": doc_id})
+    return {"message": "Document deleted"}
+
+@api_router.get("/traceability/documents/{doc_id}/pdf")
+async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(get_current_user)):
+    doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    buffer = io.BytesIO()
+    pdf_doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=2*cm, bottomMargin=2.5*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('DocTitle', parent=styles['Heading1'], fontSize=22, textColor=HexColor('#1a7a6e'), alignment=TA_CENTER, spaceAfter=20)
+    heading_style = ParagraphStyle('FieldLabel', parent=styles['Normal'], fontSize=10, textColor=HexColor('#666666'), spaceBefore=8)
+    value_style = ParagraphStyle('FieldValue', parent=styles['Normal'], fontSize=12, spaceBefore=2, spaceAfter=6)
+
+    story = []
+    story.append(Paragraph(doc["template_title"], title_style))
+    story.append(Spacer(1, 0.3*inch))
+
+    # Build field map
+    field_map = {f["id"]: f for f in doc.get("fields", [])}
+    for fv in doc.get("field_values", []):
+        field = field_map.get(fv.get("field_id"), {})
+        label = field.get("label", fv.get("field_id", ""))
+        val = fv.get("value", "")
+        if field.get("field_type") == "checkbox":
+            val = "Yes" if val else "No"
+        story.append(Paragraph(f"<b>{label}</b>", heading_style))
+        story.append(Paragraph(str(val) if val else "-", value_style))
+
+    # Footer info
+    story.append(Spacer(1, 0.5*inch))
+    footer_data = [
+        ["Date:", format_uk_datetime(doc.get("completed_at") or doc.get("created_at"))],
+        ["Version:", str(doc.get("version", 1))],
+        ["Document Ref:", doc.get("document_reference", "N/A")],
+        ["Authorised By:", doc.get("authorised_by", "N/A")],
+        ["Completed By:", doc.get("completed_by_name", "N/A")],
+    ]
+    ft = Table(footer_data, colWidths=[2*inch, 4*inch])
+    ft.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), HexColor('#f0f9f8')),
+        ('TEXTCOLOR', (0, 0), (0, -1), HexColor('#1a7a6e')),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e0e0e0')),
+        ('PADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(ft)
+
+    footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=grey, alignment=TA_CENTER)
+    story.append(Spacer(1, 0.3*inch))
+    story.append(Paragraph("www.infinit-audit.co.uk", footer_style))
+
+    pdf_doc.build(story)
+    buffer.seek(0)
+    filename = f"{doc['document_reference']}_{doc['template_title'].replace(' ', '_')}.pdf"
+    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 # Include router and configure CORS
 app.include_router(api_router)
@@ -1620,6 +1870,8 @@ async def startup_event():
     await db.scheduled_audits.create_index("id", unique=True)
     await db.companies.create_index("id", unique=True)
     await db.lines_shifts.create_index("id", unique=True)
+    await db.traceability_templates.create_index("id", unique=True)
+    await db.traceability_documents.create_index("id", unique=True)
     
     # Create default system admin if not exists
     admin = await db.users.find_one({"email": "admin@infinit-audit.co.uk"})

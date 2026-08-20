@@ -74,9 +74,18 @@ Build an auditing system called Infinit-Audit for the food industry. Users can c
 - Traceability page
 
 ### Phase 3 - New Features (Apr 2026)
-- **Audit Overview Page** (/audits/:auditId) - Per-audit stats (pass %, completed count, failed count), date range calendar filter, pass/fail status filter, completed runs table with view/download actions
-- **Pass/Fail Scoring System** - Each question has pass/fail tracking. Response group options have is_negative flag (set at creation). Text/number/alphanumeric questions have manual Pass/Fail toggle during audit. Score = (pass_count / total_questions) * 100. Auto-flag as fail if below pass_rate threshold
-- **Audit Sign-off** - Signature canvas at end of each audit. Auto-logs user name and email. Signature required before submission. Signature stored and displayed in reports/PDF
+- **Audit Overview Page** (/audits/:auditId) - Per-audit stats, date range filter, pass/fail filter, completed runs table
+- **Pass/Fail Scoring System** - Per-question pass/fail tracking, auto-score calculation, threshold-based auto-flagging
+- **Audit Sign-off** - Signature canvas, auto name/email, required before submit, in reports/PDF
+- **Reports Category Drill-down** - Reports page shows audit categories → audits in category → audit overview
+- **Admin Audit Delete** - Admins can delete audit templates from category view
+
+### Phase 4 - Traceability Documents (Aug 2026)
+- **Document Template Designer** - Build custom forms with text/number/time/checkbox/blank fields, set min/max validation, reorder fields
+- **Document Fill** - Users fill in templates, save progress, submit completed documents
+- **Document View & PDF** - View completed docs with title header + metadata footer (date, version, doc ref, authorised by), PDF export
+- **Template Versioning** - Auto-increment version on edit, document snapshots template at fill time
+- **Template/Document Management** - CRUD for templates and documents, admin delete capability
 
 ## Prioritized Backlog
 

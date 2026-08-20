@@ -21,7 +21,8 @@ import {
   WifiOff,
   RefreshCw,
   Cloud,
-  ClipboardList
+  ClipboardList,
+  FileText
 } from 'lucide-react';
 
 const LOGO_URL = "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png";
@@ -48,6 +49,7 @@ const Layout = ({ children }) => {
     { path: '/run-audit', label: 'Run Audit', icon: ClipboardCheck, show: true },
     { path: '/reports', label: 'Reports', icon: BarChart3, show: true },
     { path: '/traceability', label: 'Traceability', icon: ClipboardList, show: true },
+    { path: '/documents', label: 'Documents', icon: FileText, show: true },
   ];
 
   const filteredNav = navItems.filter(item => item.show);

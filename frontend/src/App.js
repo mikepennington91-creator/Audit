@@ -15,6 +15,10 @@ import RunAudit from "./pages/RunAudit";
 import Reports from "./pages/Reports";
 import Traceability from "./pages/Traceability";
 import AuditOverview from "./pages/AuditOverview";
+import DocumentList from "./pages/DocumentList";
+import DocumentDesigner from "./pages/DocumentDesigner";
+import DocumentFill from "./pages/DocumentFill";
+import DocumentView from "./pages/DocumentView";
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -132,6 +136,36 @@ function AppRoutes() {
       <Route path="/traceability" element={
         <ProtectedRoute>
           <Traceability />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/documents" element={
+        <ProtectedRoute>
+          <DocumentList />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/documents/design" element={
+        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+          <DocumentDesigner />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/documents/design/:templateId" element={
+        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+          <DocumentDesigner />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/documents/fill/:documentId" element={
+        <ProtectedRoute>
+          <DocumentFill />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/documents/view/:documentId" element={
+        <ProtectedRoute>
+          <DocumentView />
         </ProtectedRoute>
       } />
       
