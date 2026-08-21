@@ -1,0 +1,36 @@
+{
+  "summary": "End-to-end test of Documents header/table upgrade (new sections + date/dropdown field types + table_rows). Backend: 5/5 pytest tests pass covering template CRUD with section+dropdown_options+date, version increment preserves sections, doc submit with table_rows, and PDF export with header+table. Frontend: full E2E flow via Playwright passed - create template (2 header: text 'Supervisor Name' + date 'Production Date'; 3 table cols: text 'Product', number 'Quantity', dropdown 'Status' with Pass/Fail/Rework), fill 3 rows, add/remove rows, submit, view page renders header + table + footer metadata correctly, PDF downloads (TEST-UI-HT-001.pdf), edit template reloads all fields with sections and saves with version bump.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "DocumentDesigner - 'Add field to...' section Select",
+        "issue": "The Select at data-testid='add-field-section-select' uses Radix Select without resetting value; clicking the same option twice in a row (e.g., 'Table Section' then 'Table Section') does NOT fire onValueChange, so only the first click adds a field. Users cannot add multiple table columns consecutively via this dropdown. Workaround exists (alternate options, or use 'Add Header Field' button then change section), but confusing UX.",
+        "selector": "[data-testid='add-field-section-select']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_document_sections.py",
+    "/app/test_reports/pytest/doc_sections.xml"
+  ],
+  "action_items": [
+    "Fix Add-Field section Select: after each field is added, reset the Select value to '' (controlled) or use a Button-based UI so consecutive additions to the same section work in one click. Suggested: convert to two explicit buttons ('Add Header Field' and 'Add Table Column') rather than a Select."
+  ],
+  "critical_code_review_comments": [
+    "server.py line 1767: `data.table_rows or []` accepts None gracefully - good. But TraceabilityDocumentSubmit default is [] which means clients not sending table_rows will wipe existing rows on save-progress. Fine for full submit; be careful with partial updates.",
+    "DocumentDesigner.js Select onValueChange for adding fields doesn't reset internal value -> duplicate-click UX bug (reported above).",
+    "server.py update_traceability_template regenerates field ids on every save (line 1704 str(uuid.uuid4())). This breaks any in-progress documents that reference old field_ids in their fields[] (which are copied at doc creation time, so OK) but any completed docs re-fetched will still have their own frozen field ids. Not a bug per se, but any linking by field_id across template versions is impossible."
+  ],
+  "updated_files": ["/app/backend/tests/test_document_sections.py"],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "100% (all E2E steps passed, 1 medium UX bug found)"},
+  "test_credentials": "admin@infinit-audit.co.uk / admin123",
+  "seed_data_creation": "All TEST_ prefixed templates and documents created during tests were cleaned up (pytest fixture teardown + UI test explicitly deletes the template at the end).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Documents header/table upgrade is functional end-to-end. Only issue is a UX bug in the DocumentDesigner 'Add field to...' Select (Radix same-value quirk). Backend supports section (header|table), dropdown_options, date field_type, and table_rows array on documents. PDF export renders header fields then table then footer metadata. All model fields persist across template edit (with version bump).",
+  "rca of the issue": "Add-Field Select bug RCA: Radix UI Select's onValueChange only fires when the value CHANGES. The component in DocumentDesigner.js (lines 212-226) doesn't control the Select's value and doesn't reset it after handling. When a user picks 'Table Section', the Select internally remembers 'table'; picking 'Table Section' again is a no-op. Fix: make it a controlled Select with value state reset to '' after each addField, OR replace with two Buttons ('+ Header Field', '+ Table Column')."
+}

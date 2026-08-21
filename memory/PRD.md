@@ -81,11 +81,15 @@ Build an auditing system called Infinit-Audit for the food industry. Users can c
 - **Admin Audit Delete** - Admins can delete audit templates from category view
 
 ### Phase 4 - Traceability Documents (Aug 2026)
-- **Document Template Designer** - Build custom forms with text/number/time/checkbox/blank fields, set min/max validation, reorder fields
-- **Document Fill** - Users fill in templates, save progress, submit completed documents
-- **Document View & PDF** - View completed docs with title header + metadata footer (date, version, doc ref, authorised by), PDF export
-- **Template Versioning** - Auto-increment version on edit, document snapshots template at fill time
-- **Template/Document Management** - CRUD for templates and documents, admin delete capability
+- **Document Template Designer** - Build custom forms with header fields (standalone) and table columns (repeating rows, 30+ supported)
+- **Field Types** - Text, Number, Time, Date, Checkbox, Dropdown (with custom options), Blank
+- **Section System** - Each field assigned to "Header" (standalone) or "Table" (column in data table)
+- **Validation** - Min/max character length for text, min/max value for numbers, required toggle
+- **Document Fill** - Header fields at top, data table below with Add Row button, save progress
+- **Document View & PDF** - Header fields displayed, table rendered, footer with date/version/ref/authorised by
+- **Template Versioning** - Auto-increment version on edit
+- **Batch PDF Export** - Select multiple completed docs, download as single combined PDF
+- **Template Duplication** - Clone templates instantly with all fields preserved
 
 ## Prioritized Backlog
 

@@ -1601,12 +1601,14 @@ async def health():
 
 class TraceabilityFieldCreate(BaseModel):
     label: str
-    field_type: str = "text"  # text, number, time, checkbox, blank
+    field_type: str = "text"  # text, number, time, date, checkbox, dropdown, blank
+    section: str = "header"  # "header" or "table"
     required: bool = False
     min_length: Optional[int] = None
     max_length: Optional[int] = None
     min_value: Optional[float] = None
     max_value: Optional[float] = None
+    dropdown_options: Optional[List[str]] = None
     order: int = 0
 
 class TraceabilityTemplateCreate(BaseModel):
@@ -1621,6 +1623,7 @@ class TraceabilityTemplateUpdate(BaseModel):
 
 class TraceabilityDocumentSubmit(BaseModel):
     field_values: List[Dict[str, Any]]
+    table_rows: Optional[List[Dict[str, Any]]] = []
     completed: bool = False
 
 # --- Template CRUD ---
@@ -1638,11 +1641,13 @@ async def create_traceability_template(
             "id": str(uuid.uuid4()),
             "label": f.label,
             "field_type": f.field_type,
+            "section": f.section,
             "required": f.required,
             "min_length": f.min_length,
             "max_length": f.max_length,
             "min_value": f.min_value,
             "max_value": f.max_value,
+            "dropdown_options": f.dropdown_options,
             "order": i
         })
     doc = {
@@ -1699,11 +1704,13 @@ async def update_traceability_template(
                 "id": str(uuid.uuid4()),
                 "label": f.label,
                 "field_type": f.field_type,
+                "section": f.section,
                 "required": f.required,
                 "min_length": f.min_length,
                 "max_length": f.max_length,
                 "min_value": f.min_value,
                 "max_value": f.max_value,
+                "dropdown_options": f.dropdown_options,
                 "order": i
             })
         update["fields"] = fields
@@ -1745,7 +1752,8 @@ async def create_traceability_document(data: dict, user: dict = Depends(get_curr
         "company_id": user.get("company_id"),
         "completed": False,
         "created_at": now,
-        "completed_at": None
+        "completed_at": None,
+        "table_rows": []
     }
     await db.traceability_documents.insert_one(doc)
     doc.pop("_id", None)
@@ -1756,7 +1764,7 @@ async def update_traceability_document(doc_id: str, data: TraceabilityDocumentSu
     doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    update = {"field_values": data.field_values, "completed": data.completed}
+    update = {"field_values": data.field_values, "table_rows": data.table_rows or [], "completed": data.completed}
     if data.completed:
         update["completed_at"] = get_uk_time_iso()
     await db.traceability_documents.update_one({"id": doc_id}, {"$set": update})
@@ -1809,14 +1817,49 @@ async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(get
 
     # Build field map
     field_map = {f["id"]: f for f in doc.get("fields", [])}
+    header_fields = [f for f in doc.get("fields", []) if f.get("section") != "table"]
+    table_fields = sorted([f for f in doc.get("fields", []) if f.get("section") == "table"], key=lambda x: x.get("order", 0))
+
+    # Header fields
     for fv in doc.get("field_values", []):
         field = field_map.get(fv.get("field_id"), {})
+        if field.get("section") == "table":
+            continue
         label = field.get("label", fv.get("field_id", ""))
         val = fv.get("value", "")
         if field.get("field_type") == "checkbox":
             val = "Yes" if val else "No"
         story.append(Paragraph(f"<b>{label}</b>", heading_style))
         story.append(Paragraph(str(val) if val else "-", value_style))
+
+    # Table section
+    if table_fields and doc.get("table_rows"):
+        story.append(Spacer(1, 0.3*inch))
+        story.append(Paragraph("<b>Production Data</b>", heading_style))
+        story.append(Spacer(1, 0.1*inch))
+        col_count = len(table_fields)
+        col_width = (6*inch) / max(col_count, 1)
+        tbl_data = [["#"] + [f["label"] for f in table_fields]]
+        for ri, row in enumerate(doc["table_rows"]):
+            row_vals = [str(ri + 1)]
+            for f in table_fields:
+                val = row.get(f["id"], "")
+                if f["field_type"] == "checkbox":
+                    val = "Yes" if val else "No"
+                row_vals.append(str(val) if val else "-")
+            tbl_data.append(row_vals)
+        tbl = Table(tbl_data, colWidths=[0.4*inch] + [col_width]*col_count)
+        tbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1a7a6e')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#cccccc')),
+            ('PADDING', (0, 0), (-1, -1), 4),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, HexColor('#f8f8f8')]),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        story.append(tbl)
 
     # Footer info
     story.append(Spacer(1, 0.5*inch))
