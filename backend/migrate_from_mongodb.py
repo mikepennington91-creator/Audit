@@ -26,6 +26,10 @@ COLLECTIONS = (
     "photos",
     "traceability_templates",
     "traceability_documents",
+    "traceability_raw_intakes",
+    "traceability_finished_batches",
+    "traceability_material_usage",
+    "traceability_config",
 )
 
 
