@@ -24,6 +24,13 @@ from reportlab.lib.colors import HexColor, black, white, grey
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from database import PostgresDatabase
+from traceability_excel import (
+    DEFAULT_CONFIG as TRACEABILITY_DEFAULT_CONFIG,
+    TRACEABILITY_SCHEMAS,
+    build_traceability_workbook,
+    normalise_record,
+    parse_traceability_workbook,
+)
 
 # UK Timezone
 UK_TZ = ZoneInfo("Europe/London")
@@ -124,6 +131,17 @@ class UserUpdate(BaseModel):
     password: Optional[str] = None
     company_id: Optional[str] = None
     feature_access: Optional[Dict[str, bool]] = None
+
+
+class TraceabilityBulkExport(BaseModel):
+    data_types: List[str] = Field(default_factory=lambda: ["raw", "finished", "usage"])
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+
+
+class TraceabilityConfigUpdate(BaseModel):
+    itemTypes: List[str] = Field(default_factory=list)
+    packagingTypes: List[str] = Field(default_factory=list)
 
 # Response Group Models
 class ResponseOption(BaseModel):
@@ -1951,6 +1969,250 @@ async def health():
         raise HTTPException(status_code=503, detail="Database unavailable")
     return {"status": "healthy", "database": "postgresql"}
 
+# ==================== TRACEABILITY RECORDS ====================
+
+TRACEABILITY_COLLECTIONS = {
+    kind: db.collection(schema["collection"])
+    for kind, schema in TRACEABILITY_SCHEMAS.items()
+}
+
+
+def _traceability_company_query(user: dict) -> dict:
+    return {} if is_system_admin(user) else {"company_id": user.get("company_id")}
+
+
+def _traceability_config_query(user: dict) -> dict:
+    return {"company_id": user.get("company_id")}
+
+
+def _clean_traceability_config(values: dict) -> dict:
+    cleaned = {}
+    for field in ("itemTypes", "packagingTypes"):
+        source = values[field] if field in values else TRACEABILITY_DEFAULT_CONFIG[field]
+        cleaned[field] = list(dict.fromkeys(str(value).strip() for value in source if str(value).strip()))
+    return cleaned
+
+
+async def _get_traceability_config(user: dict) -> dict:
+    config = await db.traceability_config.find_one(_traceability_config_query(user), {"_id": 0})
+    return _clean_traceability_config(config or TRACEABILITY_DEFAULT_CONFIG)
+
+
+async def _get_traceability_records(user: dict) -> dict:
+    query = _traceability_company_query(user)
+    response = {}
+    for record_type, schema in TRACEABILITY_SCHEMAS.items():
+        response[schema["response_key"]] = await TRACEABILITY_COLLECTIONS[record_type].find(
+            query, {"_id": 0}
+        ).sort("created_at", -1).to_list(10_000)
+    response["config"] = await _get_traceability_config(user)
+    return response
+
+
+@api_router.get("/traceability/records")
+async def get_traceability_records(user: dict = Depends(require_feature("traceability"))):
+    return await _get_traceability_records(user)
+
+
+@api_router.put("/traceability/config")
+async def update_traceability_config(
+    data: TraceabilityConfigUpdate,
+    user: dict = Depends(require_feature("traceability")),
+):
+    values = _clean_traceability_config(data.model_dump())
+    query = _traceability_config_query(user)
+    existing = await db.traceability_config.find_one(query, {"_id": 0})
+    now = get_uk_time_iso()
+    if existing:
+        await db.traceability_config.update_one(
+            {"id": existing["id"]}, {"$set": {**values, "updated_at": now}}
+        )
+    else:
+        await db.traceability_config.insert_one({
+            "id": str(uuid.uuid4()), **values, "company_id": user.get("company_id"),
+            "created_by": user["id"], "created_at": now, "updated_at": now,
+        })
+    return values
+
+
+@api_router.post("/traceability/records/migrate-local")
+async def migrate_local_traceability_records(
+    data: dict,
+    user: dict = Depends(require_feature("traceability")),
+):
+    """Seed the shared store once from a user's legacy browser-only records."""
+    query = _traceability_company_query(user)
+    existing_count = sum(
+        [await collection.count_documents(query) for collection in TRACEABILITY_COLLECTIONS.values()]
+    )
+    if existing_count:
+        return {"migrated": False, "reason": "Shared traceability data already exists", **(await _get_traceability_records(user))}
+
+    now = get_uk_time_iso()
+    source_keys = {"raw": "rawIntakes", "finished": "finishedBatches", "usage": "materialUsage"}
+    migrated = 0
+    for record_type, source_key in source_keys.items():
+        for source in (data.get(source_key) or [])[:10_000]:
+            try:
+                record = normalise_record(record_type, source)
+            except ValueError:
+                continue
+            record.update({
+                "id": str(uuid.uuid4()), "company_id": user.get("company_id"),
+                "created_by": user["id"], "created_at": now, "updated_at": now,
+            })
+            await TRACEABILITY_COLLECTIONS[record_type].insert_one(record)
+            migrated += 1
+
+    if data.get("config"):
+        config = _clean_traceability_config(data["config"])
+        await db.traceability_config.insert_one({
+            "id": str(uuid.uuid4()), **config, "company_id": user.get("company_id"),
+            "created_by": user["id"], "created_at": now, "updated_at": now,
+        })
+    return {"migrated": True, "migrated_count": migrated, **(await _get_traceability_records(user))}
+
+
+@api_router.post("/traceability/records/{record_type}")
+async def create_traceability_record(
+    record_type: str,
+    data: dict,
+    user: dict = Depends(require_feature("traceability")),
+):
+    if record_type not in TRACEABILITY_SCHEMAS:
+        raise HTTPException(status_code=400, detail="Unknown traceability record type")
+    try:
+        record = normalise_record(record_type, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    now = get_uk_time_iso()
+    record.update({
+        "id": str(uuid.uuid4()), "company_id": user.get("company_id"),
+        "created_by": user["id"], "created_at": now, "updated_at": now,
+    })
+    await TRACEABILITY_COLLECTIONS[record_type].insert_one(record)
+    return record
+
+
+@api_router.delete("/traceability/records/{record_type}/{record_id}")
+async def delete_traceability_record(
+    record_type: str,
+    record_id: str,
+    user: dict = Depends(require_feature("traceability")),
+):
+    if record_type not in TRACEABILITY_SCHEMAS:
+        raise HTTPException(status_code=400, detail="Unknown traceability record type")
+    record = await TRACEABILITY_COLLECTIONS[record_type].find_one({"id": record_id}, {"_id": 0})
+    if not record or not can_access_company_record(user, record):
+        raise HTTPException(status_code=404, detail="Traceability record not found")
+    await TRACEABILITY_COLLECTIONS[record_type].delete_one({"id": record_id})
+    return {"message": "Traceability record deleted"}
+
+
+@api_router.post("/traceability/bulk-export")
+async def export_traceability_excel(
+    data: TraceabilityBulkExport,
+    user: dict = Depends(require_feature("traceability")),
+):
+    selected = list(dict.fromkeys(data.data_types))
+    unknown = [kind for kind in selected if kind not in TRACEABILITY_SCHEMAS]
+    if unknown or not selected:
+        raise HTTPException(status_code=400, detail="Select at least one valid traceability data type")
+    try:
+        date_from = date.fromisoformat(data.date_from) if data.date_from else None
+        date_to = date.fromisoformat(data.date_to) if data.date_to else None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Export dates must be valid") from exc
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="Start date cannot be after end date")
+
+    query = _traceability_company_query(user)
+    records_by_type = {}
+    for record_type in selected:
+        schema = TRACEABILITY_SCHEMAS[record_type]
+        records = await TRACEABILITY_COLLECTIONS[record_type].find(query, {"_id": 0}).sort(
+            schema["date_field"], 1
+        ).to_list(10_000)
+        if date_from or date_to:
+            filtered = []
+            for record in records:
+                try:
+                    record_date = date.fromisoformat(str(record.get(schema["date_field"], ""))[:10])
+                except ValueError:
+                    continue
+                if date_from and record_date < date_from:
+                    continue
+                if date_to and record_date > date_to:
+                    continue
+                filtered.append(record)
+            records = filtered
+        records_by_type[record_type] = records
+
+    workbook = build_traceability_workbook(records_by_type, await _get_traceability_config(user), selected)
+    filename = f"traceability_bulk_{get_uk_time().date().isoformat()}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(workbook),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api_router.post("/traceability/bulk-import")
+async def import_traceability_excel(
+    file: UploadFile = File(...),
+    user: dict = Depends(require_feature("traceability")),
+):
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Upload an .xlsx Excel workbook")
+    content = await file.read(5 * 1024 * 1024 + 1)
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Workbook must be 5 MB or smaller")
+    if not content.startswith(b"PK"):
+        raise HTTPException(status_code=400, detail="The uploaded file is not a valid .xlsx workbook")
+    try:
+        parsed = parse_traceability_workbook(content)
+    except Exception as exc:
+        logger.warning("Traceability workbook rejected: %s", exc)
+        raise HTTPException(status_code=400, detail=f"Unable to read workbook: {exc}") from exc
+
+    imported = {kind: 0 for kind in TRACEABILITY_SCHEMAS}
+    skipped = 0
+    errors = []
+    now = get_uk_time_iso()
+    for record_type, records in parsed.items():
+        sheet = TRACEABILITY_SCHEMAS[record_type]["sheet"]
+        for record in records:
+            if record.get("__error__"):
+                errors.append({"sheet": sheet, "row": record["__row__"], "message": record["__error__"]})
+                continue
+            supplied_id = record.pop("id", None)
+            row_number = record.pop("__row__", None)
+            if supplied_id:
+                existing = await TRACEABILITY_COLLECTIONS[record_type].find_one({"id": supplied_id}, {"_id": 0})
+                if existing:
+                    skipped += 1
+                else:
+                    errors.append({
+                        "sheet": sheet, "row": row_number,
+                        "message": "Record ID was not recognised. Leave Record ID blank for a new row.",
+                    })
+                continue
+            record.update({
+                "id": str(uuid.uuid4()), "company_id": user.get("company_id"),
+                "created_by": user["id"], "created_at": now, "updated_at": now,
+            })
+            await TRACEABILITY_COLLECTIONS[record_type].insert_one(record)
+            imported[record_type] += 1
+
+    return {
+        "imported": imported,
+        "imported_total": sum(imported.values()),
+        "skipped": skipped,
+        "failed": len(errors),
+        "errors": errors[:200],
+    }
+
+
 # ==================== TRACEABILITY DOCUMENTS ====================
 
 class TraceabilityFieldCreate(BaseModel):
@@ -2370,6 +2632,10 @@ async def startup_event():
     await db.traceability_templates.create_index("id", unique=True)
     await db.traceability_documents.create_index("id", unique=True)
     await db.corrective_actions.create_index("id", unique=True)
+    await db.traceability_raw_intakes.create_index("id", unique=True)
+    await db.traceability_finished_batches.create_index("id", unique=True)
+    await db.traceability_material_usage.create_index("id", unique=True)
+    await db.traceability_config.create_index("id", unique=True)
     
     # Optionally create the first system admin from deployment secrets.
     # Existing administrators and passwords are never reset on startup.

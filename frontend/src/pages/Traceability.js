@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -9,10 +10,20 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Separator } from '../components/ui/separator';
+import { Checkbox } from '../components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { Download, Plus, Printer, Trash2 } from 'lucide-react';
+import { Download, FileSpreadsheet, Loader2, Plus, Printer, Trash2, Upload } from 'lucide-react';
 
 const STORAGE_KEY = 'traceabilityDataV1';
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const defaultConfig = {
   itemTypes: ['Ingredient', 'Packaging', 'Additive'],
@@ -29,7 +40,16 @@ const emptyData = {
 const Traceability = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
   const [data, setData] = useState(emptyData);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [selectedExportTypes, setSelectedExportTypes] = useState({ raw: true, finished: true, usage: true });
+  const [exportDateFrom, setExportDateFrom] = useState('');
+  const [exportDateTo, setExportDateTo] = useState('');
   const [activeTab, setActiveTab] = useState('intake');
   const [itemTypeDraft, setItemTypeDraft] = useState('');
   const [packagingTypeDraft, setPackagingTypeDraft] = useState('');
@@ -73,15 +93,44 @@ const Traceability = () => {
   });
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        setData({ ...emptyData, ...parsed });
-      } catch (error) {
-        console.error('Failed to parse traceability data', error);
+    let cancelled = false;
+    const loadData = async () => {
+      let legacyData = null;
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        try {
+          legacyData = JSON.parse(stored);
+        } catch (error) {
+          console.error('Failed to parse legacy traceability data', error);
+        }
       }
-    }
+      try {
+        const response = await axios.get(`${API}/traceability/records`);
+        let sharedData = response.data;
+        const sharedCount = sharedData.rawIntakes.length + sharedData.finishedBatches.length + sharedData.materialUsage.length;
+        const legacyCount = legacyData
+          ? (legacyData.rawIntakes?.length || 0) + (legacyData.finishedBatches?.length || 0) + (legacyData.materialUsage?.length || 0)
+          : 0;
+        if (sharedCount === 0 && legacyCount > 0) {
+          const migration = await axios.post(`${API}/traceability/records/migrate-local`, legacyData);
+          sharedData = migration.data;
+          if (migration.data.migrated_count > 0) {
+            toast.success(`${migration.data.migrated_count} existing traceability records moved to shared storage`);
+          }
+        }
+        if (!cancelled) setData({ ...emptyData, ...sharedData });
+      } catch (error) {
+        console.error('Failed to load traceability data', error);
+        if (!cancelled && legacyData) setData({ ...emptyData, ...legacyData });
+        toast.error(error.response?.data?.detail || 'Failed to load shared traceability data');
+      } finally {
+        if (!cancelled) setDataLoaded(true);
+      }
+    };
+    loadData();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -93,68 +142,58 @@ const Traceability = () => {
   }, [location.hash]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [data]);
+    if (dataLoaded) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }, [data, dataLoaded]);
 
-  const handleAddItemType = () => {
+  const saveConfig = async config => {
+    try {
+      const response = await axios.put(`${API}/traceability/config`, config);
+      setData(prev => ({ ...prev, config: response.data }));
+      return true;
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save traceability configuration');
+      return false;
+    }
+  };
+
+  const handleAddItemType = async () => {
     const trimmed = itemTypeDraft.trim();
     if (!trimmed) return;
     if (data.config.itemTypes.includes(trimmed)) {
       toast.error('Item type already exists');
       return;
     }
-    setData(prev => ({
-      ...prev,
-      config: {
-        ...prev.config,
-        itemTypes: [...prev.config.itemTypes, trimmed],
-      },
-    }));
-    setItemTypeDraft('');
+    const saved = await saveConfig({ ...data.config, itemTypes: [...data.config.itemTypes, trimmed] });
+    if (saved) setItemTypeDraft('');
   };
 
-  const handleAddPackagingType = () => {
+  const handleAddPackagingType = async () => {
     const trimmed = packagingTypeDraft.trim();
     if (!trimmed) return;
     if (data.config.packagingTypes.includes(trimmed)) {
       toast.error('Packaging type already exists');
       return;
     }
-    setData(prev => ({
-      ...prev,
-      config: {
-        ...prev.config,
-        packagingTypes: [...prev.config.packagingTypes, trimmed],
-      },
-    }));
-    setPackagingTypeDraft('');
+    const saved = await saveConfig({ ...data.config, packagingTypes: [...data.config.packagingTypes, trimmed] });
+    if (saved) setPackagingTypeDraft('');
   };
 
-  const removeConfigValue = (field, value) => {
-    setData(prev => ({
-      ...prev,
-      config: {
-        ...prev.config,
-        [field]: prev.config[field].filter(item => item !== value),
-      },
-    }));
+  const removeConfigValue = async (field, value) => {
+    await saveConfig({ ...data.config, [field]: data.config[field].filter(item => item !== value) });
   };
 
-  const addRawIntake = () => {
+  const addRawIntake = async () => {
     if (!rawForm.intakeDate || !rawForm.materialName || !rawForm.sweetdreamsBatchCode) {
       toast.error('Intake date, material name, and Sweetdreams batch code are required');
       return;
     }
-    setData(prev => ({
-      ...prev,
-      rawIntakes: [
-        {
-          ...rawForm,
-          id: crypto.randomUUID(),
-        },
-        ...prev.rawIntakes,
-      ],
-    }));
+    try {
+      const response = await axios.post(`${API}/traceability/records/raw`, rawForm);
+      setData(prev => ({ ...prev, rawIntakes: [response.data, ...prev.rawIntakes] }));
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save raw material intake');
+      return;
+    }
     setRawForm({
       intakeDate: '',
       supplierName: '',
@@ -173,21 +212,18 @@ const Traceability = () => {
     toast.success('Raw material intake saved');
   };
 
-  const addFinishedBatch = () => {
+  const addFinishedBatch = async () => {
     if (!finishedForm.productionDate || !finishedForm.finishedProduct || !finishedForm.finishedBatchCode) {
       toast.error('Production date, finished product, and batch code are required');
       return;
     }
-    setData(prev => ({
-      ...prev,
-      finishedBatches: [
-        {
-          ...finishedForm,
-          id: crypto.randomUUID(),
-        },
-        ...prev.finishedBatches,
-      ],
-    }));
+    try {
+      const response = await axios.post(`${API}/traceability/records/finished`, finishedForm);
+      setData(prev => ({ ...prev, finishedBatches: [response.data, ...prev.finishedBatches] }));
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save finished batch');
+      return;
+    }
     setFinishedForm({
       productionDate: '',
       finishedProduct: '',
@@ -199,21 +235,18 @@ const Traceability = () => {
     toast.success('Finished batch saved');
   };
 
-  const addUsage = () => {
+  const addUsage = async () => {
     if (!usageForm.usageDate || !usageForm.sweetdreamsBatchCode || !usageForm.finishedBatchCode) {
       toast.error('Usage date, Sweetdreams batch, and finished batch are required');
       return;
     }
-    setData(prev => ({
-      ...prev,
-      materialUsage: [
-        {
-          ...usageForm,
-          id: crypto.randomUUID(),
-        },
-        ...prev.materialUsage,
-      ],
-    }));
+    try {
+      const response = await axios.post(`${API}/traceability/records/usage`, usageForm);
+      setData(prev => ({ ...prev, materialUsage: [response.data, ...prev.materialUsage] }));
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save material usage');
+      return;
+    }
     setUsageForm({
       usageDate: '',
       sweetdreamsBatchCode: '',
@@ -227,11 +260,88 @@ const Traceability = () => {
     toast.success('Material usage saved');
   };
 
-  const removeRow = (collection, id) => {
-    setData(prev => ({
-      ...prev,
-      [collection]: prev[collection].filter(item => item.id !== id),
-    }));
+  const removeRow = async (collection, id) => {
+    const recordTypes = { rawIntakes: 'raw', finishedBatches: 'finished', materialUsage: 'usage' };
+    try {
+      await axios.delete(`${API}/traceability/records/${recordTypes[collection]}/${id}`);
+      setData(prev => ({ ...prev, [collection]: prev[collection].filter(item => item.id !== id) }));
+      toast.success('Traceability record deleted');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete traceability record');
+    }
+  };
+
+  const downloadBulkWorkbook = async () => {
+    const dataTypes = Object.entries(selectedExportTypes)
+      .filter(([, selected]) => selected)
+      .map(([type]) => type);
+    if (dataTypes.length === 0) {
+      toast.error('Select at least one traceability data type');
+      return;
+    }
+    if (exportDateFrom && exportDateTo && exportDateFrom > exportDateTo) {
+      toast.error('Start date cannot be after end date');
+      return;
+    }
+    setDownloadBusy(true);
+    try {
+      const response = await axios.post(
+        `${API}/traceability/bulk-export`,
+        { data_types: dataTypes, date_from: exportDateFrom || null, date_to: exportDateTo || null },
+        { responseType: 'blob' },
+      );
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `traceability_bulk_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setDownloadOpen(false);
+      toast.success('Excel workbook downloaded — use it as the bulk upload template');
+    } catch (error) {
+      let message = 'Failed to download traceability workbook';
+      if (error.response?.data instanceof Blob) {
+        try {
+          const payload = JSON.parse(await error.response.data.text());
+          message = payload.detail || message;
+        } catch (_) {
+          // Keep the generic message when a binary error body cannot be decoded.
+        }
+      }
+      toast.error(message);
+    } finally {
+      setDownloadBusy(false);
+    }
+  };
+
+  const uploadBulkWorkbook = async event => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+      toast.error('Choose an .xlsx Excel workbook');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Workbook must be 5 MB or smaller');
+      return;
+    }
+    setUploadBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await axios.post(`${API}/traceability/bulk-import`, formData);
+      setImportResult(response.data);
+      const refreshed = await axios.get(`${API}/traceability/records`);
+      setData({ ...emptyData, ...refreshed.data });
+      toast.success(`${response.data.imported_total} records imported`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to upload traceability workbook');
+    } finally {
+      setUploadBusy(false);
+    }
   };
 
   const exportCsv = (filename, rows) => {
@@ -442,12 +552,113 @@ const Traceability = () => {
 
   return (
     <div className="space-y-6" data-testid="traceability-page">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Traceability</h1>
-        <p className="text-muted-foreground mt-1">
-          Capture raw intake, production batches, and usage to generate traceability reports.
-        </p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Traceability</h1>
+          <p className="text-muted-foreground mt-1">
+            Capture raw intake, production batches, and usage to generate traceability reports.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setDownloadOpen(true)} disabled={!dataLoaded || downloadBusy}>
+            <FileSpreadsheet className="w-4 h-4 mr-2" />
+            Bulk Download
+          </Button>
+          <Button onClick={() => fileInputRef.current?.click()} disabled={!dataLoaded || uploadBusy}>
+            {uploadBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+            {uploadBusy ? 'Uploading…' : 'Bulk Upload'}
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            onChange={uploadBulkWorkbook}
+          />
+        </div>
       </div>
+
+      <Dialog open={downloadOpen} onOpenChange={setDownloadOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk download traceability</DialogTitle>
+            <DialogDescription>
+              Choose the records to include. The downloaded Excel workbook is also the template for bulk upload.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-3">
+              {[
+                ['raw', 'Raw Material Intake'],
+                ['finished', 'Finished Batches'],
+                ['usage', 'Material Usage'],
+              ].map(([type, label]) => (
+                <label key={type} className="flex items-center gap-3 rounded-md border p-3 cursor-pointer">
+                  <Checkbox
+                    checked={selectedExportTypes[type]}
+                    onCheckedChange={checked => setSelectedExportTypes(prev => ({ ...prev, [type]: checked === true }))}
+                  />
+                  <span className="text-sm font-medium">{label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="bulkDateFrom">From date (optional)</Label>
+                <Input id="bulkDateFrom" type="date" value={exportDateFrom} onChange={event => setExportDateFrom(event.target.value)} />
+              </div>
+              <div>
+                <Label htmlFor="bulkDateTo">To date (optional)</Label>
+                <Input id="bulkDateTo" type="date" value={exportDateTo} onChange={event => setExportDateTo(event.target.value)} />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Existing rows keep their Record ID and will be skipped if uploaded again. Add new rows with a blank Record ID.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDownloadOpen(false)} disabled={downloadBusy}>Cancel</Button>
+            <Button onClick={downloadBulkWorkbook} disabled={downloadBusy}>
+              {downloadBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+              Download Excel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(importResult)} onOpenChange={open => !open && setImportResult(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk upload result</DialogTitle>
+            <DialogDescription>
+              Valid rows were imported. Existing exported records were safely skipped.
+            </DialogDescription>
+          </DialogHeader>
+          {importResult && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="rounded-md border p-3"><div className="text-2xl font-semibold">{importResult.imported_total}</div><div className="text-xs text-muted-foreground">Imported</div></div>
+                <div className="rounded-md border p-3"><div className="text-2xl font-semibold">{importResult.skipped}</div><div className="text-xs text-muted-foreground">Skipped</div></div>
+                <div className="rounded-md border p-3"><div className="text-2xl font-semibold">{importResult.failed}</div><div className="text-xs text-muted-foreground">Failed</div></div>
+              </div>
+              {importResult.errors?.length > 0 && (
+                <ScrollArea className="max-h-56 rounded-md border p-3">
+                  <div className="space-y-2 text-sm">
+                    {importResult.errors.map((error, index) => (
+                      <div key={`${error.sheet}-${error.row}-${index}`}>
+                        <span className="font-medium">{error.sheet}{error.row ? `, row ${error.row}` : ''}:</span>{' '}{error.message}
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setImportResult(null)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
         <TabsList>
