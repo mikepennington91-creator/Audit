@@ -90,7 +90,7 @@ function AppRoutes() {
       } />
 
       <Route path="/configuration" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}>
+        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <Configuration />
         </ProtectedRoute>
       } />

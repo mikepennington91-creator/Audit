@@ -20,14 +20,19 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const Configuration = () => {
   const { user } = useAuth();
   const isSystemAdmin = user?.role === 'system_admin';
+  const isConfigurationAdmin = ['system_admin', 'company_admin', 'admin'].includes(user?.role);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
-  const allowedTabs = isSystemAdmin ? ['companies', 'lines-shifts', 'groups'] : ['lines-shifts', 'groups'];
+  const allowedTabs = isSystemAdmin
+    ? ['companies', 'lines-shifts', 'groups']
+    : isConfigurationAdmin ? ['lines-shifts', 'groups'] : ['groups'];
   const [companies, setCompanies] = useState([]);
   const [lines, setLines] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(
-    allowedTabs.includes(requestedTab) ? requestedTab : (isSystemAdmin ? 'companies' : 'lines-shifts')
+    allowedTabs.includes(requestedTab)
+      ? requestedTab
+      : (isSystemAdmin ? 'companies' : isConfigurationAdmin ? 'lines-shifts' : 'groups')
   );
   const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
@@ -37,6 +42,10 @@ const Configuration = () => {
   const [lineTitle, setLineTitle] = useState('');
 
   const fetchData = async () => {
+    if (!isConfigurationAdmin) {
+      setLoading(false);
+      return;
+    }
     try {
       const requests = [axios.get(`${API}/lines-shifts`)];
       if (isSystemAdmin) requests.push(axios.get(`${API}/companies`));
@@ -145,9 +154,9 @@ const Configuration = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={changeTab}>
-        <TabsList className={`grid w-full max-w-2xl ${isSystemAdmin ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        <TabsList className={`grid w-full max-w-2xl ${isSystemAdmin ? 'grid-cols-3' : isConfigurationAdmin ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {isSystemAdmin && <TabsTrigger value="companies"><Building2 className="w-4 h-4 mr-2" />Companies</TabsTrigger>}
-          <TabsTrigger value="lines-shifts"><Layers className="w-4 h-4 mr-2" />Lines/Shifts</TabsTrigger>
+          {isConfigurationAdmin && <TabsTrigger value="lines-shifts"><Layers className="w-4 h-4 mr-2" />Lines/Shifts</TabsTrigger>}
           <TabsTrigger value="groups"><FolderOpen className="w-4 h-4 mr-2" />Groups</TabsTrigger>
         </TabsList>
 
