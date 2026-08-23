@@ -17,6 +17,10 @@ services:
         value: infinit_audit
       - key: JWT_SECRET_KEY
         generateValue: true
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.0
 

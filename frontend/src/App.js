@@ -7,7 +7,8 @@ import { OfflineProvider } from "./context/OfflineContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
-import Admin from "./pages/Admin";
+import Configuration from "./pages/Configuration";
+import UserManagement from "./pages/UserManagement";
 import Groups from "./pages/Groups";
 import CreateAudit from "./pages/CreateAudit";
 import Schedule from "./pages/Schedule";
@@ -21,8 +22,8 @@ import DocumentFill from "./pages/DocumentFill";
 import DocumentView from "./pages/DocumentView";
 
 // Protected Route Component
-const ProtectedRoute = ({ children, allowedRoles }) => {
-  const { user, loading } = useAuth();
+const ProtectedRoute = ({ children, allowedRoles, feature }) => {
+  const { user, loading, hasFeature } = useAuth();
   
   if (loading) {
     return (
@@ -37,6 +38,10 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   }
   
   if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (feature && !hasFeature(feature)) {
     return <Navigate to="/dashboard" replace />;
   }
   
@@ -79,92 +84,100 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       
-      <Route path="/admin" element={
+      <Route path="/user-management" element={
         <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}>
-          <Admin />
+          <UserManagement />
         </ProtectedRoute>
       } />
+
+      <Route path="/configuration" element={
+        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}>
+          <Configuration />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/admin" element={<Navigate to="/configuration" replace />} />
       
       <Route path="/groups" element={
-        <ProtectedRoute>
+        <ProtectedRoute feature="audits">
           <Groups />
         </ProtectedRoute>
       } />
       
       <Route path="/create-audit" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="audits" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <CreateAudit />
         </ProtectedRoute>
       } />
       
       <Route path="/create-audit/:auditId" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="audits" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <CreateAudit />
         </ProtectedRoute>
       } />
       
       <Route path="/schedule" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="audits" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <Schedule />
         </ProtectedRoute>
       } />
       
       <Route path="/audits/:auditId" element={
-        <ProtectedRoute>
+        <ProtectedRoute feature="audits">
           <AuditOverview />
         </ProtectedRoute>
       } />
       
       <Route path="/run-audit" element={
-        <ProtectedRoute>
+        <ProtectedRoute feature="audits">
           <RunAudit />
         </ProtectedRoute>
       } />
       
       <Route path="/run-audit/:runId" element={
-        <ProtectedRoute>
+        <ProtectedRoute feature="audits">
           <RunAudit />
         </ProtectedRoute>
       } />
       
       <Route path="/reports" element={
-        <ProtectedRoute>
+        <ProtectedRoute feature="audits">
           <Reports />
         </ProtectedRoute>
       } />
       
       <Route path="/traceability" element={
-        <ProtectedRoute>
+        <ProtectedRoute feature="traceability">
           <Traceability />
         </ProtectedRoute>
       } />
       
       <Route path="/documents" element={
-        <ProtectedRoute>
+        <ProtectedRoute feature="documents">
           <DocumentList />
         </ProtectedRoute>
       } />
       
       <Route path="/documents/design" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="documents" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <DocumentDesigner />
         </ProtectedRoute>
       } />
       
       <Route path="/documents/design/:templateId" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="documents" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <DocumentDesigner />
         </ProtectedRoute>
       } />
       
       <Route path="/documents/fill/:documentId" element={
-        <ProtectedRoute>
+        <ProtectedRoute feature="documents">
           <DocumentFill />
         </ProtectedRoute>
       } />
       
       <Route path="/documents/view/:documentId" element={
-        <ProtectedRoute>
+        <ProtectedRoute feature="documents">
           <DocumentView />
         </ProtectedRoute>
       } />
