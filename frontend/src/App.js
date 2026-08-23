@@ -9,7 +9,6 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Configuration from "./pages/Configuration";
 import UserManagement from "./pages/UserManagement";
-import Groups from "./pages/Groups";
 import CreateAudit from "./pages/CreateAudit";
 import Schedule from "./pages/Schedule";
 import RunAudit from "./pages/RunAudit";
@@ -91,18 +90,14 @@ function AppRoutes() {
       } />
 
       <Route path="/configuration" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}>
+        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <Configuration />
         </ProtectedRoute>
       } />
 
       <Route path="/admin" element={<Navigate to="/configuration" replace />} />
       
-      <Route path="/groups" element={
-        <ProtectedRoute feature="audits">
-          <Groups />
-        </ProtectedRoute>
-      } />
+      <Route path="/groups" element={<Navigate to="/configuration?tab=groups" replace />} />
       
       <Route path="/create-audit" element={
         <ProtectedRoute feature="audits" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>

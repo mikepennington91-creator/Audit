@@ -16,7 +16,7 @@ import { Plus, Trash2, FolderOpen, List, X, GripVertical } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
-const Groups = () => {
+const Groups = ({ embedded = false }) => {
   const { isAuditCreator } = useAuth();
   const [responseGroups, setResponseGroups] = useState([]);
   const [auditTypes, setAuditTypes] = useState([]);
@@ -154,13 +154,14 @@ const Groups = () => {
 
   return (
     <div className="space-y-6" data-testid="groups-page">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Groups</h1>
-        <p className="text-muted-foreground mt-1">
-          Manage response sets and audit type categories
-        </p>
-      </div>
+      {!embedded && (
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Groups</h1>
+          <p className="text-muted-foreground mt-1">
+            Manage response sets and audit type categories
+          </p>
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>

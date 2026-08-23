@@ -7,7 +7,6 @@ import { Button } from './ui/button';
 import { 
   LayoutDashboard, 
   Users, 
-  FolderOpen, 
   FilePlus, 
   ClipboardCheck, 
   BarChart3, 
@@ -45,7 +44,6 @@ const Layout = ({ children }) => {
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, show: true },
     { path: '/user-management', label: 'User Management', icon: Users, show: isAdmin() },
     { path: '/configuration', label: 'Configuration', icon: Settings, show: isAdmin() },
-    { path: '/groups', label: 'Groups', icon: FolderOpen, show: hasFeature('audits') },
     { path: '/create-audit', label: 'Create Audit', icon: FilePlus, show: isAuditCreator() },
     { path: '/schedule', label: 'Schedule', icon: Calendar, show: isAuditCreator() },
     { path: '/run-audit', label: 'Run Audit', icon: ClipboardCheck, show: hasFeature('audits') },

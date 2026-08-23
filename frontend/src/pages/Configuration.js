@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Groups from './Groups';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -11,17 +13,27 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Skeleton } from '../components/ui/skeleton';
 import { toast } from 'sonner';
-import { Building2, Layers, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
+import { Building2, FolderOpen, Layers, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const Configuration = () => {
   const { user } = useAuth();
   const isSystemAdmin = user?.role === 'system_admin';
+  const isConfigurationAdmin = ['system_admin', 'company_admin', 'admin'].includes(user?.role);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  const allowedTabs = isSystemAdmin
+    ? ['companies', 'lines-shifts', 'groups']
+    : isConfigurationAdmin ? ['lines-shifts', 'groups'] : ['groups'];
   const [companies, setCompanies] = useState([]);
   const [lines, setLines] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState(isSystemAdmin ? 'companies' : 'lines-shifts');
+  const [activeTab, setActiveTab] = useState(
+    allowedTabs.includes(requestedTab)
+      ? requestedTab
+      : (isSystemAdmin ? 'companies' : isConfigurationAdmin ? 'lines-shifts' : 'groups')
+  );
   const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
   const [companyForm, setCompanyForm] = useState({ name: '', description: '' });
@@ -30,6 +42,10 @@ const Configuration = () => {
   const [lineTitle, setLineTitle] = useState('');
 
   const fetchData = async () => {
+    if (!isConfigurationAdmin) {
+      setLoading(false);
+      return;
+    }
     try {
       const requests = [axios.get(`${API}/lines-shifts`)];
       if (isSystemAdmin) requests.push(axios.get(`${API}/companies`));
@@ -125,6 +141,11 @@ const Configuration = () => {
     }
   };
 
+  const changeTab = (tab) => {
+    setActiveTab(tab);
+    setSearchParams({ tab }, { replace: true });
+  };
+
   return (
     <div className="space-y-6" data-testid="configuration-page">
       <div>
@@ -132,10 +153,11 @@ const Configuration = () => {
         <p className="text-muted-foreground mt-1">Manage company-wide options used across Infinit-Audit.</p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className={`grid w-full max-w-md ${isSystemAdmin ? 'grid-cols-2' : 'grid-cols-1'}`}>
+      <Tabs value={activeTab} onValueChange={changeTab}>
+        <TabsList className={`grid w-full max-w-2xl ${isSystemAdmin ? 'grid-cols-3' : isConfigurationAdmin ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {isSystemAdmin && <TabsTrigger value="companies"><Building2 className="w-4 h-4 mr-2" />Companies</TabsTrigger>}
-          <TabsTrigger value="lines-shifts"><Layers className="w-4 h-4 mr-2" />Lines/Shifts</TabsTrigger>
+          {isConfigurationAdmin && <TabsTrigger value="lines-shifts"><Layers className="w-4 h-4 mr-2" />Lines/Shifts</TabsTrigger>}
+          <TabsTrigger value="groups"><FolderOpen className="w-4 h-4 mr-2" />Groups</TabsTrigger>
         </TabsList>
 
         {isSystemAdmin && (
@@ -189,6 +211,10 @@ const Configuration = () => {
               ) : <div className="text-center py-12 text-muted-foreground">No lines or shifts have been created yet.</div>}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="groups" className="mt-6">
+          <Groups embedded />
         </TabsContent>
       </Tabs>
     </div>
