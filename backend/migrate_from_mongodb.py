@@ -17,6 +17,7 @@ COLLECTIONS = (
     "companies",
     "users",
     "response_groups",
+    "corrective_actions",
     "audit_types",
     "lines_shifts",
     "audits",

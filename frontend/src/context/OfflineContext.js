@@ -87,7 +87,7 @@ export const OfflineProvider = ({ children }) => {
 
   // Sync offline data
   const syncOfflineData = useCallback(async () => {
-    if (!isOnline || isSyncing) return;
+    if (!navigator.onLine || isSyncing) return;
 
     setIsSyncing(true);
     try {
@@ -104,19 +104,44 @@ export const OfflineProvider = ({ children }) => {
       
       for (const audit of pendingAudits) {
         try {
-          const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/run-audits`, {
-            method: 'POST',
+          let runId = audit.run_id;
+          const startPayload = audit.data?.start || {
+            audit_id: audit.audit_id || audit.data?.audit_id,
+            location: audit.location || audit.data?.location || null,
+            line_shift_id: audit.line_shift_id || null
+          };
+          const submissionPayload = audit.data?.submission || {
+            answers: audit.answers || audit.data?.answers || [],
+            notes: audit.notes || audit.data?.notes || null,
+            completed: true
+          };
+
+          if (!runId) {
+            const startResponse = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/run-audits`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+              },
+              body: JSON.stringify(startPayload)
+            });
+            if (!startResponse.ok) continue;
+            const startedRun = await startResponse.json();
+            runId = startedRun.id;
+          }
+
+          const response = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/run-audits/${runId}`, {
+            method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${localStorage.getItem('token')}`
             },
-            body: JSON.stringify(audit.data)
+            body: JSON.stringify(submissionPayload)
           });
 
           if (response.ok) {
-            const result = await response.json();
             const { markAuditSynced } = await import('../utils/offlineDB');
-            await markAuditSynced(audit.id, result.id);
+            await markAuditSynced(audit.id, runId);
           }
         } catch (error) {
           console.error('Failed to sync audit:', audit.id, error);
@@ -134,7 +159,7 @@ export const OfflineProvider = ({ children }) => {
     } finally {
       setIsSyncing(false);
     }
-  }, [isOnline, isSyncing, updatePendingCount]);
+  }, [isSyncing, updatePendingCount]);
 
   // Manual sync trigger
   const triggerSync = useCallback(() => {

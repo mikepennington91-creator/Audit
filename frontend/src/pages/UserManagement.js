@@ -15,16 +15,18 @@ import { toast } from 'sonner';
 import { Building2, Crown, Download, Pencil, Plus, Shield, Trash2, Upload, UserCircle, Users } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const DEFAULT_ACCESS = { audits: true, traceability: true, documents: true };
+const DEFAULT_ACCESS = { audits: true, traceability: true, documents: true, actions: false };
+const FULL_ACCESS = { audits: true, traceability: true, documents: true, actions: true };
 const FEATURES = [
   { key: 'audits', label: 'Audits' },
   { key: 'traceability', label: 'Traceability' },
   { key: 'documents', label: 'Documents' },
+  { key: 'actions', label: 'Actions' },
 ];
 
 const isAdminRole = (role) => ['system_admin', 'company_admin', 'admin'].includes(role);
 const accessFor = (user) => isAdminRole(user?.role)
-  ? DEFAULT_ACCESS
+  ? FULL_ACCESS
   : { ...DEFAULT_ACCESS, ...(user?.feature_access || {}) };
 
 const emptyUserForm = {
@@ -94,7 +96,7 @@ const UserManagement = () => {
         name: form.name,
         role: form.role,
         company_id: isSystemAdmin ? (form.company_id || null) : currentUser?.company_id,
-        feature_access: isAdminRole(form.role) ? { ...DEFAULT_ACCESS } : form.feature_access,
+        feature_access: isAdminRole(form.role) ? { ...FULL_ACCESS } : form.feature_access,
       };
       if (form.password) payload.password = form.password;
 
@@ -245,7 +247,7 @@ const UserManagement = () => {
                     </div>
                     <div className="space-y-2">
                       <Label>Role</Label>
-                      <Select value={form.role} onValueChange={(role) => setForm({ ...form, role, feature_access: isAdminRole(role) ? { ...DEFAULT_ACCESS } : form.feature_access })}>
+                      <Select value={form.role} onValueChange={(role) => setForm({ ...form, role, feature_access: isAdminRole(role) ? { ...FULL_ACCESS } : form.feature_access })}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="user">User</SelectItem>
@@ -273,7 +275,7 @@ const UserManagement = () => {
                       <Label>Feature Access</Label>
                       {isAdminRole(form.role) && <p className="text-xs text-muted-foreground mt-1">Administrators automatically have full access.</p>}
                     </div>
-                    <div className="grid sm:grid-cols-3 gap-3">
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       {FEATURES.map((feature) => (
                         <label key={feature.key} className="flex items-center justify-between gap-3 rounded-md border p-3">
                           <span className="text-sm font-medium">{feature.label}</span>

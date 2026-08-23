@@ -11,8 +11,9 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
 from typing import List, Optional, Dict, Any
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
+from xml.sax.saxutils import escape
 import bcrypt
 import jwt
 import base64
@@ -76,8 +77,14 @@ class CompanyUpdate(BaseModel):
     description: Optional[str] = None
 
 # User Models
-FEATURE_KEYS = ("audits", "traceability", "documents")
-DEFAULT_FEATURE_ACCESS = {key: True for key in FEATURE_KEYS}
+FEATURE_KEYS = ("audits", "traceability", "documents", "actions")
+DEFAULT_FEATURE_ACCESS = {
+    "audits": True,
+    "traceability": True,
+    "documents": True,
+    "actions": False,
+}
+ADMIN_FEATURE_ACCESS = {key: True for key in FEATURE_KEYS}
 
 class UserRole:
     SYSTEM_ADMIN = "system_admin"  # Global admin - controls everything
@@ -236,6 +243,17 @@ class AnswerSubmit(BaseModel):
     photos: Optional[List[str]] = []
     is_negative: bool = False  # True if this is a fail/negative response
     pass_fail: Optional[str] = None  # "pass" or "fail" - manual assignment for text questions
+    action_required: Optional[str] = None
+    assigned_user_id: Optional[str] = None
+    assigned_user_name: Optional[str] = None
+    assigned_user_email: Optional[str] = None
+    assigned_department: Optional[str] = None
+    action_assignee_type: Optional[str] = None
+    action_due_date: Optional[str] = None
+    action_status: Optional[str] = None
+    action_taken: Optional[str] = None
+    action_completed_by: Optional[str] = None
+    action_completed_at: Optional[str] = None
 
 class RunAuditCreate(BaseModel):
     audit_id: str
@@ -270,6 +288,42 @@ class RunAuditResponse(BaseModel):
     signature: Optional[str] = None
     signoff_name: Optional[str] = None
     signoff_email: Optional[str] = None
+
+# Corrective Action Models
+class ActionAssigneeResponse(BaseModel):
+    id: str
+    name: str
+    email: str
+
+class CorrectiveActionUpdate(BaseModel):
+    action_taken: str
+
+class CorrectiveActionResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    company_id: Optional[str] = None
+    run_id: str
+    audit_id: str
+    audit_name: str
+    question_id: str
+    question_text: str
+    response_label: str
+    non_conformance: str
+    action_required: str
+    assigned_user_id: Optional[str] = None
+    assigned_user_name: Optional[str] = None
+    assigned_user_email: Optional[str] = None
+    assigned_department: Optional[str] = None
+    due_date: str
+    status: str
+    action_taken: Optional[str] = None
+    created_by_id: str
+    created_by_name: str
+    completed_by_id: Optional[str] = None
+    completed_by_name: Optional[str] = None
+    created_at: str
+    updated_at: str
+    completed_at: Optional[str] = None
 
 # ==================== AUTH HELPERS ====================
 
@@ -306,7 +360,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 def normalise_feature_access(user: dict, requested: Optional[Dict[str, bool]] = None) -> Dict[str, bool]:
     """Return a complete, migration-safe feature map for a user."""
     if is_admin(user):
-        return DEFAULT_FEATURE_ACCESS.copy()
+        return ADMIN_FEATURE_ACCESS.copy()
 
     access = DEFAULT_FEATURE_ACCESS.copy()
     stored = user.get("feature_access") or {}
@@ -355,6 +409,21 @@ def is_system_admin(user: dict) -> bool:
 def is_admin(user: dict) -> bool:
     """Check if user is any type of admin"""
     return user.get("role") in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]
+
+def can_access_company_record(user: dict, record: dict) -> bool:
+    if is_system_admin(user):
+        return True
+    return record.get("company_id") == user.get("company_id")
+
+def corrective_action_status(action: dict) -> str:
+    if action.get("status") == "completed":
+        return "completed"
+    try:
+        if date.fromisoformat(action.get("due_date", "")) < get_uk_time().date():
+            return "overdue"
+    except (TypeError, ValueError):
+        pass
+    return "open"
 
 # ==================== AUTH ENDPOINTS ====================
 
@@ -984,6 +1053,91 @@ async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(require
     await db.run_audits.insert_one(run_doc)
     return RunAuditResponse(**run_doc)
 
+async def prepare_corrective_actions(run_audit: dict, audit: dict, answers: List[dict], user: dict) -> None:
+    """Validate failed answers, enrich their assignee details and create action records."""
+    question_map = {question["id"]: question for question in audit.get("questions", [])}
+
+    for answer in answers:
+        if not answer.get("is_negative"):
+            continue
+
+        required_action = (answer.get("action_required") or "").strip()
+        assigned_user_id = (answer.get("assigned_user_id") or "").strip()
+        assigned_department = (answer.get("assigned_department") or "").strip()
+        due_date = (answer.get("action_due_date") or "").strip()
+
+        if not required_action:
+            raise HTTPException(status_code=400, detail="Action required must be completed for every non-conformance")
+        if bool(assigned_user_id) == bool(assigned_department):
+            raise HTTPException(status_code=400, detail="Assign every non-conformance to either a user or a department")
+        try:
+            parsed_due_date = date.fromisoformat(due_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="A valid due date is required for every non-conformance")
+        if parsed_due_date < get_uk_time().date():
+            raise HTTPException(status_code=400, detail="Corrective action due dates cannot be in the past")
+
+        assigned_user = None
+        if assigned_user_id:
+            assigned_user = await db.users.find_one({"id": assigned_user_id}, {"_id": 0, "password": 0})
+            if not assigned_user:
+                raise HTTPException(status_code=400, detail="The selected action owner no longer exists")
+            if not is_system_admin(user) and assigned_user.get("company_id") != user.get("company_id"):
+                raise HTTPException(status_code=403, detail="Actions can only be assigned within your company")
+            answer["assigned_user_name"] = assigned_user["name"]
+            answer["assigned_user_email"] = assigned_user["email"]
+            answer["assigned_department"] = None
+        else:
+            answer["assigned_user_id"] = None
+            answer["assigned_user_name"] = None
+            answer["assigned_user_email"] = None
+            answer["assigned_department"] = assigned_department
+
+        answer["action_required"] = required_action
+        answer["action_due_date"] = due_date
+        answer["action_status"] = "open"
+        action_company_id = run_audit.get("company_id") or (assigned_user or {}).get("company_id")
+        action_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"infinit-audit:{run_audit['id']}:{answer['question_id']}"))
+        now = get_uk_time_iso()
+        base_action = {
+            "run_id": run_audit["id"],
+            "audit_id": run_audit["audit_id"],
+            "audit_name": run_audit["audit_name"],
+            "company_id": action_company_id,
+            "question_id": answer["question_id"],
+            "question_text": question_map.get(answer["question_id"], {}).get("text", "Question not found"),
+            "response_label": answer.get("response_label") or "N/A",
+            "non_conformance": (answer.get("notes") or "").strip(),
+            "action_required": required_action,
+            "assigned_user_id": answer.get("assigned_user_id"),
+            "assigned_user_name": answer.get("assigned_user_name"),
+            "assigned_user_email": answer.get("assigned_user_email"),
+            "assigned_department": answer.get("assigned_department"),
+            "due_date": due_date,
+            "updated_at": now,
+        }
+        existing = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+        if existing:
+            if existing.get("status") == "completed":
+                answer["action_status"] = "completed"
+                answer["action_taken"] = existing.get("action_taken")
+                answer["action_completed_by"] = existing.get("completed_by_name")
+                answer["action_completed_at"] = existing.get("completed_at")
+            await db.corrective_actions.update_one({"id": action_id}, {"$set": base_action})
+        else:
+            await db.corrective_actions.insert_one({
+                "id": action_id,
+                **base_action,
+                "status": "open",
+                "action_taken": None,
+                "created_by_id": user["id"],
+                "created_by_name": user["name"],
+                "completed_by_id": None,
+                "completed_by_name": None,
+                "created_at": now,
+                "completed_at": None,
+            })
+
 @api_router.put("/run-audits/{run_id}", response_model=RunAuditResponse)
 async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict = Depends(require_feature("audits"))):
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
@@ -1001,6 +1155,13 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
                 detail=f"Comment required for negative/fail response on question"
             )
     
+    audit = None
+    if submit_data.completed:
+        audit = await db.audits.find_one({"id": run_audit["audit_id"]}, {"_id": 0})
+        if not audit:
+            raise HTTPException(status_code=404, detail="Audit template not found")
+        await prepare_corrective_actions(run_audit, audit, answers, user)
+
     # Calculate score based on pass/fail per question
     total_score = None
     pass_status = None
@@ -1019,7 +1180,6 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
                     pass_count += 1  # backward compat: non-negative = pass
             
             total_score = (pass_count / total_questions) * 100
-            audit = await db.audits.find_one({"id": run_audit["audit_id"]}, {"_id": 0})
             if audit and audit.get("pass_rate"):
                 pass_status = "pass" if total_score >= audit["pass_rate"] else "fail"
     
@@ -1098,6 +1258,141 @@ async def get_run_audit_details(run_id: str, user: dict = Depends(require_featur
         "questions": audit.get("questions", []),
         "enriched_answers": enriched_answers
     }
+
+# ==================== CORRECTIVE ACTIONS ====================
+
+@api_router.get("/action-assignees", response_model=List[ActionAssigneeResponse])
+async def get_action_assignees(user: dict = Depends(require_feature("audits"))):
+    """Return a minimal, company-scoped list for assigning audit actions."""
+    query = {} if is_system_admin(user) else {"company_id": user.get("company_id")}
+    users = await db.users.find(query, {"_id": 0, "password": 0}).sort("name", 1).to_list(1000)
+    return [ActionAssigneeResponse(id=item["id"], name=item["name"], email=item["email"]) for item in users]
+
+@api_router.get("/actions", response_model=List[CorrectiveActionResponse])
+async def get_corrective_actions(
+    status: Optional[str] = None,
+    assigned_to_me: bool = False,
+    user: dict = Depends(require_feature("actions")),
+):
+    if status and status not in {"open", "overdue", "completed"}:
+        raise HTTPException(status_code=400, detail="Unknown action status")
+
+    query = {} if is_system_admin(user) else {"company_id": user.get("company_id")}
+    if assigned_to_me:
+        query["assigned_user_id"] = user["id"]
+    actions = await db.corrective_actions.find(query, {"_id": 0}).sort("due_date", 1).to_list(5000)
+    results = []
+    for action in actions:
+        action = {**action, "status": corrective_action_status(action)}
+        if not status or action["status"] == status:
+            results.append(CorrectiveActionResponse(**action))
+    return results
+
+async def get_accessible_corrective_action(action_id: str, user: dict) -> dict:
+    action = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    if not action:
+        raise HTTPException(status_code=404, detail="Corrective action not found")
+    if not can_access_company_record(user, action):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return action
+
+@api_router.put("/actions/{action_id}", response_model=CorrectiveActionResponse)
+async def complete_corrective_action(
+    action_id: str,
+    update: CorrectiveActionUpdate,
+    user: dict = Depends(require_feature("actions")),
+):
+    action = await get_accessible_corrective_action(action_id, user)
+    action_taken = update.action_taken.strip()
+    if not action_taken:
+        raise HTTPException(status_code=400, detail="Action taken is required before completion")
+
+    now = get_uk_time_iso()
+    await db.corrective_actions.update_one({"id": action_id}, {"$set": {
+        "action_taken": action_taken,
+        "status": "completed",
+        "completed_by_id": user["id"],
+        "completed_by_name": user["name"],
+        "completed_at": now,
+        "updated_at": now,
+    }})
+    run_audit = await db.run_audits.find_one({"id": action["run_id"]}, {"_id": 0})
+    if run_audit:
+        updated_answers = []
+        for answer in run_audit.get("answers", []):
+            if answer.get("question_id") == action["question_id"]:
+                answer = {
+                    **answer,
+                    "action_status": "completed",
+                    "action_taken": action_taken,
+                    "action_completed_by": user["name"],
+                    "action_completed_at": now,
+                }
+            updated_answers.append(answer)
+        await db.run_audits.update_one({"id": action["run_id"]}, {"$set": {"answers": updated_answers}})
+    updated = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    return CorrectiveActionResponse(**updated)
+
+@api_router.get("/actions/{action_id}/pdf")
+async def export_corrective_action_pdf(action_id: str, user: dict = Depends(require_feature("actions"))):
+    action = await get_accessible_corrective_action(action_id, user)
+    display_status = corrective_action_status(action)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('ActionTitle', parent=styles['Heading1'], fontSize=20, textColor=HexColor('#1a7a6e'), spaceAfter=18)
+    section_style = ParagraphStyle('ActionSection', parent=styles['Heading2'], fontSize=13, textColor=HexColor('#1a7a6e'), spaceBefore=14, spaceAfter=8)
+    normal_style = styles['Normal']
+    assigned_to = action.get("assigned_user_name") or action.get("assigned_department") or "Unassigned"
+
+    story = [
+        Paragraph("INFINIT-AUDIT", title_style),
+        Paragraph("<b>Corrective Action Report</b>", styles['Heading2']),
+        Spacer(1, 0.25*inch),
+    ]
+    meta_data = [
+        ["Audit:", action.get("audit_name", "N/A")],
+        ["Status:", display_status.title()],
+        ["Assigned to:", assigned_to],
+        ["Due date:", action.get("due_date", "N/A")],
+        ["Raised by:", action.get("created_by_name", "N/A")],
+        ["Raised:", format_uk_datetime(action.get("created_at"))],
+    ]
+    meta_table = Table(meta_data, colWidths=[1.6*inch, 4.4*inch])
+    meta_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), HexColor('#f0f9f8')),
+        ('TEXTCOLOR', (0, 0), (0, -1), HexColor('#1a7a6e')),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#e0e0e0')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('PADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(meta_table)
+    sections = [
+        ("Audit Question", action.get("question_text")),
+        ("Non-Conformance", action.get("non_conformance")),
+        ("Action Required", action.get("action_required")),
+        ("Action Taken", action.get("action_taken") or "Not yet completed"),
+    ]
+    for heading, value in sections:
+        story.append(Paragraph(heading, section_style))
+        story.append(Paragraph(escape(str(value or "N/A")), normal_style))
+
+    if action.get("completed_at"):
+        story.append(Paragraph("Completion", section_style))
+        story.append(Paragraph(
+            f"Completed by {escape(action.get('completed_by_name') or 'N/A')} on {escape(format_uk_datetime(action.get('completed_at')))}",
+            normal_style,
+        ))
+    story.append(Spacer(1, 0.5*inch))
+    footer_style = ParagraphStyle('ActionFooter', parent=styles['Normal'], fontSize=8, textColor=grey, alignment=TA_CENTER)
+    story.append(Paragraph(f"Generated by Infinit-Audit on {format_uk_datetime(get_uk_time_iso())}", footer_style))
+    doc.build(story)
+    buffer.seek(0)
+
+    filename = f"action_report_{action_id[:8]}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 # ==================== PHOTO UPLOAD ====================
 
@@ -1239,6 +1534,16 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
         
         if answer.get("notes"):
             q_data.append([Paragraph(f"<b>Comment:</b> {answer.get('notes')}", normal_style)])
+
+        if answer.get("is_negative") and answer.get("action_required"):
+            assigned_to = answer.get("assigned_user_name") or answer.get("assigned_department") or "Unassigned"
+            q_data.extend([
+                [Paragraph(f"<b>Action Required:</b> {answer.get('action_required')}", normal_style)],
+                [Paragraph(f"<b>Assigned To:</b> {assigned_to}", normal_style)],
+                [Paragraph(f"<b>Due Date:</b> {answer.get('action_due_date', 'N/A')}", normal_style)],
+            ])
+            if answer.get("action_taken"):
+                q_data.append([Paragraph(f"<b>Action Taken:</b> {answer.get('action_taken')}", normal_style)])
         
         if answer.get("photos"):
             q_data.append([Paragraph(f"<b>Photos:</b> {len(answer.get('photos', []))} attached", normal_style)])
@@ -2064,6 +2369,7 @@ async def startup_event():
     await db.lines_shifts.create_index("id", unique=True)
     await db.traceability_templates.create_index("id", unique=True)
     await db.traceability_documents.create_index("id", unique=True)
+    await db.corrective_actions.create_index("id", unique=True)
     
     # Optionally create the first system admin from deployment secrets.
     # Existing administrators and passwords are never reset on startup.
@@ -2082,7 +2388,7 @@ async def startup_event():
             "name": "System Admin",
             "role": UserRole.SYSTEM_ADMIN,
             "company_id": None,
-            "feature_access": DEFAULT_FEATURE_ACCESS.copy(),
+            "feature_access": ADMIN_FEATURE_ACCESS.copy(),
             "created_at": get_uk_time_iso()
         }
         await db.users.insert_one(admin_doc)

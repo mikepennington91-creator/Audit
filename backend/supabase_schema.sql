@@ -28,4 +28,13 @@ create index if not exists app_documents_auditor_id_idx
 create index if not exists app_documents_assigned_to_idx
     on public.app_documents (collection, (data ->> 'assigned_to'));
 
+create index if not exists app_documents_assigned_user_id_idx
+    on public.app_documents (collection, (data ->> 'assigned_user_id'));
+
+create index if not exists app_documents_due_date_idx
+    on public.app_documents (collection, (data ->> 'due_date'));
+
+create index if not exists app_documents_status_idx
+    on public.app_documents (collection, (data ->> 'status'));
+
 revoke all on table public.app_documents from anon, authenticated;
