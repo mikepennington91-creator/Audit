@@ -84,6 +84,7 @@ const Dashboard = () => {
     const enabledModules = [
       { key: 'traceability', label: 'Traceability', description: 'Record and search material traceability information.', path: '/traceability', icon: ClipboardList },
       { key: 'documents', label: 'Documents', description: 'Complete and view your company paperwork.', path: '/documents', icon: FileText },
+      { key: 'actions', label: 'Actions', description: 'Review and complete corrective actions raised from audits.', path: '/actions', icon: ClipboardCheck },
     ].filter((module) => hasFeature(module.key));
 
     return (

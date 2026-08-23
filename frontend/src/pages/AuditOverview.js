@@ -440,6 +440,15 @@ const AuditOverview = () => {
                               <p className="text-sm">{answer.notes}</p>
                             </div>
                           )}
+                          {(answer.is_negative || answer.pass_fail === 'fail') && answer.action_required && (
+                            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/20">
+                              <p className="font-semibold mb-2">Corrective Action</p>
+                              <p><span className="text-muted-foreground">Action required:</span> {answer.action_required}</p>
+                              <p className="mt-1"><span className="text-muted-foreground">Assigned to:</span> {answer.assigned_user_name || answer.assigned_department || 'Unassigned'}</p>
+                              <p className="mt-1"><span className="text-muted-foreground">Due date:</span> {answer.action_due_date ? new Date(`${answer.action_due_date}T00:00:00`).toLocaleDateString('en-GB') : '-'}</p>
+                              {answer.action_taken && <p className="mt-2 pt-2 border-t border-amber-200 dark:border-amber-900"><span className="text-muted-foreground">Action taken:</span> {answer.action_taken}</p>}
+                            </div>
+                          )}
                           {answer.photos?.length > 0 && (
                             <div className="mt-4">
                               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">

@@ -13,6 +13,7 @@ import CreateAudit from "./pages/CreateAudit";
 import Schedule from "./pages/Schedule";
 import RunAudit from "./pages/RunAudit";
 import Reports from "./pages/Reports";
+import Actions from "./pages/Actions";
 import Traceability from "./pages/Traceability";
 import AuditOverview from "./pages/AuditOverview";
 import DocumentList from "./pages/DocumentList";
@@ -138,6 +139,12 @@ function AppRoutes() {
       <Route path="/reports" element={
         <ProtectedRoute feature="audits">
           <Reports />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/actions" element={
+        <ProtectedRoute feature="actions">
+          <Actions />
         </ProtectedRoute>
       } />
       

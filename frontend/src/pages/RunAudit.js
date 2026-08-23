@@ -50,6 +50,7 @@ const RunAudit = () => {
   const [audits, setAudits] = useState([]);
   const [responseGroups, setResponseGroups] = useState([]);
   const [linesShifts, setLinesShifts] = useState([]);
+  const [actionAssignees, setActionAssignees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
@@ -75,27 +76,31 @@ const RunAudit = () => {
 
   const fetchData = async () => {
     try {
-      let auditsData, groupsData, linesShiftsData;
+      let auditsData, groupsData, linesShiftsData, assigneesData;
       
       if (isOnline) {
-        const [auditsRes, groupsRes, linesShiftsRes] = await Promise.all([
+        const [auditsRes, groupsRes, linesShiftsRes, assigneesRes] = await Promise.all([
           axios.get(`${API}/audits`),
           axios.get(`${API}/response-groups`),
-          axios.get(`${API}/lines-shifts`)
+          axios.get(`${API}/lines-shifts`),
+          axios.get(`${API}/action-assignees`)
         ]);
         auditsData = auditsRes.data;
         groupsData = groupsRes.data;
         linesShiftsData = linesShiftsRes.data;
+        assigneesData = assigneesRes.data;
         
         // Cache data for offline use
         await cacheData('audits', auditsData);
         await cacheData('responseGroups', groupsData);
         await cacheData('linesShifts', linesShiftsData);
+        await cacheData('actionAssignees', assigneesData);
       } else {
         // Load from cache when offline
         auditsData = await getCachedData('audits') || [];
         groupsData = await getCachedData('responseGroups') || [];
         linesShiftsData = await getCachedData('linesShifts') || [];
+        assigneesData = await getCachedData('actionAssignees') || [];
         
         if (auditsData.length === 0) {
           toast.warning('No cached data available. Connect to internet to load audits.');
@@ -105,6 +110,7 @@ const RunAudit = () => {
       setAudits(auditsData);
       setResponseGroups(groupsData);
       setLinesShifts(linesShiftsData);
+      setActionAssignees(assigneesData);
       
       if (runId && isOnline) {
         const runRes = await axios.get(`${API}/run-audits/${runId}`);
@@ -125,11 +131,13 @@ const RunAudit = () => {
       const cachedAudits = await getCachedData('audits');
       const cachedGroups = await getCachedData('responseGroups');
       const cachedLinesShifts = await getCachedData('linesShifts');
+      const cachedActionAssignees = await getCachedData('actionAssignees');
       
       if (cachedAudits) {
         setAudits(cachedAudits);
         setResponseGroups(cachedGroups || []);
         setLinesShifts(cachedLinesShifts || []);
+        setActionAssignees(cachedActionAssignees || []);
         toast.info('Loaded cached data');
       } else {
         toast.error('Failed to load data');
@@ -199,15 +207,17 @@ const RunAudit = () => {
 
   const handleAnswer = (question, option) => {
     const isNegative = isNegativeResponse(option);
+    const existingAnswer = answers[question.id] || {};
     setAnswers({
       ...answers,
       [question.id]: {
+        ...existingAnswer,
         question_id: question.id,
         response_value: option.value,
         response_label: option.label,
         score: option.score,
-        notes: answers[question.id]?.notes || '',
-        photos: answers[question.id]?.photos || [],
+        notes: existingAnswer.notes || '',
+        photos: existingAnswer.photos || [],
         is_negative: isNegative,
         pass_fail: isNegative ? 'fail' : 'pass'
       }
@@ -215,17 +225,19 @@ const RunAudit = () => {
   };
 
   const handleTextAnswer = (question, value) => {
+    const existingAnswer = answers[question.id] || {};
     setAnswers({
       ...answers,
       [question.id]: {
+        ...existingAnswer,
         question_id: question.id,
         response_value: value,
         response_label: value,
         score: null,
-        notes: answers[question.id]?.notes || '',
-        photos: answers[question.id]?.photos || [],
-        is_negative: answers[question.id]?.pass_fail === 'fail',
-        pass_fail: answers[question.id]?.pass_fail || null
+        notes: existingAnswer.notes || '',
+        photos: existingAnswer.photos || [],
+        is_negative: existingAnswer.pass_fail === 'fail',
+        pass_fail: existingAnswer.pass_fail || null
       }
     });
   };
@@ -370,6 +382,29 @@ const RunAudit = () => {
     });
   };
 
+  const updateActionField = (questionId, field, value) => {
+    const currentAnswer = answers[questionId];
+    if (!currentAnswer) return;
+    setAnswers({
+      ...answers,
+      [questionId]: { ...currentAnswer, [field]: value }
+    });
+  };
+
+  const setActionAssigneeType = (questionId, type) => {
+    const currentAnswer = answers[questionId];
+    if (!currentAnswer) return;
+    setAnswers({
+      ...answers,
+      [questionId]: {
+        ...currentAnswer,
+        action_assignee_type: type,
+        assigned_user_id: type === 'user' ? (currentAnswer.assigned_user_id || '') : '',
+        assigned_department: type === 'department' ? (currentAnswer.assigned_department || '') : ''
+      }
+    });
+  };
+
   const saveProgress = async () => {
     if (!activeRun) return;
     
@@ -420,6 +455,21 @@ const RunAudit = () => {
       return;
     }
 
+    const incompleteActions = Object.values(answers).filter(a =>
+      a.is_negative && (
+        !a.action_required?.trim() ||
+        !a.action_due_date ||
+        (!a.assigned_user_id && !a.assigned_department?.trim())
+      )
+    );
+
+    if (incompleteActions.length > 0) {
+      toast.error(`Action required, owner and due date must be completed for every non-conformance. ${incompleteActions.length} incomplete.`);
+      const firstIncompleteIdx = currentAudit.questions.findIndex(q => incompleteActions.some(a => a.question_id === q.id));
+      if (firstIncompleteIdx !== -1) setCurrentQuestionIndex(firstIncompleteIdx);
+      return;
+    }
+
     // Check signature
     if (!signature) {
       toast.error('Please sign off the audit before submitting');
@@ -433,16 +483,27 @@ const RunAudit = () => {
       try {
         const offlineAuditData = {
           audit_id: currentAudit.id,
+          run_id: activeRun.offline ? null : activeRun.id,
           location: activeRun.location,
+          line_shift_id: activeRun.line_shift_id || null,
           answers: Object.values(answers),
           notes,
           started_at: activeRun.started_at,
           completed_at: new Date().toISOString(),
           data: {
-            audit_id: currentAudit.id,
-            location: activeRun.location,
-            answers: Object.values(answers),
-            notes
+            start: {
+              audit_id: currentAudit.id,
+              location: activeRun.location,
+              line_shift_id: activeRun.line_shift_id || null
+            },
+            submission: {
+              answers: Object.values(answers),
+              notes,
+              completed: true,
+              signature,
+              signoff_name: user?.name,
+              signoff_email: user?.email
+            }
           }
         };
         
@@ -484,9 +545,19 @@ const RunAudit = () => {
             answers: Object.values(answers),
             notes,
             data: {
-              answers: Object.values(answers),
-              notes,
-              completed: true
+              start: {
+                audit_id: currentAudit.id,
+                location: activeRun.location,
+                line_shift_id: activeRun.line_shift_id || null
+              },
+              submission: {
+                answers: Object.values(answers),
+                notes,
+                completed: true,
+                signature,
+                signoff_name: user?.name,
+                signoff_email: user?.email
+              }
             }
           };
           
@@ -926,6 +997,94 @@ const RunAudit = () => {
                 data-testid="question-notes"
               />
             </div>
+
+            {currentAnswer?.is_negative && (
+              <div className="space-y-4 rounded-lg border border-red-200 bg-red-50/60 p-4 dark:border-red-900 dark:bg-red-950/20" data-testid="corrective-action-fields">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-600" />
+                    <h3 className="font-semibold">Corrective Action</h3>
+                    <Badge variant="destructive" className="text-xs">Required</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">Create the action report for this non-conformance.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`action-required-${currentQuestion.id}`}>Action Required *</Label>
+                  <Textarea
+                    id={`action-required-${currentQuestion.id}`}
+                    placeholder="What needs to be done to correct or prevent this issue?"
+                    value={currentAnswer.action_required || ''}
+                    onChange={(e) => updateActionField(currentQuestion.id, 'action_required', e.target.value)}
+                    rows={3}
+                    data-testid="action-required"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Assign To *</Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={(currentAnswer.action_assignee_type || 'user') === 'user' ? 'default' : 'outline'}
+                      onClick={() => setActionAssigneeType(currentQuestion.id, 'user')}
+                    >
+                      Registered User
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={currentAnswer.action_assignee_type === 'department' ? 'default' : 'outline'}
+                      onClick={() => setActionAssigneeType(currentQuestion.id, 'department')}
+                    >
+                      Department / Team
+                    </Button>
+                  </div>
+                </div>
+
+                {(currentAnswer.action_assignee_type || 'user') === 'user' ? (
+                  <div className="space-y-2">
+                    <Label>Select User</Label>
+                    <Select
+                      value={currentAnswer.assigned_user_id || undefined}
+                      onValueChange={(value) => updateActionField(currentQuestion.id, 'assigned_user_id', value)}
+                    >
+                      <SelectTrigger data-testid="action-assigned-user"><SelectValue placeholder="Choose a user..." /></SelectTrigger>
+                      <SelectContent>
+                        {actionAssignees.map((assignee) => (
+                          <SelectItem key={assignee.id} value={assignee.id}>{assignee.name} ({assignee.email})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {!actionAssignees.length && <p className="text-xs text-muted-foreground">No registered users are available. Assign this to a department instead.</p>}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor={`action-department-${currentQuestion.id}`}>Department / Team</Label>
+                    <Input
+                      id={`action-department-${currentQuestion.id}`}
+                      placeholder="e.g. Engineering, Production or Hygiene"
+                      value={currentAnswer.assigned_department || ''}
+                      onChange={(e) => updateActionField(currentQuestion.id, 'assigned_department', e.target.value)}
+                      data-testid="action-assigned-department"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2 sm:max-w-xs">
+                  <Label htmlFor={`action-due-${currentQuestion.id}`}>Due Date *</Label>
+                  <Input
+                    id={`action-due-${currentQuestion.id}`}
+                    type="date"
+                    min={new Date().toISOString().split('T')[0]}
+                    value={currentAnswer.action_due_date || ''}
+                    onChange={(e) => updateActionField(currentQuestion.id, 'action_due_date', e.target.value)}
+                    data-testid="action-due-date"
+                  />
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
