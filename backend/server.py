@@ -36,7 +36,9 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
 # JWT Config
-JWT_SECRET = os.environ.get('JWT_SECRET', 'infinit-audit-secret-key-2026')
+JWT_SECRET = os.environ.get('JWT_SECRET_KEY') or os.environ.get('JWT_SECRET')
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET_KEY must be configured")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
@@ -75,6 +77,9 @@ class CompanyUpdate(BaseModel):
     description: Optional[str] = None
 
 # User Models
+FEATURE_KEYS = ("audits", "traceability", "documents")
+DEFAULT_FEATURE_ACCESS = {key: True for key in FEATURE_KEYS}
+
 class UserRole:
     SYSTEM_ADMIN = "system_admin"  # Global admin - controls everything
     COMPANY_ADMIN = "company_admin"  # Company-specific admin
@@ -90,6 +95,7 @@ class UserCreate(BaseModel):
     name: str
     role: str = UserRole.USER
     company_id: Optional[str] = None
+    feature_access: Dict[str, bool] = Field(default_factory=lambda: DEFAULT_FEATURE_ACCESS.copy())
 
 class UserLogin(BaseModel):
     email: EmailStr
@@ -103,6 +109,7 @@ class UserResponse(BaseModel):
     role: str
     company_id: Optional[str] = None
     company_name: Optional[str] = None
+    feature_access: Dict[str, bool] = Field(default_factory=lambda: DEFAULT_FEATURE_ACCESS.copy())
     created_at: str
 
 class UserUpdate(BaseModel):
@@ -110,6 +117,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     password: Optional[str] = None
     company_id: Optional[str] = None
+    feature_access: Optional[Dict[str, bool]] = None
 
 # Response Group Models
 class ResponseOption(BaseModel):
@@ -296,8 +304,37 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-def require_role(allowed_roles: List[str]):
+def normalise_feature_access(user: dict, requested: Optional[Dict[str, bool]] = None) -> Dict[str, bool]:
+    """Return a complete, migration-safe feature map for a user."""
+    if is_admin(user):
+        return DEFAULT_FEATURE_ACCESS.copy()
+
+    access = DEFAULT_FEATURE_ACCESS.copy()
+    stored = user.get("feature_access") or {}
+    for key in FEATURE_KEYS:
+        if key in stored:
+            access[key] = bool(stored[key])
+    if requested is not None:
+        for key, value in requested.items():
+            if key not in FEATURE_KEYS:
+                raise HTTPException(status_code=400, detail=f"Unknown feature: {key}")
+            access[key] = bool(value)
+    return access
+
+def has_feature(user: dict, feature: str) -> bool:
+    return is_admin(user) or normalise_feature_access(user).get(feature, False)
+
+def require_feature(feature: str):
+    async def feature_checker(user: dict = Depends(get_current_user)):
+        if not has_feature(user, feature):
+            raise HTTPException(status_code=403, detail=f"{feature.title()} access is not enabled")
+        return user
+    return feature_checker
+
+def require_role(allowed_roles: List[str], feature: Optional[str] = None):
     async def role_checker(user: dict = Depends(get_current_user)):
+        if feature and not has_feature(user, feature):
+            raise HTTPException(status_code=403, detail=f"{feature.title()} access is not enabled")
         user_role = user["role"]
         # System admin has access to everything
         if user_role == UserRole.SYSTEM_ADMIN:
@@ -329,6 +366,7 @@ async def register(user_data: UserCreate):
         raise HTTPException(status_code=400, detail="Email already registered")
     
     user_id = str(uuid.uuid4())
+    requested_user = {"role": user_data.role, "feature_access": user_data.feature_access}
     user_doc = {
         "id": user_id,
         "email": user_data.email,
@@ -336,6 +374,7 @@ async def register(user_data: UserCreate):
         "name": user_data.name,
         "role": user_data.role,
         "company_id": user_data.company_id,
+        "feature_access": normalise_feature_access(requested_user, user_data.feature_access),
         "created_at": get_uk_time_iso()
     }
     await db.users.insert_one(user_doc)
@@ -348,7 +387,8 @@ async def register(user_data: UserCreate):
             "email": user_data.email,
             "name": user_data.name,
             "role": user_data.role,
-            "company_id": user_data.company_id
+            "company_id": user_data.company_id,
+            "feature_access": user_doc["feature_access"]
         }
     }
 
@@ -366,7 +406,8 @@ async def login(credentials: UserLogin):
             "email": user["email"],
             "name": user["name"],
             "role": user["role"],
-            "company_id": user.get("company_id")
+            "company_id": user.get("company_id"),
+            "feature_access": normalise_feature_access(user)
         }
     }
 
@@ -377,6 +418,7 @@ async def get_me(user: dict = Depends(get_current_user)):
         company = await db.companies.find_one({"id": user["company_id"]}, {"_id": 0})
         if company:
             user["company_name"] = company["name"]
+    user["feature_access"] = normalise_feature_access(user)
     return UserResponse(**user)
 
 # ==================== COMPANY MANAGEMENT (SYSTEM ADMIN ONLY) ====================
@@ -456,6 +498,7 @@ async def get_users(user: dict = Depends(get_current_user)):
     users = await db.users.find(query, {"_id": 0, "password": 0}).to_list(1000)
     # Add company names
     for u in users:
+        u["feature_access"] = normalise_feature_access(u)
         if u.get("company_id"):
             company = await db.companies.find_one({"id": u["company_id"]}, {"_id": 0})
             if company:
@@ -484,6 +527,9 @@ async def update_user(user_id: str, update_data: UserUpdate, user: dict = Depend
             raise HTTPException(status_code=403, detail="Cannot create system administrators")
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    if update_data.feature_access is not None:
+        proposed_user = {**target_user, "role": update_data.role or target_user.get("role")}
+        update_dict["feature_access"] = normalise_feature_access(proposed_user, update_data.feature_access)
     if "password" in update_dict:
         update_dict["password"] = hash_password(update_dict["password"])
     
@@ -499,6 +545,7 @@ async def update_user(user_id: str, update_data: UserUpdate, user: dict = Depend
         raise HTTPException(status_code=404, detail="User not found")
     
     updated_user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
+    updated_user["feature_access"] = normalise_feature_access(updated_user)
     if updated_user.get("company_id"):
         company = await db.companies.find_one({"id": updated_user["company_id"]}, {"_id": 0})
         if company:
@@ -536,7 +583,7 @@ async def delete_user(user_id: str, user: dict = Depends(get_current_user)):
 @api_router.post("/response-groups", response_model=ResponseGroupResponse)
 async def create_response_group(
     group_data: ResponseGroupCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
 ):
     group_id = str(uuid.uuid4())
     group_doc = {
@@ -552,7 +599,7 @@ async def create_response_group(
     return ResponseGroupResponse(**group_doc)
 
 @api_router.get("/response-groups", response_model=List[ResponseGroupResponse])
-async def get_response_groups(user: dict = Depends(get_current_user)):
+async def get_response_groups(user: dict = Depends(require_feature("audits"))):
     # System admin sees all, others see only their company's groups
     if is_system_admin(user):
         groups = await db.response_groups.find({}, {"_id": 0}).to_list(1000)
@@ -573,7 +620,7 @@ async def get_response_groups(user: dict = Depends(get_current_user)):
     return [ResponseGroupResponse(**g) for g in groups]
 
 @api_router.get("/response-groups/{group_id}", response_model=ResponseGroupResponse)
-async def get_response_group(group_id: str, user: dict = Depends(get_current_user)):
+async def get_response_group(group_id: str, user: dict = Depends(require_feature("audits"))):
     group = await db.response_groups.find_one({"id": group_id}, {"_id": 0})
     if not group:
         raise HTTPException(status_code=404, detail="Response group not found")
@@ -582,7 +629,7 @@ async def get_response_group(group_id: str, user: dict = Depends(get_current_use
 @api_router.delete("/response-groups/{group_id}")
 async def delete_response_group(
     group_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
 ):
     result = await db.response_groups.delete_one({"id": group_id})
     if result.deleted_count == 0:
@@ -594,7 +641,7 @@ async def delete_response_group(
 @api_router.post("/audit-types", response_model=AuditTypeResponse)
 async def create_audit_type(
     type_data: AuditTypeCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
 ):
     type_id = str(uuid.uuid4())
     type_doc = {
@@ -609,7 +656,7 @@ async def create_audit_type(
     return AuditTypeResponse(**type_doc)
 
 @api_router.get("/audit-types", response_model=List[AuditTypeResponse])
-async def get_audit_types(user: dict = Depends(get_current_user)):
+async def get_audit_types(user: dict = Depends(require_feature("audits"))):
     # System admin sees all, others see only their company's types
     if is_system_admin(user):
         types = await db.audit_types.find({}, {"_id": 0}).to_list(1000)
@@ -631,7 +678,7 @@ async def get_audit_types(user: dict = Depends(get_current_user)):
 @api_router.delete("/audit-types/{type_id}")
 async def delete_audit_type(
     type_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
 ):
     result = await db.audit_types.delete_one({"id": type_id})
     if result.deleted_count == 0:
@@ -643,7 +690,7 @@ async def delete_audit_type(
 @api_router.post("/lines-shifts", response_model=LineShiftResponse)
 async def create_line_shift(
     data: LineShiftCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits"))
 ):
     """Create a new line/shift (Admin only)"""
     line_id = str(uuid.uuid4())
@@ -658,7 +705,7 @@ async def create_line_shift(
     return LineShiftResponse(**line_doc)
 
 @api_router.get("/lines-shifts", response_model=List[LineShiftResponse])
-async def get_lines_shifts(user: dict = Depends(get_current_user)):
+async def get_lines_shifts(user: dict = Depends(require_feature("audits"))):
     """Get all lines/shifts for user's company"""
     if is_system_admin(user):
         lines = await db.lines_shifts.find({}, {"_id": 0}).to_list(1000)
@@ -669,7 +716,7 @@ async def get_lines_shifts(user: dict = Depends(get_current_user)):
     return [LineShiftResponse(**l) for l in lines]
 
 @api_router.get("/lines-shifts/{line_id}", response_model=LineShiftResponse)
-async def get_line_shift(line_id: str, user: dict = Depends(get_current_user)):
+async def get_line_shift(line_id: str, user: dict = Depends(require_feature("audits"))):
     line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
     if not line:
         raise HTTPException(status_code=404, detail="Line/Shift not found")
@@ -682,7 +729,7 @@ async def get_line_shift(line_id: str, user: dict = Depends(get_current_user)):
 async def update_line_shift(
     line_id: str,
     data: LineShiftCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits"))
 ):
     """Update a line/shift (Admin only)"""
     line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
@@ -700,7 +747,7 @@ async def update_line_shift(
 @api_router.delete("/lines-shifts/{line_id}")
 async def delete_line_shift(
     line_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits"))
 ):
     """Delete a line/shift (Admin only)"""
     line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
@@ -721,7 +768,7 @@ async def delete_line_shift(
 @api_router.post("/audits", response_model=AuditResponse)
 async def create_audit(
     audit_data: AuditCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
 ):
     audit_id = str(uuid.uuid4())
     now = get_uk_time_iso()
@@ -767,7 +814,7 @@ async def create_audit(
     return AuditResponse(**audit_doc)
 
 @api_router.get("/audits", response_model=List[AuditResponse])
-async def get_audits(user: dict = Depends(get_current_user)):
+async def get_audits(user: dict = Depends(require_feature("audits"))):
     # System admin sees all audits
     if is_system_admin(user):
         query = {}
@@ -790,7 +837,7 @@ async def get_audits(user: dict = Depends(get_current_user)):
     return [AuditResponse(**a) for a in audits]
 
 @api_router.get("/audits/{audit_id}", response_model=AuditResponse)
-async def get_audit(audit_id: str, user: dict = Depends(get_current_user)):
+async def get_audit(audit_id: str, user: dict = Depends(require_feature("audits"))):
     audit = await db.audits.find_one({"id": audit_id}, {"_id": 0})
     if not audit:
         raise HTTPException(status_code=404, detail="Audit not found")
@@ -802,7 +849,7 @@ async def get_audit(audit_id: str, user: dict = Depends(get_current_user)):
 async def update_audit(
     audit_id: str,
     update_data: AuditUpdate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
 ):
     update_dict = {}
     if update_data.name is not None:
@@ -845,7 +892,7 @@ async def update_audit(
 @api_router.delete("/audits/{audit_id}")
 async def delete_audit(
     audit_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
 ):
     result = await db.audits.delete_one({"id": audit_id})
     if result.deleted_count == 0:
@@ -860,7 +907,7 @@ async def get_audit_runs(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     pass_status: Optional[str] = None,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_feature("audits"))
 ):
     """Get all completed runs for a specific audit with stats and filtering"""
     audit = await db.audits.find_one({"id": audit_id}, {"_id": 0})
@@ -901,7 +948,7 @@ async def get_audit_runs(
 # ==================== RUN AUDITS ====================
 
 @api_router.post("/run-audits", response_model=RunAuditResponse)
-async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(get_current_user)):
+async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(require_feature("audits"))):
     audit = await db.audits.find_one({"id": run_data.audit_id}, {"_id": 0})
     if not audit:
         raise HTTPException(status_code=404, detail="Audit not found")
@@ -939,7 +986,7 @@ async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(get_cur
     return RunAuditResponse(**run_doc)
 
 @api_router.put("/run-audits/{run_id}", response_model=RunAuditResponse)
-async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict = Depends(get_current_user)):
+async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict = Depends(require_feature("audits"))):
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
     if not run_audit:
         raise HTTPException(status_code=404, detail="Run audit not found")
@@ -997,7 +1044,7 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
 @api_router.get("/run-audits", response_model=List[RunAuditResponse])
 async def get_run_audits(
     completed: Optional[bool] = None,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_feature("audits"))
 ):
     query = {}
     if user["role"] == UserRole.USER:
@@ -1009,7 +1056,7 @@ async def get_run_audits(
     return [RunAuditResponse(**r) for r in runs]
 
 @api_router.get("/run-audits/{run_id}", response_model=RunAuditResponse)
-async def get_run_audit(run_id: str, user: dict = Depends(get_current_user)):
+async def get_run_audit(run_id: str, user: dict = Depends(require_feature("audits"))):
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
     if not run_audit:
         raise HTTPException(status_code=404, detail="Run audit not found")
@@ -1018,7 +1065,7 @@ async def get_run_audit(run_id: str, user: dict = Depends(get_current_user)):
     return RunAuditResponse(**run_audit)
 
 @api_router.get("/run-audits/{run_id}/details")
-async def get_run_audit_details(run_id: str, user: dict = Depends(get_current_user)):
+async def get_run_audit_details(run_id: str, user: dict = Depends(require_feature("audits"))):
     """Get detailed run audit with full question text and answers"""
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
     if not run_audit:
@@ -1056,7 +1103,7 @@ async def get_run_audit_details(run_id: str, user: dict = Depends(get_current_us
 # ==================== PHOTO UPLOAD ====================
 
 @api_router.post("/upload-photo")
-async def upload_photo(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def upload_photo(file: UploadFile = File(...), user: dict = Depends(require_feature("audits"))):
     content = await file.read()
     if len(content) > 5 * 1024 * 1024:  # 5MB limit
         raise HTTPException(status_code=400, detail="File too large (max 5MB)")
@@ -1081,7 +1128,7 @@ async def upload_photo(file: UploadFile = File(...), user: dict = Depends(get_cu
 # ==================== DASHBOARD STATS ====================
 
 @api_router.get("/dashboard/stats")
-async def get_dashboard_stats(user: dict = Depends(get_current_user)):
+async def get_dashboard_stats(user: dict = Depends(require_feature("audits"))):
     if user["role"] == UserRole.USER:
         total_runs = await db.run_audits.count_documents({"auditor_id": user["id"]})
         completed_runs = await db.run_audits.count_documents({"auditor_id": user["id"], "completed": True})
@@ -1120,7 +1167,7 @@ def format_uk_datetime(iso_string: str) -> str:
         return iso_string
 
 @api_router.get("/run-audits/{run_id}/pdf")
-async def export_audit_pdf(run_id: str, user: dict = Depends(get_current_user)):
+async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("audits"))):
     """Generate PDF report for a completed audit"""
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
     if not run_audit:
@@ -1337,6 +1384,7 @@ async def bulk_import_users(file: UploadFile = File(...), user: dict = Depends(g
                 "name": name,
                 "role": role,
                 "company_id": company_id,
+                "feature_access": normalise_feature_access({"role": role}),
                 "created_at": get_uk_time_iso()
             }
             await db.users.insert_one(user_doc)
@@ -1397,7 +1445,7 @@ class ScheduledAuditResponse(BaseModel):
 @api_router.post("/scheduled-audits", response_model=ScheduledAuditResponse)
 async def create_scheduled_audit(
     schedule_data: ScheduledAuditCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
 ):
     # Validate audit exists
     audit = await db.audits.find_one({"id": schedule_data.audit_id}, {"_id": 0})
@@ -1437,7 +1485,7 @@ async def create_scheduled_audit(
 @api_router.get("/scheduled-audits", response_model=List[ScheduledAuditResponse])
 async def get_scheduled_audits(
     status: Optional[str] = None,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_feature("audits"))
 ):
     query = {}
     
@@ -1462,7 +1510,7 @@ async def get_scheduled_audits(
     return [ScheduledAuditResponse(**s) for s in schedules]
 
 @api_router.get("/scheduled-audits/my-schedule", response_model=List[ScheduledAuditResponse])
-async def get_my_scheduled_audits(user: dict = Depends(get_current_user)):
+async def get_my_scheduled_audits(user: dict = Depends(require_feature("audits"))):
     """Get scheduled audits for the current user"""
     schedules = await db.scheduled_audits.find(
         {"assigned_to": user["id"], "status": {"$in": ["pending", "overdue"]}},
@@ -1475,7 +1523,7 @@ async def get_my_scheduled_audits(user: dict = Depends(get_current_user)):
 async def complete_scheduled_audit(
     schedule_id: str,
     run_id: str,
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_feature("audits"))
 ):
     """Mark a scheduled audit as completed with the run audit ID"""
     schedule = await db.scheduled_audits.find_one({"id": schedule_id}, {"_id": 0})
@@ -1495,7 +1543,7 @@ async def complete_scheduled_audit(
 @api_router.delete("/scheduled-audits/{schedule_id}")
 async def delete_scheduled_audit(
     schedule_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
 ):
     result = await db.scheduled_audits.delete_one({"id": schedule_id})
     if result.deleted_count == 0:
@@ -1505,7 +1553,7 @@ async def delete_scheduled_audit(
 # ==================== COMPANY DASHBOARD ====================
 
 @api_router.get("/companies/{company_id}/dashboard")
-async def get_company_dashboard(company_id: str, user: dict = Depends(get_current_user)):
+async def get_company_dashboard(company_id: str, user: dict = Depends(require_feature("audits"))):
     """Get company-specific dashboard with compliance trends"""
     # Verify access
     if user["role"] != UserRole.ADMIN and user.get("company_id") != company_id:
@@ -1631,7 +1679,7 @@ class TraceabilityDocumentSubmit(BaseModel):
 @api_router.post("/traceability/templates")
 async def create_traceability_template(
     data: TraceabilityTemplateCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents"))
 ):
     template_id = str(uuid.uuid4())
     now = get_uk_time_iso()
@@ -1668,7 +1716,7 @@ async def create_traceability_template(
     return doc
 
 @api_router.get("/traceability/templates")
-async def get_traceability_templates(user: dict = Depends(get_current_user)):
+async def get_traceability_templates(user: dict = Depends(require_feature("documents"))):
     if is_system_admin(user):
         query = {}
     else:
@@ -1677,7 +1725,7 @@ async def get_traceability_templates(user: dict = Depends(get_current_user)):
     return templates
 
 @api_router.get("/traceability/templates/{template_id}")
-async def get_traceability_template(template_id: str, user: dict = Depends(get_current_user)):
+async def get_traceability_template(template_id: str, user: dict = Depends(require_feature("documents"))):
     t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
     if not t:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -1687,7 +1735,7 @@ async def get_traceability_template(template_id: str, user: dict = Depends(get_c
 async def update_traceability_template(
     template_id: str,
     data: TraceabilityTemplateUpdate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents"))
 ):
     t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
     if not t:
@@ -1721,7 +1769,7 @@ async def update_traceability_template(
 @api_router.delete("/traceability/templates/{template_id}")
 async def delete_traceability_template(
     template_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "documents"))
 ):
     result = await db.traceability_templates.delete_one({"id": template_id})
     if result.deleted_count == 0:
@@ -1731,7 +1779,7 @@ async def delete_traceability_template(
 # --- Document CRUD ---
 
 @api_router.post("/traceability/documents")
-async def create_traceability_document(data: dict, user: dict = Depends(get_current_user)):
+async def create_traceability_document(data: dict, user: dict = Depends(require_feature("documents"))):
     template_id = data.get("template_id")
     t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
     if not t:
@@ -1760,7 +1808,7 @@ async def create_traceability_document(data: dict, user: dict = Depends(get_curr
     return doc
 
 @api_router.put("/traceability/documents/{doc_id}")
-async def update_traceability_document(doc_id: str, data: TraceabilityDocumentSubmit, user: dict = Depends(get_current_user)):
+async def update_traceability_document(doc_id: str, data: TraceabilityDocumentSubmit, user: dict = Depends(require_feature("documents"))):
     doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1772,7 +1820,7 @@ async def update_traceability_document(doc_id: str, data: TraceabilityDocumentSu
     return updated
 
 @api_router.get("/traceability/documents")
-async def get_traceability_documents(template_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def get_traceability_documents(template_id: Optional[str] = None, user: dict = Depends(require_feature("documents"))):
     query = {}
     if user["role"] == UserRole.USER:
         query["completed_by"] = user["id"]
@@ -1782,14 +1830,14 @@ async def get_traceability_documents(template_id: Optional[str] = None, user: di
     return docs
 
 @api_router.get("/traceability/documents/{doc_id}")
-async def get_traceability_document(doc_id: str, user: dict = Depends(get_current_user)):
+async def get_traceability_document(doc_id: str, user: dict = Depends(require_feature("documents"))):
     doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     return doc
 
 @api_router.delete("/traceability/documents/{doc_id}")
-async def delete_traceability_document(doc_id: str, user: dict = Depends(get_current_user)):
+async def delete_traceability_document(doc_id: str, user: dict = Depends(require_feature("documents"))):
     doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1799,7 +1847,7 @@ async def delete_traceability_document(doc_id: str, user: dict = Depends(get_cur
     return {"message": "Document deleted"}
 
 @api_router.get("/traceability/documents/{doc_id}/pdf")
-async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(get_current_user)):
+async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(require_feature("documents"))):
     doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1891,7 +1939,7 @@ async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(get
     return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 @api_router.post("/traceability/documents/batch-pdf")
-async def batch_export_traceability_pdf(data: dict, user: dict = Depends(get_current_user)):
+async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require_feature("documents"))):
     """Combine multiple completed documents into a single PDF"""
     doc_ids = data.get("document_ids", [])
     if not doc_ids:
@@ -1959,7 +2007,7 @@ async def batch_export_traceability_pdf(data: dict, user: dict = Depends(get_cur
 @api_router.post("/traceability/templates/{template_id}/duplicate")
 async def duplicate_traceability_template(
     template_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents"))
 ):
     """Clone an existing template"""
     t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
@@ -2015,30 +2063,28 @@ async def startup_event():
     await db.traceability_templates.create_index("id", unique=True)
     await db.traceability_documents.create_index("id", unique=True)
     
-    # Create default system admin if not exists
-    admin = await db.users.find_one({"email": "admin@infinit-audit.co.uk"})
-    if not admin:
+    # Optionally create the first system admin from deployment secrets.
+    # Existing administrators and passwords are never reset on startup.
+    bootstrap_admin_email = os.environ.get("BOOTSTRAP_ADMIN_EMAIL")
+    bootstrap_admin_password = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD")
+    if bootstrap_admin_email and bootstrap_admin_password:
+        admin = await db.users.find_one({"email": bootstrap_admin_email})
+    else:
+        admin = None
+
+    if bootstrap_admin_email and bootstrap_admin_password and not admin:
         admin_doc = {
             "id": str(uuid.uuid4()),
-            "email": "admin@infinit-audit.co.uk",
-            "password": hash_password("admin123"),
+            "email": bootstrap_admin_email,
+            "password": hash_password(bootstrap_admin_password),
             "name": "System Admin",
             "role": UserRole.SYSTEM_ADMIN,
             "company_id": None,
+            "feature_access": DEFAULT_FEATURE_ACCESS.copy(),
             "created_at": get_uk_time_iso()
         }
         await db.users.insert_one(admin_doc)
-        logger.info("Default system admin created: admin@infinit-audit.co.uk / admin123")
-    else:
-        # Always ensure the default admin has correct role and password
-        await db.users.update_one(
-            {"email": "admin@infinit-audit.co.uk"},
-            {"$set": {
-                "role": UserRole.SYSTEM_ADMIN,
-                "password": hash_password("admin123")
-            }}
-        )
-        logger.info("Default system admin credentials ensured: admin@infinit-audit.co.uk / admin123")
+        logger.info("Bootstrap system administrator created")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

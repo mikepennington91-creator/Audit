@@ -60,9 +60,13 @@ export const AuthProvider = ({ children }) => {
 
   const isSystemAdmin = () => user?.role === 'system_admin';
   const isAdmin = () => ['system_admin', 'company_admin', 'admin'].includes(user?.role);
-  const isAuditCreator = () => ['system_admin', 'company_admin', 'admin', 'audit_creator'].includes(user?.role);
-  const canRunAudits = () => !!user;
-  const canViewReports = () => !!user;
+  const hasFeature = (feature) => {
+    if (isAdmin()) return true;
+    return user?.feature_access?.[feature] !== false;
+  };
+  const isAuditCreator = () => hasFeature('audits') && ['system_admin', 'company_admin', 'admin', 'audit_creator'].includes(user?.role);
+  const canRunAudits = () => !!user && hasFeature('audits');
+  const canViewReports = () => !!user && hasFeature('audits');
 
   return (
     <AuthContext.Provider value={{
@@ -74,6 +78,7 @@ export const AuthProvider = ({ children }) => {
       logout,
       isSystemAdmin,
       isAdmin,
+      hasFeature,
       isAuditCreator,
       canRunAudits,
       canViewReports

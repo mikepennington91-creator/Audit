@@ -12,19 +12,25 @@ import {
   TrendingUp,
   ArrowRight,
   Plus,
-  Play
+  Play,
+  ClipboardList,
+  FileText
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const Dashboard = () => {
-  const { user, isAdmin, isAuditCreator } = useAuth();
+  const { user, isAdmin, isAuditCreator, hasFeature } = useAuth();
   const [stats, setStats] = useState(null);
   const [recentRuns, setRecentRuns] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchData();
+    if (hasFeature('audits')) {
+      fetchData();
+    } else {
+      setLoading(false);
+    }
   }, []);
 
   const fetchData = async () => {
@@ -73,6 +79,36 @@ const Dashboard = () => {
       show: isAdmin()
     },
   ];
+
+  if (!hasFeature('audits')) {
+    const enabledModules = [
+      { key: 'traceability', label: 'Traceability', description: 'Record and search material traceability information.', path: '/traceability', icon: ClipboardList },
+      { key: 'documents', label: 'Documents', description: 'Complete and view your company paperwork.', path: '/documents', icon: FileText },
+    ].filter((module) => hasFeature(module.key));
+
+    return (
+      <div className="space-y-8" data-testid="dashboard">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Welcome back, {user?.name?.split(' ')[0]}</h1>
+          <p className="text-muted-foreground mt-1">Choose one of the areas enabled for your account.</p>
+        </div>
+        {enabledModules.length ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {enabledModules.map((module) => (
+              <Card key={module.key}>
+                <CardContent className="p-6 flex items-start gap-4">
+                  <div className="w-11 h-11 rounded-lg bg-primary/10 flex items-center justify-center"><module.icon className="w-5 h-5 text-primary" /></div>
+                  <div className="flex-1"><h2 className="font-semibold text-lg">{module.label}</h2><p className="text-sm text-muted-foreground mt-1 mb-4">{module.description}</p><Button asChild size="sm"><Link to={module.path}>Open {module.label}<ArrowRight className="w-4 h-4 ml-2" /></Link></Button></div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card><CardContent className="p-8 text-center"><h2 className="font-semibold">No features enabled</h2><p className="text-sm text-muted-foreground mt-2">Ask your company administrator to enable the areas you need.</p></CardContent></Card>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8" data-testid="dashboard">

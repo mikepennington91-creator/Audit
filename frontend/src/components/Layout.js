@@ -22,14 +22,15 @@ import {
   RefreshCw,
   Cloud,
   ClipboardList,
-  FileText
+  FileText,
+  Settings
 } from 'lucide-react';
 
 const LOGO_URL = "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png";
 
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user, logout, isAdmin, isAuditCreator } = useAuth();
+  const { user, logout, isAdmin, isAuditCreator, hasFeature } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { isOnline, pendingCount, isSyncing, triggerSync } = useOffline();
   const location = useLocation();
@@ -42,14 +43,15 @@ const Layout = ({ children }) => {
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, show: true },
-    { path: '/admin', label: 'Admin', icon: Users, show: isAdmin() },
-    { path: '/groups', label: 'Groups', icon: FolderOpen, show: true },
+    { path: '/user-management', label: 'User Management', icon: Users, show: isAdmin() },
+    { path: '/configuration', label: 'Configuration', icon: Settings, show: isAdmin() },
+    { path: '/groups', label: 'Groups', icon: FolderOpen, show: hasFeature('audits') },
     { path: '/create-audit', label: 'Create Audit', icon: FilePlus, show: isAuditCreator() },
     { path: '/schedule', label: 'Schedule', icon: Calendar, show: isAuditCreator() },
-    { path: '/run-audit', label: 'Run Audit', icon: ClipboardCheck, show: true },
-    { path: '/reports', label: 'Reports', icon: BarChart3, show: true },
-    { path: '/traceability', label: 'Traceability', icon: ClipboardList, show: true },
-    { path: '/documents', label: 'Documents', icon: FileText, show: true },
+    { path: '/run-audit', label: 'Run Audit', icon: ClipboardCheck, show: hasFeature('audits') },
+    { path: '/reports', label: 'Reports', icon: BarChart3, show: hasFeature('audits') },
+    { path: '/traceability', label: 'Traceability', icon: ClipboardList, show: hasFeature('traceability') },
+    { path: '/documents', label: 'Documents', icon: FileText, show: hasFeature('documents') },
   ];
 
   const filteredNav = navItems.filter(item => item.show);
