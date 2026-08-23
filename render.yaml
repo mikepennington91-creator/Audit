@@ -11,10 +11,8 @@ services:
     startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     rootDir: backend
     envVars:
-      - key: MONGO_URL
-        sync: false  # Set this manually in Render dashboard
-      - key: DB_NAME
-        value: infinit_audit
+      - key: DATABASE_URL
+        sync: false  # Supabase Supavisor transaction-pooler connection string
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: BOOTSTRAP_ADMIN_EMAIL

@@ -1,119 +1,129 @@
-# Infinit-Audit Deployment Guide for Render
+# Infinit Audit deployment guide
 
-## Quick Start
+Infinit Audit uses a React frontend on Render, a FastAPI backend on Render, and
+Supabase PostgreSQL for persistent data.
 
-### Option 1: Deploy via render.yaml (Recommended)
+## 1. Create the Supabase Free project
 
-1. **Push to GitHub**
-   - Use "Save to GitHub" feature to export your code
-   - Make sure all files including `render.yaml` are committed
+1. Create a project in the Supabase dashboard. Choose a UK or nearby European
+   region and save the generated database password securely.
+2. Open **Connect** and select the **Transaction pooler** connection string.
+   Use the pooler string on port `6543`, not the direct IPv6 connection.
+3. Replace the password placeholder and ensure the connection string ends with
+   `?sslmode=require`.
 
-2. **Connect to Render**
-   - Go to [render.com](https://render.com) and sign up/login
-   - Click "New" → "Blueprint"
-   - Connect your GitHub repository
-   - Render will automatically detect `render.yaml` and create both services
+The backend applies `backend/supabase_schema.sql` automatically at startup.
+There is no need to paste the schema into the Supabase SQL editor manually.
 
-3. **Configure MongoDB**
-   - Sign up for [MongoDB Atlas](https://www.mongodb.com/atlas) (free tier)
-   - Create a cluster and get your connection string
-   - In Render dashboard, go to your API service → Environment
-   - Add `MONGO_URL` with your MongoDB connection string
+## 2. Configure the Render backend
 
-### Option 2: Manual Setup
+Create or update the Render web service with:
 
-#### Backend API
+- Root directory: `backend`
+- Build command: `pip install -r requirements.txt`
+- Start command: `uvicorn server:app --host 0.0.0.0 --port $PORT`
 
-1. **Create Web Service**
-   - Click "New" → "Web Service"
-   - Connect your GitHub repo
-   - Set Root Directory: `backend`
-   - Environment: `Python`
-   - Build Command: `pip install -r requirements.txt`
-   - Start Command: `uvicorn server:app --host 0.0.0.0 --port $PORT`
+Set these environment variables:
 
-2. **Environment Variables**
-   ```
-   MONGO_URL=mongodb+srv://user:pass@cluster.mongodb.net/infinit_audit
-   DB_NAME=infinit_audit
-   JWT_SECRET_KEY=<generate a secure random string>
-   ```
+```text
+DATABASE_URL=postgresql://postgres.PROJECT_REF:PASSWORD@POOLER_HOST:6543/postgres?sslmode=require
+JWT_SECRET_KEY=<a long random value>
+BOOTSTRAP_ADMIN_EMAIL=<initial administrator email>
+BOOTSTRAP_ADMIN_PASSWORD=<initial administrator password>
+CORS_ORIGINS=https://your-frontend-domain.example
+```
 
-#### Frontend
+`BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` create the first system
+administrator only if that email does not already exist. Startup never resets
+an existing password. After the first administrator exists, the bootstrap
+variables may be removed.
 
-1. **Create Static Site**
-   - Click "New" → "Static Site"
-   - Connect your GitHub repo
-   - Set Root Directory: `frontend`
-   - Build Command: `yarn install && yarn build`
-   - Publish Directory: `build`
+The database pool is deliberately limited to five backend connections, which
+is appropriate for the Supabase Free tier and Render's current single service.
 
-2. **Environment Variables**
-   ```
-   REACT_APP_BACKEND_URL=https://your-api-service.onrender.com
-   ```
+## 3. Migrate existing test data from MongoDB
 
-3. **Add Rewrite Rule**
-   - Go to Redirects/Rewrites
-   - Add: Source `/*` → Destination `/index.html` (Rewrite)
+If the MongoDB records are worth keeping, run the migration once from the
+`backend` directory. Keep MongoDB available until the validation completes.
 
-## MongoDB Atlas Setup (Free Tier)
+Set `MONGO_URL`, `DB_NAME`, and `DATABASE_URL` in a local `.env`, then preview
+the collection counts:
 
-1. Go to [mongodb.com/atlas](https://www.mongodb.com/atlas)
-2. Create free account
-3. Create a new cluster (M0 Free tier)
-4. Create database user with password
-5. Add `0.0.0.0/0` to IP whitelist (for Render access)
-6. Get connection string: Click "Connect" → "Connect your application"
-7. Replace `<password>` in the string with your database user password
+```bash
+python migrate_from_mongodb.py
+```
 
-## Post-Deployment
+Copy the records only after the counts look correct:
 
-1. **Test the API**
-   ```bash
-   curl https://your-api-service.onrender.com/api/health
-   ```
+```bash
+python migrate_from_mongodb.py --apply
+```
 
-2. **Access the App**
-   - Frontend URL: `https://your-frontend.onrender.com`
+The migration is repeatable: it upserts records using their existing IDs and
+verifies every collection count after copying. It includes companies, users,
+feature permissions, audit configuration, audit runs, schedules, photos,
+document templates and completed traceability documents.
 
-3. **Default Login**
-   - Email: `admin@infinit-audit.co.uk`
-   - Password: `admin123`
-   - ⚠️ Change this password immediately after first login!
+Do not delete or downgrade MongoDB until login, user permissions, audits,
+documents and traceability have all been checked against Supabase.
 
-## Cost Breakdown
+## 4. Configure the Render frontend
 
-| Service | Plan | Cost |
-|---------|------|------|
-| Render Backend | Free | $0/month |
-| Render Frontend | Free | $0/month |
-| MongoDB Atlas | M0 Free | $0/month |
-| **Total** | | **$0/month** |
+Create or update the static site with:
 
-### Free Tier Limitations
+- Root directory: `frontend`
+- Build command: `yarn install && yarn build`
+- Publish directory: `build`
 
-- **Render Free**: Services spin down after 15 minutes of inactivity (10-30 sec cold start)
-- **MongoDB Atlas Free**: 512MB storage limit
+Set:
 
-### Upgrade Options (when you need more)
+```text
+REACT_APP_BACKEND_URL=https://your-api-service.onrender.com
+```
 
-- Render Starter: $7/month per service (no cold starts)
-- MongoDB Atlas M2: ~$9/month (2GB storage)
+Add a rewrite from `/*` to `/index.html` for React routing.
+
+## 5. Verify the deployment
+
+Check database connectivity:
+
+```bash
+curl https://your-api-service.onrender.com/api/health
+```
+
+A successful response is:
+
+```json
+{"status":"healthy","database":"postgresql"}
+```
+
+Then verify:
+
+1. System administrator login.
+2. Company and user lists.
+3. Each user's Audits, Traceability and Documents toggles.
+4. Creating, running and exporting an audit.
+5. Creating and completing a traceability document.
+
+## Free-tier operating notes
+
+The Supabase Free database has a 500 MB database limit and may pause after a
+period of inactivity. Render Free services can also sleep when idle. These are
+acceptable while Infinit Audit is being tested. Upgrade Supabase to Pro before
+customers depend on uninterrupted access and managed daily backups.
+
+Files and photos are currently retained in the document store for compatibility.
+Before production use, move uploaded evidence to Supabase Storage so database
+capacity is reserved for structured records.
 
 ## Troubleshooting
 
-### Backend not starting
-- Check logs in Render dashboard
-- Verify MONGO_URL is correct
-- Ensure MongoDB Atlas IP whitelist includes `0.0.0.0/0`
+If the backend does not start, check that `DATABASE_URL` is the transaction
+pooler URL, the password is URL-escaped, port `6543` is present, and
+`sslmode=require` is included.
 
-### Frontend can't reach backend
-- Verify REACT_APP_BACKEND_URL is set correctly
-- Make sure it includes `https://` and no trailing slash
-- Rebuild frontend after changing environment variables
+If the health endpoint returns 503, inspect the Render logs for the PostgreSQL
+connection error before changing application code.
 
-### PDF export not working
-- WeasyPrint requires specific system libraries
-- The Dockerfile includes these dependencies
-- If using native Render build, contact support for WeasyPrint libraries
+If the frontend cannot reach the backend, confirm `REACT_APP_BACKEND_URL` is an
+HTTPS URL without a trailing slash and rebuild the frontend after changing it.

@@ -3,7 +3,6 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import io
@@ -23,6 +22,7 @@ from reportlab.lib.units import inch, cm
 from reportlab.lib.colors import HexColor, black, white, grey
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from database import PostgresDatabase
 
 # UK Timezone
 UK_TZ = ZoneInfo("Europe/London")
@@ -30,10 +30,9 @@ UK_TZ = ZoneInfo("Europe/London")
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# Supabase PostgreSQL connection.  The URL should be the Supavisor transaction
+# pooler string when deployed on Render.
+db = PostgresDatabase(os.environ.get('DATABASE_URL', ''))
 
 # JWT Config
 JWT_SECRET = os.environ.get('JWT_SECRET_KEY') or os.environ.get('JWT_SECRET')
@@ -1643,7 +1642,9 @@ async def root():
 
 @api_router.get("/health")
 async def health():
-    return {"status": "healthy"}
+    if not await db.ping():
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    return {"status": "healthy", "database": "postgresql"}
 
 # ==================== TRACEABILITY DOCUMENTS ====================
 
@@ -2050,6 +2051,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
+    await db.connect()
     # Create indexes
     await db.users.create_index("email", unique=True)
     await db.users.create_index("id", unique=True)
@@ -2088,4 +2090,4 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    await db.close()
