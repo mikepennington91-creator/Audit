@@ -65,6 +65,10 @@ def get_uk_time() -> datetime:
 def get_uk_time_iso() -> str:
     return get_uk_time().isoformat()
 
+def normalise_email(email: str) -> str:
+    """Return the canonical form used for account identity lookups and storage."""
+    return str(email).strip().lower()
+
 # ==================== MODELS ====================
 
 # Company Models
@@ -447,7 +451,8 @@ def corrective_action_status(action: dict) -> str:
 
 @api_router.post("/auth/register", response_model=dict)
 async def register(user_data: UserCreate):
-    existing = await db.users.find_one({"email": user_data.email})
+    email = normalise_email(user_data.email)
+    existing = await db.users.find_one({"email": {"$ieq": email}})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
     
@@ -455,7 +460,7 @@ async def register(user_data: UserCreate):
     requested_user = {"role": user_data.role, "feature_access": user_data.feature_access}
     user_doc = {
         "id": user_id,
-        "email": user_data.email,
+        "email": email,
         "password": hash_password(user_data.password),
         "name": user_data.name,
         "role": user_data.role,
@@ -465,12 +470,12 @@ async def register(user_data: UserCreate):
     }
     await db.users.insert_one(user_doc)
     
-    token = create_token(user_id, user_data.email, user_data.role)
+    token = create_token(user_id, email, user_data.role)
     return {
         "token": token,
         "user": {
             "id": user_id,
-            "email": user_data.email,
+            "email": email,
             "name": user_data.name,
             "role": user_data.role,
             "company_id": user_data.company_id,
@@ -480,7 +485,8 @@ async def register(user_data: UserCreate):
 
 @api_router.post("/auth/login", response_model=dict)
 async def login(credentials: UserLogin):
-    user = await db.users.find_one({"email": credentials.email})
+    email = normalise_email(credentials.email)
+    user = await db.users.find_one({"email": {"$ieq": email}})
     if not user or not verify_password(credentials.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
@@ -1654,7 +1660,7 @@ async def bulk_import_users(file: UploadFile = File(...), user: dict = Depends(g
     
     for row_num, row in enumerate(reader, start=2):
         try:
-            email = row.get('email', '').strip()
+            email = normalise_email(row.get('email', ''))
             name = row.get('name', '').strip()
             role = row.get('role', 'user').strip().lower()
             company_id = row.get('company_id', '').strip() or None
@@ -1666,7 +1672,7 @@ async def bulk_import_users(file: UploadFile = File(...), user: dict = Depends(g
                 continue
             
             # Check if email exists
-            existing = await db.users.find_one({"email": email})
+            existing = await db.users.find_one({"email": {"$ieq": email}})
             if existing:
                 results["errors"].append(f"Row {row_num}: Email {email} already exists")
                 results["failed"] += 1
@@ -2642,7 +2648,8 @@ async def startup_event():
     bootstrap_admin_email = os.environ.get("BOOTSTRAP_ADMIN_EMAIL")
     bootstrap_admin_password = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD")
     if bootstrap_admin_email and bootstrap_admin_password:
-        admin = await db.users.find_one({"email": bootstrap_admin_email})
+        bootstrap_admin_email = normalise_email(bootstrap_admin_email)
+        admin = await db.users.find_one({"email": {"$ieq": bootstrap_admin_email}})
     else:
         admin = None
 
