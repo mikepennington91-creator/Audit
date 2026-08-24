@@ -118,28 +118,32 @@ const CreateAudit = () => {
   };
 
   const updateQuestion = (index, field, value) => {
-    const newQuestions = [...questions];
-    newQuestions[index][field] = value;
-    
-    // If selecting a response group, check if it has scoring enabled
-    if (field === 'response_group_id' && value) {
-      const group = responseGroups.find(g => g.id === value);
-      if (group) {
-        newQuestions[index].enable_scoring = group.enable_scoring;
+    setQuestions(currentQuestions => {
+      const newQuestions = currentQuestions.map((question, questionIndex) =>
+        questionIndex === index ? { ...question, [field]: value } : question
+      );
+
+      // A saved response set is authoritative. Remove any custom options left
+      // behind after switching from "Use Custom Responses".
+      if (field === 'response_group_id' && value) {
+        const group = responseGroups.find(g => g.id === value);
+        newQuestions[index].custom_responses = [];
+        newQuestions[index].useCustomResponses = false;
+        if (group) {
+          newQuestions[index].enable_scoring = group.enable_scoring;
+        }
       }
-    }
-    
-    // Reset related fields when changing question type
-    if (field === 'question_type') {
-      if (value !== 'response_group') {
+
+      // Reset related fields when changing question type
+      if (field === 'question_type' && value !== 'response_group') {
         newQuestions[index].response_group_id = '';
         newQuestions[index].custom_responses = [];
         newQuestions[index].useCustomResponses = false;
         newQuestions[index].enable_scoring = false;
       }
-    }
-    
-    setQuestions(newQuestions);
+
+      return newQuestions;
+    });
   };
 
   const removeQuestion = (index) => {
