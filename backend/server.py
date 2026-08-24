@@ -432,6 +432,20 @@ def is_admin(user: dict) -> bool:
     """Check if user is any type of admin"""
     return user.get("role") in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN]
 
+def is_company_admin_role(role: Optional[str]) -> bool:
+    return role in [UserRole.COMPANY_ADMIN, UserRole.ADMIN]
+
+def admin_scope_query(user: dict) -> Optional[dict]:
+    """Return the administrator group that must retain at least one member."""
+    if user.get("role") == UserRole.SYSTEM_ADMIN:
+        return {"role": UserRole.SYSTEM_ADMIN}
+    if is_company_admin_role(user.get("role")):
+        return {
+            "company_id": user.get("company_id"),
+            "role": {"$in": [UserRole.COMPANY_ADMIN, UserRole.ADMIN]},
+        }
+    return None
+
 def can_access_company_record(user: dict, record: dict) -> bool:
     if is_system_admin(user):
         return True
@@ -576,6 +590,61 @@ async def delete_company(company_id: str, user: dict = Depends(require_role([Use
 
 # ==================== USER MANAGEMENT ====================
 
+@api_router.post("/users", response_model=UserResponse)
+async def create_managed_user(user_data: UserCreate, user: dict = Depends(get_current_user)):
+    """Create a user from User Management with server-enforced company ownership."""
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    role = user_data.role
+    company_id = user_data.company_id
+    if not is_system_admin(user):
+        if not user.get("company_id"):
+            raise HTTPException(status_code=400, detail="Your administrator account is not assigned to a company")
+        company_id = user["company_id"]
+        if role == UserRole.SYSTEM_ADMIN:
+            raise HTTPException(status_code=403, detail="Cannot create system administrators")
+        if role == UserRole.ADMIN:
+            role = UserRole.COMPANY_ADMIN
+
+    valid_roles = {
+        UserRole.SYSTEM_ADMIN,
+        UserRole.COMPANY_ADMIN,
+        UserRole.AUDIT_CREATOR,
+        UserRole.USER,
+    }
+    if role not in valid_roles:
+        raise HTTPException(status_code=400, detail="Invalid user role")
+    if role == UserRole.COMPANY_ADMIN and not company_id:
+        raise HTTPException(status_code=400, detail="Company administrators must be assigned to a company")
+
+    email = normalise_email(user_data.email)
+    if await db.users.find_one({"email": {"$ieq": email}}):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user_doc = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "password": hash_password(user_data.password),
+        "name": user_data.name,
+        "role": role,
+        "company_id": company_id,
+        "feature_access": normalise_feature_access(
+            {"role": role, "feature_access": user_data.feature_access},
+            user_data.feature_access,
+        ),
+        "created_at": get_uk_time_iso(),
+    }
+    await db.users.insert_one(user_doc)
+
+    response = dict(user_doc)
+    response.pop("password")
+    if company_id:
+        company = await db.companies.find_one({"id": company_id}, {"_id": 0})
+        if company:
+            response["company_name"] = company["name"]
+    return UserResponse(**response)
+
 @api_router.get("/users", response_model=List[UserResponse])
 async def get_users(user: dict = Depends(get_current_user)):
     # System admin sees all users
@@ -617,6 +686,22 @@ async def update_user(user_id: str, update_data: UserUpdate, user: dict = Depend
             raise HTTPException(status_code=403, detail="Cannot assign users to other companies")
         if update_data.role == UserRole.SYSTEM_ADMIN:
             raise HTTPException(status_code=403, detail="Cannot create system administrators")
+
+    proposed_role = update_data.role or target_user.get("role")
+    admin_query = admin_scope_query(target_user)
+    remains_in_admin_scope = (
+        proposed_role == UserRole.SYSTEM_ADMIN
+        if target_user.get("role") == UserRole.SYSTEM_ADMIN
+        else is_company_admin_role(proposed_role)
+    )
+    if admin_query and not remains_in_admin_scope:
+        admin_count = await db.users.count_documents(admin_query)
+        if admin_count <= 1:
+            scope_name = "system" if target_user.get("role") == UserRole.SYSTEM_ADMIN else "company"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot remove the last {scope_name} administrator. Assign another administrator first.",
+            )
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     if update_data.feature_access is not None:

@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
 import { Switch } from '../components/ui/switch';
+import { Checkbox } from '../components/ui/checkbox';
 import { toast } from 'sonner';
 import { Building2, Crown, Download, Pencil, Plus, Shield, Trash2, Upload, UserCircle, Users } from 'lucide-react';
 
@@ -33,13 +34,13 @@ const emptyUserForm = {
   email: '',
   password: '',
   name: '',
-  role: 'user',
+  is_admin: false,
   company_id: '',
   feature_access: { ...DEFAULT_ACCESS },
 };
 
 const UserManagement = () => {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, refreshUser } = useAuth();
   const fileInputRef = useRef(null);
   const [users, setUsers] = useState([]);
   const [companies, setCompanies] = useState([]);
@@ -82,7 +83,7 @@ const UserManagement = () => {
       email: user.email,
       password: '',
       name: user.name,
-      role: user.role,
+      is_admin: isAdminRole(user.role),
       company_id: user.company_id || '',
       feature_access: accessFor(user),
     });
@@ -92,11 +93,15 @@ const UserManagement = () => {
   const handleSubmit = async (event) => {
     event.preventDefault();
     try {
+      const selectedCompanyId = isSystemAdmin ? (form.company_id || null) : currentUser?.company_id;
+      const role = form.is_admin
+        ? ((editingUser?.role === 'system_admin' || (isSystemAdmin && !selectedCompanyId)) ? 'system_admin' : 'company_admin')
+        : (['user', 'audit_creator'].includes(editingUser?.role) ? editingUser.role : 'user');
       const payload = {
         name: form.name,
-        role: form.role,
-        company_id: isSystemAdmin ? (form.company_id || null) : currentUser?.company_id,
-        feature_access: isAdminRole(form.role) ? { ...FULL_ACCESS } : form.feature_access,
+        role,
+        company_id: selectedCompanyId,
+        feature_access: form.is_admin ? { ...FULL_ACCESS } : form.feature_access,
       };
       if (form.password) payload.password = form.password;
 
@@ -104,11 +109,15 @@ const UserManagement = () => {
         await axios.put(`${API}/users/${editingUser.id}`, payload);
         toast.success('User updated successfully');
       } else {
-        await axios.post(`${API}/auth/register`, { ...payload, email: form.email, password: form.password });
+        await axios.post(`${API}/users`, { ...payload, email: form.email, password: form.password });
         toast.success('User created successfully');
       }
       setDialogOpen(false);
       resetForm();
+      if (editingUser?.id === currentUser?.id) {
+        await refreshUser();
+        if (!isAdminRole(role)) return;
+      }
       await fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Unable to save user');
@@ -198,6 +207,23 @@ const UserManagement = () => {
     return <Users className="w-4 h-4" />;
   };
 
+  const adminCountFor = (targetUser) => {
+    if (targetUser?.role === 'system_admin') {
+      return users.filter((user) => user.role === 'system_admin').length;
+    }
+    return users.filter((user) => (
+      isAdminRole(user.role)
+      && user.role !== 'system_admin'
+      && user.company_id === targetUser?.company_id
+    )).length;
+  };
+
+  const lastAdminLocked = Boolean(
+    editingUser
+    && isAdminRole(editingUser.role)
+    && adminCountFor(editingUser) <= 1,
+  );
+
   return (
     <div className="space-y-6" data-testid="user-management-page">
       <div>
@@ -245,17 +271,21 @@ const UserManagement = () => {
                       <Label htmlFor="user-password">{editingUser ? 'New Password (optional)' : 'Password'}</Label>
                       <Input id="user-password" type="password" minLength={6} required={!editingUser} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
                     </div>
-                    <div className="space-y-2">
-                      <Label>Role</Label>
-                      <Select value={form.role} onValueChange={(role) => setForm({ ...form, role, feature_access: isAdminRole(role) ? { ...FULL_ACCESS } : form.feature_access })}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="user">User</SelectItem>
-                          <SelectItem value="audit_creator">Audit Creator</SelectItem>
-                          <SelectItem value="company_admin">Company Admin</SelectItem>
-                          {isSystemAdmin && <SelectItem value="system_admin">System Admin</SelectItem>}
-                        </SelectContent>
-                      </Select>
+                    <div className="space-y-2 rounded-lg border p-3">
+                      <label htmlFor="user-admin" className="flex items-center gap-3 cursor-pointer">
+                        <Checkbox
+                          id="user-admin"
+                          checked={form.is_admin}
+                          disabled={form.is_admin && lastAdminLocked}
+                          onCheckedChange={(checked) => setForm({ ...form, is_admin: checked === true })}
+                        />
+                        <span className="text-sm font-medium">Administrator</span>
+                      </label>
+                      <p className="text-xs text-muted-foreground">
+                        {form.is_admin && lastAdminLocked
+                          ? 'Assign another administrator before downgrading this account.'
+                          : 'Administrators have full access to every feature.'}
+                      </p>
                     </div>
                   </div>
                   {isSystemAdmin && (
@@ -273,15 +303,15 @@ const UserManagement = () => {
                   <div className="space-y-3 rounded-lg border p-4">
                     <div>
                       <Label>Feature Access</Label>
-                      {isAdminRole(form.role) && <p className="text-xs text-muted-foreground mt-1">Administrators automatically have full access.</p>}
+                      {form.is_admin && <p className="text-xs text-muted-foreground mt-1">Administrators automatically have full access.</p>}
                     </div>
                     <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       {FEATURES.map((feature) => (
                         <label key={feature.key} className="flex items-center justify-between gap-3 rounded-md border p-3">
                           <span className="text-sm font-medium">{feature.label}</span>
                           <Switch
-                            checked={isAdminRole(form.role) || form.feature_access[feature.key]}
-                            disabled={isAdminRole(form.role)}
+                            checked={form.is_admin || form.feature_access[feature.key]}
+                            disabled={form.is_admin}
                             onCheckedChange={(checked) => setForm({ ...form, feature_access: { ...form.feature_access, [feature.key]: checked } })}
                           />
                         </label>
