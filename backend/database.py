@@ -71,6 +71,10 @@ class _WhereBuilder:
                         operator_clauses.append(
                             f"{expression} <= {self.add(_text_value(value))}"
                         )
+                    elif operator == "$ieq":
+                        operator_clauses.append(
+                            f"LOWER({expression}) = LOWER({self.add(_text_value(value))})"
+                        )
                     else:
                         raise ValueError(f"Unsupported query operator: {operator}")
                 clauses.append(f"({' AND '.join(operator_clauses)})")
