@@ -41,6 +41,12 @@ def test_in_and_date_range_queries():
     assert args == [["pending", "overdue"], "2026-01-01", "2026-02-01"]
 
 
+def test_case_insensitive_equality_uses_lowercase_comparison():
+    sql, args = build_where({"email": {"$ieq": "Mike@Example.COM"}})
+    assert sql == "(LOWER(data ->> 'email') = LOWER($2))"
+    assert args == ["Mike@Example.COM"]
+
+
 def test_projection_removes_password_without_mutating_document():
     document = {"id": "user-1", "email": "user@example.com", "password": "secret"}
     projected = _apply_projection(document, {"_id": 0, "password": 0})
