@@ -2332,7 +2332,8 @@ async def create_finished_batch_dispatch(
     dispatch = {
         "id": str(uuid.uuid4()), "finished_batch_id": batch_id,
         "finishedBatchCode": batch.get("finishedBatchCode"),
-        "finishedProduct": batch.get("finishedProduct"), "customer": customer,
+        "finishedProduct": batch.get("finishedProduct"),
+        "palletLabel": batch.get("palletLabel"), "customer": customer,
         "quantity": data.quantity, "dispatchDate": data.dispatchDate,
         "reference": (data.reference or "").strip(), "notes": (data.notes or "").strip(),
         "company_id": user.get("company_id"), "created_by": user["id"],
