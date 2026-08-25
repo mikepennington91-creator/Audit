@@ -23,7 +23,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { Download, FileSpreadsheet, Loader2, PackageCheck, Plus, Printer, Trash2, Upload } from 'lucide-react';
+import { Download, FileSpreadsheet, Loader2, PackageCheck, Pencil, Plus, Printer, Trash2, Upload } from 'lucide-react';
 
 const STORAGE_KEY = 'traceabilityDataV1';
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -55,6 +55,13 @@ const Traceability = () => {
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [dispatches, setDispatches] = useState([]);
   const [dispatchForm, setDispatchForm] = useState({ customer: '', quantity: '', dispatchDate: '', reference: '', notes: '' });
+  const [finishedFilter, setFinishedFilter] = useState('');
+  const [finishedStatusFilter, setFinishedStatusFilter] = useState('all');
+  const [editBatchOpen, setEditBatchOpen] = useState(false);
+  const [editingBatch, setEditingBatch] = useState(null);
+  const [editBatchForm, setEditBatchForm] = useState({});
+  const [editReason, setEditReason] = useState('');
+  const [editHistory, setEditHistory] = useState([]);
   const [selectedExportTypes, setSelectedExportTypes] = useState({ raw: true, finished: true, usage: true });
   const [exportDateFrom, setExportDateFrom] = useState('');
   const [exportDateTo, setExportDateTo] = useState('');
@@ -89,6 +96,7 @@ const Traceability = () => {
     lineNumber: '',
     bestBeforeDate: '',
     releaseStatus: 'Quarantine',
+    palletRange: '',
   });
   const [usageForm, setUsageForm] = useState({
     usageDate: '',
@@ -227,8 +235,12 @@ const Traceability = () => {
       return;
     }
     try {
-      const response = await axios.post(`${API}/traceability/records/finished`, finishedForm);
-      setData(prev => ({ ...prev, finishedBatches: [response.data, ...prev.finishedBatches] }));
+      const endpoint = finishedForm.palletRange.trim()
+        ? `${API}/traceability/records/finished/pallets`
+        : `${API}/traceability/records/finished`;
+      const response = await axios.post(endpoint, finishedForm);
+      const created = Array.isArray(response.data) ? response.data : [response.data];
+      setData(prev => ({ ...prev, finishedBatches: [...created, ...prev.finishedBatches] }));
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save finished batch');
       return;
@@ -241,8 +253,9 @@ const Traceability = () => {
       lineNumber: '',
       bestBeforeDate: '',
       releaseStatus: 'Quarantine',
+      palletRange: '',
     });
-    toast.success('Finished batch saved');
+    toast.success(finishedForm.palletRange.trim() ? 'Finished pallets saved' : 'Finished batch saved');
   };
 
   const updateBatchStatus = async (batch, releaseStatus) => {
@@ -283,6 +296,36 @@ const Traceability = () => {
       toast.success('Dispatch recorded');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to record dispatch');
+    }
+  };
+
+  const openBatchEdit = async (batch) => {
+    setEditingBatch(batch);
+    setEditBatchForm({
+      productionDate: batch.productionDate || '', finishedProduct: batch.finishedProduct || '',
+      finishedBatchCode: batch.finishedBatchCode || '', palletLabel: batch.palletLabel || '',
+      unitsProduced: batch.unitsProduced || '', lineNumber: batch.lineNumber || '',
+      bestBeforeDate: batch.bestBeforeDate || '',
+    });
+    setEditReason('');
+    setEditBatchOpen(true);
+    try {
+      const response = await axios.get(`${API}/traceability/finished/${batch.id}/history`);
+      setEditHistory(response.data);
+    } catch {
+      setEditHistory([]);
+    }
+  };
+
+  const saveBatchCorrection = async (event) => {
+    event.preventDefault();
+    try {
+      const response = await axios.put(`${API}/traceability/finished/${editingBatch.id}`, { fields: editBatchForm, reason: editReason });
+      setData(prev => ({ ...prev, finishedBatches: prev.finishedBatches.map(item => item.id === editingBatch.id ? response.data : item) }));
+      toast.success('Finished batch corrected and recorded in history');
+      setEditBatchOpen(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to correct finished batch');
     }
   };
 
@@ -600,6 +643,16 @@ const Traceability = () => {
     setActiveTab(value);
     navigate({ pathname: '/traceability', hash: `#${value}` }, { replace: true });
   };
+
+  const filteredFinishedBatches = data.finishedBatches.filter(item => {
+    const term = finishedFilter.trim().toLowerCase();
+    const matchesText = !term || [
+      item.productionDate, item.finishedProduct, item.finishedBatchCode,
+      item.palletLabel, item.lineNumber, item.bestBeforeDate,
+    ].some(value => String(value || '').toLowerCase().includes(term));
+    const status = item.releaseStatus || 'Quarantine';
+    return matchesText && (finishedStatusFilter === 'all' || status === finishedStatusFilter);
+  });
 
   return (
     <div className="space-y-6" data-testid="traceability-page">
@@ -987,6 +1040,11 @@ const Traceability = () => {
                     onChange={event => setFinishedForm(prev => ({ ...prev, bestBeforeDate: event.target.value }))}
                   />
                 </div>
+                <div>
+                  <Label htmlFor="palletRange">Pallet Labels (optional)</Label>
+                  <Input id="palletRange" value={finishedForm.palletRange} onChange={event => setFinishedForm(prev => ({ ...prev, palletRange: event.target.value }))} placeholder="e.g. 1 - 7" />
+                  <p className="text-xs text-muted-foreground mt-1">Leave blank for one normal finished-batch record.</p>
+                </div>
                 {hasFeature('traceability_release') && (
                   <div>
                     <Label>Initial Status</Label>
@@ -1012,16 +1070,24 @@ const Traceability = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Recent Finished Batches</CardTitle>
+              <CardTitle>Recent Finished Batches ({filteredFinishedBatches.length})</CardTitle>
+              <div className="grid sm:grid-cols-[1fr_220px] gap-3 pt-3">
+                <Input value={finishedFilter} onChange={event => setFinishedFilter(event.target.value)} placeholder="Filter by product, batch, pallet, line or date..." />
+                <Select value={finishedStatusFilter} onValueChange={setFinishedStatusFilter}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="all">All statuses</SelectItem><SelectItem value="Released">Released</SelectItem><SelectItem value="Quarantine">Quarantine</SelectItem></SelectContent>
+                </Select>
+              </div>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="w-full">
+              <ScrollArea className="w-full max-h-[650px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Date</TableHead>
                       <TableHead>Product</TableHead>
                       <TableHead>Batch Code</TableHead>
+                      <TableHead>Pallet</TableHead>
                       <TableHead>Units</TableHead>
                       <TableHead>Line</TableHead>
                       <TableHead>Status</TableHead>
@@ -1030,18 +1096,19 @@ const Traceability = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data.finishedBatches.length === 0 ? (
+                    {filteredFinishedBatches.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} className="text-center text-muted-foreground">
+                        <TableCell colSpan={9} className="text-center text-muted-foreground">
                           No finished batches recorded yet.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      data.finishedBatches.map(item => (
+                      filteredFinishedBatches.map(item => (
                         <TableRow key={item.id}>
                           <TableCell>{item.productionDate || '-'}</TableCell>
                           <TableCell>{item.finishedProduct || '-'}</TableCell>
                           <TableCell>{item.finishedBatchCode || '-'}</TableCell>
+                          <TableCell>{item.palletLabel || '-'}</TableCell>
                           <TableCell>{item.unitsProduced || '-'}</TableCell>
                           <TableCell>{item.lineNumber || '-'}</TableCell>
                           <TableCell>
@@ -1060,6 +1127,7 @@ const Traceability = () => {
                             </Button>
                           </TableCell>
                           <TableCell className="text-right">
+                            {hasFeature('traceability_edit') && <Button variant="ghost" size="sm" onClick={() => openBatchEdit(item)} title="Correct finished batch"><Pencil className="w-4 h-4" /></Button>}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -1077,6 +1145,35 @@ const Traceability = () => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <Dialog open={editBatchOpen} onOpenChange={setEditBatchOpen}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Correct Finished Batch</DialogTitle><DialogDescription>Every change requires a reason and is permanently recorded.</DialogDescription></DialogHeader>
+            <form onSubmit={saveBatchCorrection} className="space-y-4">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div><Label>Production Date</Label><Input type="date" value={editBatchForm.productionDate || ''} onChange={e => setEditBatchForm(prev => ({ ...prev, productionDate: e.target.value }))} /></div>
+                <div><Label>Finished Product</Label><Input value={editBatchForm.finishedProduct || ''} onChange={e => setEditBatchForm(prev => ({ ...prev, finishedProduct: e.target.value }))} /></div>
+                <div><Label>Batch Code</Label><Input value={editBatchForm.finishedBatchCode || ''} onChange={e => setEditBatchForm(prev => ({ ...prev, finishedBatchCode: e.target.value }))} /></div>
+                <div><Label>Pallet Label</Label><Input value={editBatchForm.palletLabel || ''} onChange={e => setEditBatchForm(prev => ({ ...prev, palletLabel: e.target.value }))} /></div>
+                <div><Label>Units Produced</Label><Input type="number" value={editBatchForm.unitsProduced || ''} onChange={e => setEditBatchForm(prev => ({ ...prev, unitsProduced: e.target.value }))} /></div>
+                <div><Label>Line Number</Label><Input value={editBatchForm.lineNumber || ''} onChange={e => setEditBatchForm(prev => ({ ...prev, lineNumber: e.target.value }))} /></div>
+                <div><Label>Best Before Date</Label><Input type="date" value={editBatchForm.bestBeforeDate || ''} onChange={e => setEditBatchForm(prev => ({ ...prev, bestBeforeDate: e.target.value }))} /></div>
+              </div>
+              <div><Label>Reason for Correction *</Label><Textarea value={editReason} onChange={e => setEditReason(e.target.value)} required placeholder="Explain why this record is being corrected..." /></div>
+              <DialogFooter><Button type="submit">Save Correction</Button></DialogFooter>
+            </form>
+            <div className="space-y-3">
+              <h3 className="font-semibold">Correction History</h3>
+              {editHistory.length === 0 ? <p className="text-sm text-muted-foreground">No previous corrections.</p> : editHistory.map(entry => (
+                <div key={entry.id} className="rounded-md border p-3 text-sm">
+                  <div className="font-medium">{entry.reason}</div>
+                  <div className="text-muted-foreground">{entry.edited_by_name} — {new Date(entry.edited_at).toLocaleString('en-GB')}</div>
+                  <div className="mt-2 space-y-1">{Object.entries(entry.changes || {}).map(([field, change]) => <div key={field}><span className="font-medium">{field}:</span> {String(change.before ?? '-')} → {String(change.after ?? '-')}</div>)}</div>
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={dispatchOpen} onOpenChange={setDispatchOpen}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
