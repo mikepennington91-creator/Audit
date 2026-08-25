@@ -10,19 +10,20 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
-import { Switch } from '../components/ui/switch';
 import { Checkbox } from '../components/ui/checkbox';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
 import { toast } from 'sonner';
-import { Building2, Crown, Download, Pencil, Plus, Shield, Trash2, Upload, UserCircle, Users } from 'lucide-react';
+import { Building2, Crown, Download, Info, Pencil, Plus, Shield, Trash2, Upload, UserCircle, Users } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const DEFAULT_ACCESS = { audits: true, traceability: true, documents: true, actions: false };
-const FULL_ACCESS = { audits: true, traceability: true, documents: true, actions: true };
+const DEFAULT_ACCESS = { audits: false, traceability: false, traceability_release: false, traceability_dispatch: false, documents: false };
+const FULL_ACCESS = { audits: true, traceability: true, traceability_release: true, traceability_dispatch: true, documents: true };
 const FEATURES = [
-  { key: 'audits', label: 'Audits' },
-  { key: 'traceability', label: 'Traceability' },
-  { key: 'documents', label: 'Documents' },
-  { key: 'actions', label: 'Actions' },
+  { key: 'audits', label: 'Audits', description: 'Run audits, view audit reports and access audit-related pages.' },
+  { key: 'traceability', label: 'Traceability', description: 'View and record raw materials, finished batches, usage and traceability reports.' },
+  { key: 'traceability_release', label: 'Release / Quarantine', description: 'Set or change the release status of finished product batches.' },
+  { key: 'traceability_dispatch', label: 'Dispatch Finished Product', description: 'Record where released finished product batches have been sent.' },
+  { key: 'documents', label: 'Documents', description: 'View and complete controlled documents and production records.' },
 ];
 
 const isAdminRole = (role) => ['system_admin', 'company_admin', 'admin'].includes(role);
@@ -46,7 +47,6 @@ const UserManagement = () => {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [savingToggle, setSavingToggle] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [form, setForm] = useState(emptyUserForm);
@@ -132,26 +132,6 @@ const UserManagement = () => {
       toast.success('User deleted successfully');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete user');
-    }
-  };
-
-  const handleFeatureToggle = async (targetUser, feature, enabled) => {
-    if (isAdminRole(targetUser.role)) return;
-    const toggleId = `${targetUser.id}-${feature}`;
-    const nextAccess = { ...accessFor(targetUser), [feature]: enabled };
-    const previousUsers = users;
-    setSavingToggle(toggleId);
-    setUsers((current) => current.map((user) => user.id === targetUser.id
-      ? { ...user, feature_access: nextAccess }
-      : user));
-    try {
-      await axios.put(`${API}/users/${targetUser.id}`, { feature_access: nextAccess });
-      toast.success(`${feature.charAt(0).toUpperCase() + feature.slice(1)} access ${enabled ? 'enabled' : 'disabled'} for ${targetUser.name}`);
-    } catch (error) {
-      setUsers(previousUsers);
-      toast.error(error.response?.data?.detail || 'Failed to update access');
-    } finally {
-      setSavingToggle('');
     }
   };
 
@@ -251,7 +231,7 @@ const UserManagement = () => {
               <DialogTrigger asChild>
                 <Button data-testid="add-user-btn"><Plus className="w-4 h-4 mr-2" />Add User</Button>
               </DialogTrigger>
-              <DialogContent className="max-w-xl">
+              <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader><DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle></DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid sm:grid-cols-2 gap-4">
@@ -305,17 +285,36 @@ const UserManagement = () => {
                       <Label>Feature Access</Label>
                       {form.is_admin && <p className="text-xs text-muted-foreground mt-1">Administrators automatically have full access.</p>}
                     </div>
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      {FEATURES.map((feature) => (
-                        <label key={feature.key} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                          <span className="text-sm font-medium">{feature.label}</span>
-                          <Switch
-                            checked={form.is_admin || form.feature_access[feature.key]}
-                            disabled={form.is_admin}
-                            onCheckedChange={(checked) => setForm({ ...form, feature_access: { ...form.feature_access, [feature.key]: checked } })}
-                          />
-                        </label>
-                      ))}
+                    <div className="space-y-2">
+                      <TooltipProvider>
+                        {FEATURES.map((feature) => (
+                          <div key={feature.key} className="flex items-center justify-between gap-4 rounded-md border p-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">{feature.label}</span>
+                                <Tooltip>
+                                  <TooltipTrigger asChild><Info className="h-4 w-4 text-muted-foreground cursor-help" /></TooltipTrigger>
+                                  <TooltipContent className="max-w-xs"><p>{feature.description}</p></TooltipContent>
+                                </Tooltip>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-1">{feature.description}</p>
+                            </div>
+                            <Checkbox
+                              checked={form.is_admin || form.feature_access[feature.key]}
+                              disabled={form.is_admin || (feature.key.startsWith('traceability_') && !form.feature_access.traceability)}
+                              onCheckedChange={(checked) => setForm({
+                                ...form,
+                                feature_access: feature.key === 'traceability' && checked !== true
+                                  ? { ...form.feature_access, traceability: false, traceability_release: false, traceability_dispatch: false }
+                                  : { ...form.feature_access, [feature.key]: checked === true },
+                              })}
+                            />
+                          </div>
+                        ))}
+                      </TooltipProvider>
+                      <div className="rounded-md bg-muted p-3 text-sm">
+                        <span className="font-medium">Actions:</span> Every user has access automatically and will only see actions assigned to them.
+                      </div>
                     </div>
                   </div>
                   <div className="flex gap-3 pt-2">
@@ -337,7 +336,7 @@ const UserManagement = () => {
                   <TableRow>
                     <TableHead>User</TableHead>
                     <TableHead>Role</TableHead>
-                    {FEATURES.map((feature) => <TableHead key={feature.key} className="text-center">{feature.label}</TableHead>)}
+                    <TableHead>Permissions</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -353,17 +352,14 @@ const UserManagement = () => {
                           {user.company_name && <div className="text-xs text-muted-foreground flex items-center gap-1 mt-1"><Building2 className="w-3 h-3" />{user.company_name}</div>}
                         </TableCell>
                         <TableCell><Badge variant={fullAccess ? 'default' : 'outline'} className="gap-1">{roleIcon(user.role)}{roleName(user.role)}</Badge></TableCell>
-                        {FEATURES.map((feature) => (
-                          <TableCell key={feature.key} className="text-center">
-                            <Switch
-                              aria-label={`${feature.label} access for ${user.name}`}
-                              checked={access[feature.key]}
-                              disabled={fullAccess || savingToggle === `${user.id}-${feature.key}`}
-                              onCheckedChange={(checked) => handleFeatureToggle(user, feature.key, checked)}
-                              data-testid={`toggle-${feature.key}-${user.id}`}
-                            />
-                          </TableCell>
-                        ))}
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {(fullAccess ? FEATURES : FEATURES.filter((feature) => access[feature.key])).map((feature) => (
+                              <Badge key={feature.key} variant="secondary">{feature.label}</Badge>
+                            ))}
+                            {!fullAccess && FEATURES.every((feature) => !access[feature.key]) && <span className="text-sm text-muted-foreground">Actions only</span>}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" onClick={() => openEdit(user)}><Pencil className="w-4 h-4" /></Button>
                           {user.id !== currentUser?.id && (
