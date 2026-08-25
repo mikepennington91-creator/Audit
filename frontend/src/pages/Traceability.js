@@ -668,17 +668,13 @@ const Traceability = () => {
             <FileSpreadsheet className="w-4 h-4 mr-2" />
             Bulk Download
           </Button>
-          <Button onClick={() => fileInputRef.current?.click()} disabled={!dataLoaded || uploadBusy}>
-            {uploadBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
-            {uploadBusy ? 'Uploading…' : 'Bulk Upload'}
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            className="hidden"
-            onChange={uploadBulkWorkbook}
-          />
+          {hasFeature('traceability_edit') && <>
+            <Button onClick={() => fileInputRef.current?.click()} disabled={!dataLoaded || uploadBusy}>
+              {uploadBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+              {uploadBusy ? 'Uploading…' : 'Bulk Upload'}
+            </Button>
+            <input ref={fileInputRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="hidden" onChange={uploadBulkWorkbook} />
+          </>}
         </div>
       </div>
 
@@ -770,7 +766,7 @@ const Traceability = () => {
           <TabsTrigger value="finished">Finished Batches</TabsTrigger>
           <TabsTrigger value="usage">Material Usage</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
-          <TabsTrigger value="config">Config</TabsTrigger>
+          {hasFeature('traceability_edit') && <TabsTrigger value="config">Config</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="intake" className="space-y-6">
@@ -964,13 +960,11 @@ const Traceability = () => {
                           <TableCell>{item.palletNumber || '-'}</TableCell>
                           <TableCell>{item.totalWeightKg || '-'}</TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeRow('rawIntakes', item.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            {hasFeature('traceability_edit') && (
+                              <Button variant="ghost" size="sm" onClick={() => removeRow('rawIntakes', item.id)}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))
@@ -1128,13 +1122,11 @@ const Traceability = () => {
                           </TableCell>
                           <TableCell className="text-right">
                             {hasFeature('traceability_edit') && <Button variant="ghost" size="sm" onClick={() => openBatchEdit(item)} title="Correct finished batch"><Pencil className="w-4 h-4" /></Button>}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeRow('finishedBatches', item.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            {hasFeature('traceability_edit') && (
+                              <Button variant="ghost" size="sm" onClick={() => removeRow('finishedBatches', item.id)}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))
@@ -1179,7 +1171,7 @@ const Traceability = () => {
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Dispatch Finished Product</DialogTitle>
-              <DialogDescription>{selectedBatch?.finishedProduct} — {selectedBatch?.finishedBatchCode}</DialogDescription>
+              <DialogDescription>{selectedBatch?.finishedProduct} — {selectedBatch?.finishedBatchCode}{selectedBatch?.palletLabel ? ` — Pallet ${selectedBatch.palletLabel}` : ''}</DialogDescription>
             </DialogHeader>
             {hasFeature('traceability_dispatch') && (selectedBatch?.releaseStatus || 'Quarantine') === 'Released' ? <form onSubmit={addDispatch} className="space-y-4">
               <div className="grid sm:grid-cols-2 gap-4">
@@ -1325,13 +1317,11 @@ const Traceability = () => {
                           <TableCell>{item.quantityUsedKg || '-'}</TableCell>
                           <TableCell>{item.quantityWastedKg || '-'}</TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeRow('materialUsage', item.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            {hasFeature('traceability_edit') && (
+                              <Button variant="ghost" size="sm" onClick={() => removeRow('materialUsage', item.id)}>
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
                           </TableCell>
                         </TableRow>
                       ))
