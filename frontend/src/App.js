@@ -91,7 +91,7 @@ function AppRoutes() {
       } />
 
       <Route path="/configuration" element={
-        <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="audits_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <Configuration />
         </ProtectedRoute>
       } />
@@ -113,7 +113,7 @@ function AppRoutes() {
       } />
       
       <Route path="/schedule" element={
-        <ProtectedRoute feature="audits" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="audits_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <Schedule />
         </ProtectedRoute>
       } />
