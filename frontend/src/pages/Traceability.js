@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -11,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { ScrollArea } from '../components/ui/scroll-area';
 import { Separator } from '../components/ui/separator';
 import { Checkbox } from '../components/ui/checkbox';
+import { Badge } from '../components/ui/badge';
+import { Textarea } from '../components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -20,7 +23,7 @@ import {
   DialogTitle,
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { Download, FileSpreadsheet, Loader2, Plus, Printer, Trash2, Upload } from 'lucide-react';
+import { Download, FileSpreadsheet, Loader2, PackageCheck, Plus, Printer, Trash2, Upload } from 'lucide-react';
 
 const STORAGE_KEY = 'traceabilityDataV1';
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -38,6 +41,7 @@ const emptyData = {
 };
 
 const Traceability = () => {
+  const { hasFeature } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
@@ -47,6 +51,10 @@ const Traceability = () => {
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [dispatchOpen, setDispatchOpen] = useState(false);
+  const [selectedBatch, setSelectedBatch] = useState(null);
+  const [dispatches, setDispatches] = useState([]);
+  const [dispatchForm, setDispatchForm] = useState({ customer: '', quantity: '', dispatchDate: '', reference: '', notes: '' });
   const [selectedExportTypes, setSelectedExportTypes] = useState({ raw: true, finished: true, usage: true });
   const [exportDateFrom, setExportDateFrom] = useState('');
   const [exportDateTo, setExportDateTo] = useState('');
@@ -80,6 +88,7 @@ const Traceability = () => {
     unitsProduced: '',
     lineNumber: '',
     bestBeforeDate: '',
+    releaseStatus: 'Quarantine',
   });
   const [usageForm, setUsageForm] = useState({
     usageDate: '',
@@ -231,8 +240,50 @@ const Traceability = () => {
       unitsProduced: '',
       lineNumber: '',
       bestBeforeDate: '',
+      releaseStatus: 'Quarantine',
     });
     toast.success('Finished batch saved');
+  };
+
+  const updateBatchStatus = async (batch, releaseStatus) => {
+    try {
+      const response = await axios.put(`${API}/traceability/finished/${batch.id}/status`, { releaseStatus });
+      setData(prev => ({
+        ...prev,
+        finishedBatches: prev.finishedBatches.map(item => item.id === batch.id ? response.data : item),
+      }));
+      toast.success(`Batch marked ${releaseStatus}`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update batch status');
+    }
+  };
+
+  const openDispatch = async (batch) => {
+    setSelectedBatch(batch);
+    setDispatchOpen(true);
+    setDispatchForm({ customer: '', quantity: '', dispatchDate: '', reference: '', notes: '' });
+    try {
+      const response = await axios.get(`${API}/traceability/finished/${batch.id}/dispatches`);
+      setDispatches(response.data);
+    } catch (error) {
+      setDispatches([]);
+      toast.error(error.response?.data?.detail || 'Failed to load dispatch history');
+    }
+  };
+
+  const addDispatch = async (event) => {
+    event.preventDefault();
+    try {
+      const response = await axios.post(`${API}/traceability/finished/${selectedBatch.id}/dispatches`, {
+        ...dispatchForm,
+        quantity: Number(dispatchForm.quantity),
+      });
+      setDispatches(prev => [response.data, ...prev]);
+      setDispatchForm({ customer: '', quantity: '', dispatchDate: '', reference: '', notes: '' });
+      toast.success('Dispatch recorded');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to record dispatch');
+    }
   };
 
   const addUsage = async () => {
@@ -936,7 +987,20 @@ const Traceability = () => {
                     onChange={event => setFinishedForm(prev => ({ ...prev, bestBeforeDate: event.target.value }))}
                   />
                 </div>
+                {hasFeature('traceability_release') && (
+                  <div>
+                    <Label>Initial Status</Label>
+                    <Select value={finishedForm.releaseStatus} onValueChange={value => setFinishedForm(prev => ({ ...prev, releaseStatus: value }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Released">Released</SelectItem>
+                        <SelectItem value="Quarantine">Quarantine</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </div>
+              {!hasFeature('traceability_release') && <p className="text-sm text-muted-foreground mt-3">New finished batches will be placed in Quarantine until an authorised user releases them.</p>}
               <div className="flex justify-end mt-4">
                 <Button onClick={addFinishedBatch}>
                   <Plus className="w-4 h-4 mr-2" />
@@ -960,13 +1024,15 @@ const Traceability = () => {
                       <TableHead>Batch Code</TableHead>
                       <TableHead>Units</TableHead>
                       <TableHead>Line</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Dispatch</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {data.finishedBatches.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center text-muted-foreground">
                           No finished batches recorded yet.
                         </TableCell>
                       </TableRow>
@@ -978,6 +1044,21 @@ const Traceability = () => {
                           <TableCell>{item.finishedBatchCode || '-'}</TableCell>
                           <TableCell>{item.unitsProduced || '-'}</TableCell>
                           <TableCell>{item.lineNumber || '-'}</TableCell>
+                          <TableCell>
+                            {hasFeature('traceability_release') ? (
+                              <Select value={item.releaseStatus || 'Quarantine'} onValueChange={value => updateBatchStatus(item, value)}>
+                                <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                                <SelectContent><SelectItem value="Released">Released</SelectItem><SelectItem value="Quarantine">Quarantine</SelectItem></SelectContent>
+                              </Select>
+                            ) : (
+                              <Badge variant={(item.releaseStatus || 'Quarantine') === 'Released' ? 'default' : 'destructive'}>{item.releaseStatus || 'Quarantine'}</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="outline" size="sm" onClick={() => openDispatch(item)}>
+                              <PackageCheck className="w-4 h-4 mr-2" />Send / History
+                            </Button>
+                          </TableCell>
                           <TableCell className="text-right">
                             <Button
                               variant="ghost"
@@ -996,6 +1077,35 @@ const Traceability = () => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <Dialog open={dispatchOpen} onOpenChange={setDispatchOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Dispatch Finished Product</DialogTitle>
+              <DialogDescription>{selectedBatch?.finishedProduct} — {selectedBatch?.finishedBatchCode}</DialogDescription>
+            </DialogHeader>
+            {hasFeature('traceability_dispatch') && (selectedBatch?.releaseStatus || 'Quarantine') === 'Released' ? <form onSubmit={addDispatch} className="space-y-4">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div><Label>Customer / Destination</Label><Input value={dispatchForm.customer} onChange={e => setDispatchForm(prev => ({ ...prev, customer: e.target.value }))} required /></div>
+                <div><Label>Quantity Sent</Label><Input type="number" min="0.01" step="0.01" value={dispatchForm.quantity} onChange={e => setDispatchForm(prev => ({ ...prev, quantity: e.target.value }))} required /></div>
+                <div><Label>Dispatch Date</Label><Input type="date" value={dispatchForm.dispatchDate} onChange={e => setDispatchForm(prev => ({ ...prev, dispatchDate: e.target.value }))} required /></div>
+                <div><Label>Delivery / Order Reference</Label><Input value={dispatchForm.reference} onChange={e => setDispatchForm(prev => ({ ...prev, reference: e.target.value }))} /></div>
+              </div>
+              <div><Label>Notes</Label><Textarea value={dispatchForm.notes} onChange={e => setDispatchForm(prev => ({ ...prev, notes: e.target.value }))} /></div>
+              <DialogFooter><Button type="submit">Record Dispatch</Button></DialogFooter>
+            </form> : <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+              {(selectedBatch?.releaseStatus || 'Quarantine') !== 'Released' ? 'This batch is quarantined and cannot be dispatched.' : 'You can view dispatch history but do not have permission to record a dispatch.'}
+            </p>}
+            <div className="space-y-2">
+              <h3 className="font-semibold">Dispatch History</h3>
+              {dispatches.length === 0 ? <p className="text-sm text-muted-foreground">This batch has not been dispatched.</p> : (
+                <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Customer</TableHead><TableHead>Quantity</TableHead><TableHead>Reference</TableHead></TableRow></TableHeader>
+                  <TableBody>{dispatches.map(item => <TableRow key={item.id}><TableCell>{item.dispatchDate}</TableCell><TableCell>{item.customer}</TableCell><TableCell>{item.quantity}</TableCell><TableCell>{item.reference || '-'}</TableCell></TableRow>)}</TableBody>
+                </Table>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <TabsContent value="usage" className="space-y-6">
           <Card>

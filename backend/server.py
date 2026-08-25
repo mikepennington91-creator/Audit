@@ -88,13 +88,11 @@ class CompanyUpdate(BaseModel):
     description: Optional[str] = None
 
 # User Models
-FEATURE_KEYS = ("audits", "traceability", "documents", "actions")
-DEFAULT_FEATURE_ACCESS = {
-    "audits": True,
-    "traceability": True,
-    "documents": True,
-    "actions": False,
-}
+FEATURE_KEYS = (
+    "audits", "traceability", "traceability_release",
+    "traceability_dispatch", "documents",
+)
+DEFAULT_FEATURE_ACCESS = {key: False for key in FEATURE_KEYS}
 ADMIN_FEATURE_ACCESS = {key: True for key in FEATURE_KEYS}
 
 class UserRole:
@@ -397,6 +395,8 @@ def normalise_feature_access(user: dict, requested: Optional[Dict[str, bool]] = 
     return access
 
 def has_feature(user: dict, feature: str) -> bool:
+    if feature == "actions":
+        return True
     return is_admin(user) or normalise_feature_access(user).get(feature, False)
 
 def require_feature(feature: str):
@@ -469,29 +469,37 @@ async def register(user_data: UserCreate):
     existing = await db.users.find_one({"email": {"$ieq": email}})
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
+    if user_data.company_id and not await db.companies.find_one({"id": user_data.company_id}, {"_id": 1}):
+        raise HTTPException(status_code=400, detail="Company not found")
     
     user_id = str(uuid.uuid4())
-    requested_user = {"role": user_data.role, "feature_access": user_data.feature_access}
+    first_company_user = bool(
+        user_data.company_id
+        and await db.users.count_documents({"company_id": user_data.company_id}) == 0
+    )
+    role = UserRole.COMPANY_ADMIN if first_company_user else UserRole.USER
+    requested_access = ADMIN_FEATURE_ACCESS.copy() if first_company_user else DEFAULT_FEATURE_ACCESS.copy()
+    requested_user = {"role": role, "feature_access": requested_access}
     user_doc = {
         "id": user_id,
         "email": email,
         "password": hash_password(user_data.password),
         "name": user_data.name,
-        "role": user_data.role,
+        "role": role,
         "company_id": user_data.company_id,
-        "feature_access": normalise_feature_access(requested_user, user_data.feature_access),
+        "feature_access": normalise_feature_access(requested_user, requested_access),
         "created_at": get_uk_time_iso()
     }
     await db.users.insert_one(user_doc)
     
-    token = create_token(user_id, email, user_data.role)
+    token = create_token(user_id, email, role)
     return {
         "token": token,
         "user": {
             "id": user_id,
             "email": email,
             "name": user_data.name,
-            "role": user_data.role,
+            "role": role,
             "company_id": user_data.company_id,
             "feature_access": user_doc["feature_access"]
         }
@@ -618,6 +626,12 @@ async def create_managed_user(user_data: UserCreate, user: dict = Depends(get_cu
     if role == UserRole.COMPANY_ADMIN and not company_id:
         raise HTTPException(status_code=400, detail="Company administrators must be assigned to a company")
 
+    first_company_user = bool(
+        company_id and await db.users.count_documents({"company_id": company_id}) == 0
+    )
+    if first_company_user:
+        role = UserRole.COMPANY_ADMIN
+
     email = normalise_email(user_data.email)
     if await db.users.find_one({"email": {"$ieq": email}}):
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -631,7 +645,7 @@ async def create_managed_user(user_data: UserCreate, user: dict = Depends(get_cu
         "company_id": company_id,
         "feature_access": normalise_feature_access(
             {"role": role, "feature_access": user_data.feature_access},
-            user_data.feature_access,
+            ADMIN_FEATURE_ACCESS if first_company_user else user_data.feature_access,
         ),
         "created_at": get_uk_time_iso(),
     }
@@ -1380,15 +1394,13 @@ async def get_action_assignees(user: dict = Depends(require_feature("audits"))):
 @api_router.get("/actions", response_model=List[CorrectiveActionResponse])
 async def get_corrective_actions(
     status: Optional[str] = None,
-    assigned_to_me: bool = False,
+    assigned_to_me: bool = True,
     user: dict = Depends(require_feature("actions")),
 ):
     if status and status not in {"open", "overdue", "completed"}:
         raise HTTPException(status_code=400, detail="Unknown action status")
 
-    query = {} if is_system_admin(user) else {"company_id": user.get("company_id")}
-    if assigned_to_me:
-        query["assigned_user_id"] = user["id"]
+    query = {"assigned_user_id": user["id"]}
     actions = await db.corrective_actions.find(query, {"_id": 0}).sort("due_date", 1).to_list(5000)
     results = []
     for action in actions:
@@ -1401,7 +1413,7 @@ async def get_accessible_corrective_action(action_id: str, user: dict) -> dict:
     action = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
     if not action:
         raise HTTPException(status_code=404, detail="Corrective action not found")
-    if not can_access_company_record(user, action):
+    if action.get("assigned_user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Access denied")
     return action
 
@@ -2176,6 +2188,16 @@ async def create_traceability_record(
         record = normalise_record(record_type, data)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if record_type == "finished":
+        requested_status = str(data.get("releaseStatus") or "Quarantine").strip().title()
+        if requested_status not in {"Released", "Quarantine"}:
+            raise HTTPException(status_code=400, detail="Status must be Released or Quarantine")
+        if not has_feature(user, "traceability_release"):
+            requested_status = "Quarantine"
+        record["releaseStatus"] = requested_status
+        record["status_updated_by"] = user["id"]
+        record["status_updated_by_name"] = user["name"]
+        record["status_updated_at"] = get_uk_time_iso()
     now = get_uk_time_iso()
     record.update({
         "id": str(uuid.uuid4()), "company_id": user.get("company_id"),
@@ -2183,6 +2205,95 @@ async def create_traceability_record(
     })
     await TRACEABILITY_COLLECTIONS[record_type].insert_one(record)
     return record
+
+
+class FinishedBatchStatusUpdate(BaseModel):
+    releaseStatus: str
+
+
+class FinishedBatchDispatchCreate(BaseModel):
+    customer: str
+    quantity: float
+    dispatchDate: str
+    reference: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@api_router.put("/traceability/finished/{batch_id}/status")
+async def update_finished_batch_status(
+    batch_id: str,
+    data: FinishedBatchStatusUpdate,
+    user: dict = Depends(require_feature("traceability_release")),
+):
+    if not has_feature(user, "traceability"):
+        raise HTTPException(status_code=403, detail="Traceability access is not enabled")
+    batch = await TRACEABILITY_COLLECTIONS["finished"].find_one({"id": batch_id}, {"_id": 0})
+    if not batch or not can_access_company_record(user, batch):
+        raise HTTPException(status_code=404, detail="Finished batch not found")
+    status = data.releaseStatus.strip().title()
+    if status not in {"Released", "Quarantine"}:
+        raise HTTPException(status_code=400, detail="Status must be Released or Quarantine")
+    now = get_uk_time_iso()
+    update = {
+        "releaseStatus": status, "status_updated_by": user["id"],
+        "status_updated_by_name": user["name"], "status_updated_at": now,
+        "updated_at": now,
+    }
+    await TRACEABILITY_COLLECTIONS["finished"].update_one({"id": batch_id}, {"$set": update})
+    return {**batch, **update}
+
+
+@api_router.post("/traceability/finished/{batch_id}/dispatches")
+async def create_finished_batch_dispatch(
+    batch_id: str,
+    data: FinishedBatchDispatchCreate,
+    user: dict = Depends(require_feature("traceability_dispatch")),
+):
+    if not has_feature(user, "traceability"):
+        raise HTTPException(status_code=403, detail="Traceability access is not enabled")
+    batch = await TRACEABILITY_COLLECTIONS["finished"].find_one({"id": batch_id}, {"_id": 0})
+    if not batch or not can_access_company_record(user, batch):
+        raise HTTPException(status_code=404, detail="Finished batch not found")
+    if batch.get("releaseStatus", "Quarantine") != "Released":
+        raise HTTPException(status_code=409, detail="Quarantined product cannot be dispatched")
+    customer = data.customer.strip()
+    if not customer or data.quantity <= 0:
+        raise HTTPException(status_code=400, detail="Customer and a positive quantity are required")
+    try:
+        date.fromisoformat(data.dispatchDate)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Dispatch date must be valid") from exc
+    dispatched = await db.traceability_dispatches.find(
+        {"finished_batch_id": batch_id}, {"_id": 0}
+    ).to_list(10_000)
+    produced = batch.get("unitsProduced")
+    if isinstance(produced, (int, float)) and sum(item.get("quantity", 0) for item in dispatched) + data.quantity > produced:
+        raise HTTPException(status_code=400, detail="Dispatch quantity exceeds the units produced")
+    now = get_uk_time_iso()
+    dispatch = {
+        "id": str(uuid.uuid4()), "finished_batch_id": batch_id,
+        "finishedBatchCode": batch.get("finishedBatchCode"),
+        "finishedProduct": batch.get("finishedProduct"), "customer": customer,
+        "quantity": data.quantity, "dispatchDate": data.dispatchDate,
+        "reference": (data.reference or "").strip(), "notes": (data.notes or "").strip(),
+        "company_id": user.get("company_id"), "created_by": user["id"],
+        "created_by_name": user["name"], "created_at": now,
+    }
+    await db.traceability_dispatches.insert_one(dispatch)
+    return dispatch
+
+
+@api_router.get("/traceability/finished/{batch_id}/dispatches")
+async def get_finished_batch_dispatches(
+    batch_id: str,
+    user: dict = Depends(require_feature("traceability")),
+):
+    batch = await TRACEABILITY_COLLECTIONS["finished"].find_one({"id": batch_id}, {"_id": 0})
+    if not batch or not can_access_company_record(user, batch):
+        raise HTTPException(status_code=404, detail="Finished batch not found")
+    return await db.traceability_dispatches.find(
+        {"finished_batch_id": batch_id}, {"_id": 0}
+    ).sort("dispatchDate", -1).to_list(10_000)
 
 
 @api_router.delete("/traceability/records/{record_type}/{record_id}")
@@ -2196,6 +2307,8 @@ async def delete_traceability_record(
     record = await TRACEABILITY_COLLECTIONS[record_type].find_one({"id": record_id}, {"_id": 0})
     if not record or not can_access_company_record(user, record):
         raise HTTPException(status_code=404, detail="Traceability record not found")
+    if record_type == "finished" and await db.traceability_dispatches.count_documents({"finished_batch_id": record_id}):
+        raise HTTPException(status_code=409, detail="A dispatched finished batch cannot be deleted")
     await TRACEABILITY_COLLECTIONS[record_type].delete_one({"id": record_id})
     return {"message": "Traceability record deleted"}
 
@@ -2292,6 +2405,14 @@ async def import_traceability_excel(
                 "id": str(uuid.uuid4()), "company_id": user.get("company_id"),
                 "created_by": user["id"], "created_at": now, "updated_at": now,
             })
+            if record_type == "finished":
+                requested_status = str(record.get("releaseStatus") or "Quarantine").strip().title()
+                record["releaseStatus"] = requested_status if (
+                    has_feature(user, "traceability_release") and requested_status in {"Released", "Quarantine"}
+                ) else "Quarantine"
+                record["status_updated_by"] = user["id"]
+                record["status_updated_by_name"] = user["name"]
+                record["status_updated_at"] = now
             await TRACEABILITY_COLLECTIONS[record_type].insert_one(record)
             imported[record_type] += 1
 
@@ -2725,6 +2846,8 @@ async def startup_event():
     await db.corrective_actions.create_index("id", unique=True)
     await db.traceability_raw_intakes.create_index("id", unique=True)
     await db.traceability_finished_batches.create_index("id", unique=True)
+    await db.traceability_dispatches.create_index("id", unique=True)
+    await db.traceability_dispatches.create_index("finished_batch_id")
     await db.traceability_material_usage.create_index("id", unique=True)
     await db.traceability_config.create_index("id", unique=True)
     

@@ -33,6 +33,7 @@ TRACEABILITY_SCHEMAS = {
             ("Supplier Name", "supplierName", "text"),
             ("Material Name", "materialName", "text"),
             ("Best Before Date", "bestBeforeDate", "date"),
+            ("Release Status", "releaseStatus", "text"),
             ("Sweetdreams Batch Code", "sweetdreamsBatchCode", "text"),
             ("Supplier Batch Code", "supplierBatchCode", "text"),
             ("Pallet Number", "palletNumber", "text"),

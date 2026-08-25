@@ -62,8 +62,8 @@ export const AuthProvider = ({ children }) => {
   const isAdmin = () => ['system_admin', 'company_admin', 'admin'].includes(user?.role);
   const hasFeature = (feature) => {
     if (isAdmin()) return true;
-    if (feature === 'actions') return user?.feature_access?.actions === true;
-    return user?.feature_access?.[feature] !== false;
+    if (feature === 'actions') return true;
+    return user?.feature_access?.[feature] === true;
   };
   const isAuditCreator = () => hasFeature('audits') && ['system_admin', 'company_admin', 'admin', 'audit_creator'].includes(user?.role);
   const canRunAudits = () => !!user && hasFeature('audits');
