@@ -17,7 +17,6 @@ const Actions = () => {
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [assignedToMe, setAssignedToMe] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
   const [actionTaken, setActionTaken] = useState('');
   const [saving, setSaving] = useState(false);
@@ -26,7 +25,7 @@ const Actions = () => {
   const fetchActions = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API}/actions`, { params: { assigned_to_me: assignedToMe } });
+      const response = await axios.get(`${API}/actions`);
       setActions(response.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to load corrective actions');
@@ -37,7 +36,7 @@ const Actions = () => {
 
   useEffect(() => {
     fetchActions();
-  }, [assignedToMe]);
+  }, []);
 
   const counts = useMemo(() => ({
     open: actions.filter((action) => action.status === 'open').length,
@@ -113,11 +112,8 @@ const Actions = () => {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Corrective Actions</h1>
-          <p className="text-muted-foreground mt-1">Track actions raised automatically from audit non-conformances.</p>
+          <p className="text-muted-foreground mt-1">View and complete corrective actions assigned to you.</p>
         </div>
-        <Button variant={assignedToMe ? 'default' : 'outline'} onClick={() => setAssignedToMe((current) => !current)}>
-          {assignedToMe ? 'Showing My Actions' : 'Show My Actions'}
-        </Button>
       </div>
 
       <div className="grid sm:grid-cols-3 gap-4">
