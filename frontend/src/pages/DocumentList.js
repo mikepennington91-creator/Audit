@@ -19,7 +19,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const DocumentList = () => {
   const navigate = useNavigate();
-  const { isAdmin, isAuditCreator } = useAuth();
+  const { isAdmin, hasFeature } = useAuth();
   const [templates, setTemplates] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -142,7 +142,7 @@ const DocumentList = () => {
           <h1 className="text-3xl font-bold tracking-tight">Documents</h1>
           <p className="text-muted-foreground mt-1">Production paperwork and traceability documents</p>
         </div>
-        {isAuditCreator() && (
+        {hasFeature('documents_edit') && (
           <Button onClick={() => navigate('/documents/design')} data-testid="create-template-btn">
             <Plus className="w-4 h-4 mr-2" />
             New Template
@@ -187,7 +187,7 @@ const DocumentList = () => {
                         <PenLine className="w-4 h-4 mr-1" />
                         Fill In
                       </Button>
-                      {isAuditCreator() && (
+                      {hasFeature('documents_edit') && (
                         <>
                           <Button variant="outline" size="sm" onClick={() => navigate(`/documents/design/${t.id}`)} data-testid={`edit-template-${t.id}`}>
                             Edit
@@ -222,7 +222,7 @@ const DocumentList = () => {
               <CardContent className="py-12 text-center">
                 <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" />
                 <p className="text-muted-foreground">No document templates yet</p>
-                {isAuditCreator() && (
+                {hasFeature('documents_edit') && (
                   <Button variant="outline" className="mt-4" onClick={() => navigate('/documents/design')}>
                     <Plus className="w-4 h-4 mr-2" />Create Your First Template
                   </Button>
