@@ -101,13 +101,13 @@ function AppRoutes() {
       <Route path="/groups" element={<Navigate to="/configuration?tab=groups" replace />} />
       
       <Route path="/create-audit" element={
-        <ProtectedRoute feature="audits" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="audits_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <CreateAudit />
         </ProtectedRoute>
       } />
       
       <Route path="/create-audit/:auditId" element={
-        <ProtectedRoute feature="audits" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="audits_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <CreateAudit />
         </ProtectedRoute>
       } />
@@ -161,13 +161,13 @@ function AppRoutes() {
       } />
       
       <Route path="/documents/design" element={
-        <ProtectedRoute feature="documents" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="documents_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <DocumentDesigner />
         </ProtectedRoute>
       } />
       
       <Route path="/documents/design/:templateId" element={
-        <ProtectedRoute feature="documents" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
+        <ProtectedRoute feature="documents_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
           <DocumentDesigner />
         </ProtectedRoute>
       } />
