@@ -185,12 +185,14 @@ const RunAudit = () => {
   };
 
   const getResponseOptions = (question) => {
-    if (question.custom_responses?.length > 0) {
-      return question.custom_responses;
-    }
+    // When a saved response set is selected it must take precedence over any
+    // stale custom rows retained by older versions of the audit builder.
     if (question.response_group_id) {
       const group = responseGroups.find(g => g.id === question.response_group_id);
       return group?.options || [];
+    }
+    if (question.custom_responses?.length > 0) {
+      return question.custom_responses;
     }
     return [];
   };
