@@ -558,6 +558,17 @@ const CreateAudit = () => {
                         </CardContent>
                       </Card>
                     ))}
+                    <div className="flex justify-center pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={addQuestion}
+                        data-testid="add-question-bottom-btn"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Question
+                      </Button>
+                    </div>
                   </div>
                 )}
               </CardContent>
