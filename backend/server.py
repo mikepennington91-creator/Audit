@@ -789,7 +789,7 @@ async def delete_user(user_id: str, user: dict = Depends(get_current_user)):
 @api_router.post("/response-groups", response_model=ResponseGroupResponse)
 async def create_response_group(
     group_data: ResponseGroupCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     group_id = str(uuid.uuid4())
     group_doc = {
@@ -835,7 +835,7 @@ async def get_response_group(group_id: str, user: dict = Depends(require_feature
 @api_router.delete("/response-groups/{group_id}")
 async def delete_response_group(
     group_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     result = await db.response_groups.delete_one({"id": group_id})
     if result.deleted_count == 0:
@@ -847,7 +847,7 @@ async def delete_response_group(
 @api_router.post("/audit-types", response_model=AuditTypeResponse)
 async def create_audit_type(
     type_data: AuditTypeCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     type_id = str(uuid.uuid4())
     type_doc = {
@@ -884,7 +884,7 @@ async def get_audit_types(user: dict = Depends(require_feature("audits"))):
 @api_router.delete("/audit-types/{type_id}")
 async def delete_audit_type(
     type_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     result = await db.audit_types.delete_one({"id": type_id})
     if result.deleted_count == 0:
@@ -896,7 +896,7 @@ async def delete_audit_type(
 @api_router.post("/lines-shifts", response_model=LineShiftResponse)
 async def create_line_shift(
     data: LineShiftCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits_edit"))
 ):
     """Create a new line/shift (Admin only)"""
     line_id = str(uuid.uuid4())
@@ -935,7 +935,7 @@ async def get_line_shift(line_id: str, user: dict = Depends(require_feature("aud
 async def update_line_shift(
     line_id: str,
     data: LineShiftCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits_edit"))
 ):
     """Update a line/shift (Admin only)"""
     line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
@@ -953,7 +953,7 @@ async def update_line_shift(
 @api_router.delete("/lines-shifts/{line_id}")
 async def delete_line_shift(
     line_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits_edit"))
 ):
     """Delete a line/shift (Admin only)"""
     line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
@@ -974,7 +974,7 @@ async def delete_line_shift(
 @api_router.post("/audits", response_model=AuditResponse)
 async def create_audit(
     audit_data: AuditCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     audit_id = str(uuid.uuid4())
     now = get_uk_time_iso()
@@ -1055,7 +1055,7 @@ async def get_audit(audit_id: str, user: dict = Depends(require_feature("audits"
 async def update_audit(
     audit_id: str,
     update_data: AuditUpdate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     update_dict = {}
     if update_data.name is not None:
@@ -1098,7 +1098,7 @@ async def update_audit(
 @api_router.delete("/audits/{audit_id}")
 async def delete_audit(
     audit_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     result = await db.audits.delete_one({"id": audit_id})
     if result.deleted_count == 0:
@@ -1885,7 +1885,7 @@ class ScheduledAuditResponse(BaseModel):
 @api_router.post("/scheduled-audits", response_model=ScheduledAuditResponse)
 async def create_scheduled_audit(
     schedule_data: ScheduledAuditCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     # Validate audit exists
     audit = await db.audits.find_one({"id": schedule_data.audit_id}, {"_id": 0})
@@ -1983,7 +1983,7 @@ async def complete_scheduled_audit(
 @api_router.delete("/scheduled-audits/{schedule_id}")
 async def delete_scheduled_audit(
     schedule_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     result = await db.scheduled_audits.delete_one({"id": schedule_id})
     if result.deleted_count == 0:
@@ -2135,7 +2135,7 @@ async def get_traceability_records(user: dict = Depends(require_feature("traceab
 @api_router.put("/traceability/config")
 async def update_traceability_config(
     data: TraceabilityConfigUpdate,
-    user: dict = Depends(require_feature("traceability")),
+    user: dict = Depends(require_feature("traceability_edit")),
 ):
     values = _clean_traceability_config(data.model_dump())
     query = _traceability_config_query(user)
@@ -2417,7 +2417,7 @@ async def get_finished_batch_history(
 async def delete_traceability_record(
     record_type: str,
     record_id: str,
-    user: dict = Depends(require_feature("traceability")),
+    user: dict = Depends(require_feature("traceability_edit")),
 ):
     if record_type not in TRACEABILITY_SCHEMAS:
         raise HTTPException(status_code=400, detail="Unknown traceability record type")
@@ -2481,7 +2481,7 @@ async def export_traceability_excel(
 @api_router.post("/traceability/bulk-import")
 async def import_traceability_excel(
     file: UploadFile = File(...),
-    user: dict = Depends(require_feature("traceability")),
+    user: dict = Depends(require_feature("traceability_edit")),
 ):
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Upload an .xlsx Excel workbook")
@@ -2576,7 +2576,7 @@ class TraceabilityDocumentSubmit(BaseModel):
 @api_router.post("/traceability/templates")
 async def create_traceability_template(
     data: TraceabilityTemplateCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents_edit"))
 ):
     template_id = str(uuid.uuid4())
     now = get_uk_time_iso()
@@ -2632,7 +2632,7 @@ async def get_traceability_template(template_id: str, user: dict = Depends(requi
 async def update_traceability_template(
     template_id: str,
     data: TraceabilityTemplateUpdate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents_edit"))
 ):
     t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
     if not t:
@@ -2666,7 +2666,7 @@ async def update_traceability_template(
 @api_router.delete("/traceability/templates/{template_id}")
 async def delete_traceability_template(
     template_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "documents"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "documents_edit"))
 ):
     result = await db.traceability_templates.delete_one({"id": template_id})
     if result.deleted_count == 0:
@@ -2734,7 +2734,7 @@ async def get_traceability_document(doc_id: str, user: dict = Depends(require_fe
     return doc
 
 @api_router.delete("/traceability/documents/{doc_id}")
-async def delete_traceability_document(doc_id: str, user: dict = Depends(require_feature("documents"))):
+async def delete_traceability_document(doc_id: str, user: dict = Depends(require_feature("documents_edit"))):
     doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -2904,7 +2904,7 @@ async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require
 @api_router.post("/traceability/templates/{template_id}/duplicate")
 async def duplicate_traceability_template(
     template_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents_edit"))
 ):
     """Clone an existing template"""
     t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
