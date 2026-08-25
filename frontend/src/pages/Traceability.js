@@ -1064,7 +1064,7 @@ const Traceability = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Recent Finished Batches ({filteredFinishedBatches.length})</CardTitle>
+              <CardTitle>Finished Batches ({filteredFinishedBatches.length})</CardTitle>
               <div className="grid sm:grid-cols-[1fr_220px] gap-3 pt-3">
                 <Input value={finishedFilter} onChange={event => setFinishedFilter(event.target.value)} placeholder="Filter by product, batch, pallet, line or date..." />
                 <Select value={finishedStatusFilter} onValueChange={setFinishedStatusFilter}>
