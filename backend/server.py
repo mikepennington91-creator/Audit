@@ -89,10 +89,17 @@ class CompanyUpdate(BaseModel):
 
 # User Models
 FEATURE_KEYS = (
-    "audits", "traceability", "traceability_release",
-    "traceability_dispatch", "documents",
+    "audits_view", "audits_edit",
+    "traceability_view", "traceability_edit",
+    "traceability_release", "traceability_dispatch",
+    "documents_view", "documents_edit",
 )
 DEFAULT_FEATURE_ACCESS = {key: False for key in FEATURE_KEYS}
+LEGACY_FEATURE_ALIASES = {
+    "audits": "audits_view",
+    "traceability": "traceability_view",
+    "documents": "documents_view",
+}
 ADMIN_FEATURE_ACCESS = {key: True for key in FEATURE_KEYS}
 
 class UserRole:
@@ -384,20 +391,28 @@ def normalise_feature_access(user: dict, requested: Optional[Dict[str, bool]] = 
 
     access = DEFAULT_FEATURE_ACCESS.copy()
     stored = user.get("feature_access") or {}
+    for legacy_key, view_key in LEGACY_FEATURE_ALIASES.items():
+        if legacy_key in stored and view_key not in stored:
+            access[view_key] = bool(stored[legacy_key])
     for key in FEATURE_KEYS:
         if key in stored:
             access[key] = bool(stored[key])
     if requested is not None:
         for key, value in requested.items():
-            if key not in FEATURE_KEYS:
+            resolved_key = LEGACY_FEATURE_ALIASES.get(key, key)
+            if resolved_key not in FEATURE_KEYS:
                 raise HTTPException(status_code=400, detail=f"Unknown feature: {key}")
-            access[key] = bool(value)
+            access[resolved_key] = bool(value)
+    for section in ("audits", "traceability", "documents"):
+        if access.get(f"{section}_edit"):
+            access[f"{section}_view"] = True
     return access
 
 def has_feature(user: dict, feature: str) -> bool:
     if feature == "actions":
         return True
-    return is_admin(user) or normalise_feature_access(user).get(feature, False)
+    resolved_feature = LEGACY_FEATURE_ALIASES.get(feature, feature)
+    return is_admin(user) or normalise_feature_access(user).get(resolved_feature, False)
 
 def require_feature(feature: str):
     async def feature_checker(user: dict = Depends(get_current_user)):
@@ -774,7 +789,7 @@ async def delete_user(user_id: str, user: dict = Depends(get_current_user)):
 @api_router.post("/response-groups", response_model=ResponseGroupResponse)
 async def create_response_group(
     group_data: ResponseGroupCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     group_id = str(uuid.uuid4())
     group_doc = {
@@ -820,7 +835,7 @@ async def get_response_group(group_id: str, user: dict = Depends(require_feature
 @api_router.delete("/response-groups/{group_id}")
 async def delete_response_group(
     group_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     result = await db.response_groups.delete_one({"id": group_id})
     if result.deleted_count == 0:
@@ -832,7 +847,7 @@ async def delete_response_group(
 @api_router.post("/audit-types", response_model=AuditTypeResponse)
 async def create_audit_type(
     type_data: AuditTypeCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     type_id = str(uuid.uuid4())
     type_doc = {
@@ -869,7 +884,7 @@ async def get_audit_types(user: dict = Depends(require_feature("audits"))):
 @api_router.delete("/audit-types/{type_id}")
 async def delete_audit_type(
     type_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     result = await db.audit_types.delete_one({"id": type_id})
     if result.deleted_count == 0:
@@ -881,7 +896,7 @@ async def delete_audit_type(
 @api_router.post("/lines-shifts", response_model=LineShiftResponse)
 async def create_line_shift(
     data: LineShiftCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits_edit"))
 ):
     """Create a new line/shift (Admin only)"""
     line_id = str(uuid.uuid4())
@@ -920,7 +935,7 @@ async def get_line_shift(line_id: str, user: dict = Depends(require_feature("aud
 async def update_line_shift(
     line_id: str,
     data: LineShiftCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits_edit"))
 ):
     """Update a line/shift (Admin only)"""
     line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
@@ -938,7 +953,7 @@ async def update_line_shift(
 @api_router.delete("/lines-shifts/{line_id}")
 async def delete_line_shift(
     line_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "audits_edit"))
 ):
     """Delete a line/shift (Admin only)"""
     line = await db.lines_shifts.find_one({"id": line_id}, {"_id": 0})
@@ -959,7 +974,7 @@ async def delete_line_shift(
 @api_router.post("/audits", response_model=AuditResponse)
 async def create_audit(
     audit_data: AuditCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     audit_id = str(uuid.uuid4())
     now = get_uk_time_iso()
@@ -1040,7 +1055,7 @@ async def get_audit(audit_id: str, user: dict = Depends(require_feature("audits"
 async def update_audit(
     audit_id: str,
     update_data: AuditUpdate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     update_dict = {}
     if update_data.name is not None:
@@ -1083,7 +1098,7 @@ async def update_audit(
 @api_router.delete("/audits/{audit_id}")
 async def delete_audit(
     audit_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     result = await db.audits.delete_one({"id": audit_id})
     if result.deleted_count == 0:
@@ -1870,7 +1885,7 @@ class ScheduledAuditResponse(BaseModel):
 @api_router.post("/scheduled-audits", response_model=ScheduledAuditResponse)
 async def create_scheduled_audit(
     schedule_data: ScheduledAuditCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     # Validate audit exists
     audit = await db.audits.find_one({"id": schedule_data.audit_id}, {"_id": 0})
@@ -1968,7 +1983,7 @@ async def complete_scheduled_audit(
 @api_router.delete("/scheduled-audits/{schedule_id}")
 async def delete_scheduled_audit(
     schedule_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
     result = await db.scheduled_audits.delete_one({"id": schedule_id})
     if result.deleted_count == 0:
@@ -2120,7 +2135,7 @@ async def get_traceability_records(user: dict = Depends(require_feature("traceab
 @api_router.put("/traceability/config")
 async def update_traceability_config(
     data: TraceabilityConfigUpdate,
-    user: dict = Depends(require_feature("traceability")),
+    user: dict = Depends(require_feature("traceability_edit")),
 ):
     values = _clean_traceability_config(data.model_dump())
     query = _traceability_config_query(user)
@@ -2211,12 +2226,56 @@ class FinishedBatchStatusUpdate(BaseModel):
     releaseStatus: str
 
 
+class FinishedBatchCorrection(BaseModel):
+    fields: Dict[str, Any]
+    reason: str
+
+
 class FinishedBatchDispatchCreate(BaseModel):
     customer: str
     quantity: float
     dispatchDate: str
     reference: Optional[str] = None
     notes: Optional[str] = None
+
+
+@api_router.post("/traceability/records/finished/pallets")
+async def create_finished_batch_pallets(
+    data: dict,
+    user: dict = Depends(require_feature("traceability")),
+):
+    pallet_range = str(data.get("palletRange") or "").strip()
+    parts = [part.strip() for part in pallet_range.split("-")]
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        raise HTTPException(status_code=400, detail="Pallet range must be entered like 1 - 7")
+    start, end = (int(part) for part in parts)
+    if start < 1 or end < start or end - start + 1 > 500:
+        raise HTTPException(status_code=400, detail="Pallet range must contain between 1 and 500 pallets")
+
+    requested_status = str(data.get("releaseStatus") or "Quarantine").strip().title()
+    if requested_status not in {"Released", "Quarantine"}:
+        raise HTTPException(status_code=400, detail="Status must be Released or Quarantine")
+    if not has_feature(user, "traceability_release"):
+        requested_status = "Quarantine"
+
+    now = get_uk_time_iso()
+    records = []
+    for pallet_number in range(start, end + 1):
+        values = {**data, "palletLabel": str(pallet_number)}
+        try:
+            record = normalise_record("finished", values)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        record.update({
+            "id": str(uuid.uuid4()), "releaseStatus": requested_status,
+            "status_updated_by": user["id"], "status_updated_by_name": user["name"],
+            "status_updated_at": now, "company_id": user.get("company_id"),
+            "created_by": user["id"], "created_at": now, "updated_at": now,
+        })
+        records.append(record)
+    for record in records:
+        await TRACEABILITY_COLLECTIONS["finished"].insert_one(record)
+    return records
 
 
 @api_router.put("/traceability/finished/{batch_id}/status")
@@ -2273,7 +2332,8 @@ async def create_finished_batch_dispatch(
     dispatch = {
         "id": str(uuid.uuid4()), "finished_batch_id": batch_id,
         "finishedBatchCode": batch.get("finishedBatchCode"),
-        "finishedProduct": batch.get("finishedProduct"), "customer": customer,
+        "finishedProduct": batch.get("finishedProduct"),
+        "palletLabel": batch.get("palletLabel"), "customer": customer,
         "quantity": data.quantity, "dispatchDate": data.dispatchDate,
         "reference": (data.reference or "").strip(), "notes": (data.notes or "").strip(),
         "company_id": user.get("company_id"), "created_by": user["id"],
@@ -2296,11 +2356,69 @@ async def get_finished_batch_dispatches(
     ).sort("dispatchDate", -1).to_list(10_000)
 
 
+@api_router.put("/traceability/finished/{batch_id}")
+async def correct_finished_batch(
+    batch_id: str,
+    data: FinishedBatchCorrection,
+    user: dict = Depends(require_feature("traceability_edit")),
+):
+    batch = await TRACEABILITY_COLLECTIONS["finished"].find_one({"id": batch_id}, {"_id": 0})
+    if not batch or not can_access_company_record(user, batch):
+        raise HTTPException(status_code=404, detail="Finished batch not found")
+    reason = data.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="A correction reason is required")
+    allowed_fields = {
+        field for _label, field, _kind in TRACEABILITY_SCHEMAS["finished"]["columns"]
+        if field not in {"id", "releaseStatus"}
+    }
+    unknown = set(data.fields) - allowed_fields
+    if unknown:
+        raise HTTPException(status_code=400, detail="Unknown finished batch field(s): " + ", ".join(sorted(unknown)))
+    try:
+        corrected = normalise_record("finished", {**batch, **data.fields})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    changes = {
+        field: {"before": batch.get(field), "after": corrected.get(field)}
+        for field in allowed_fields
+        if batch.get(field) != corrected.get(field)
+    }
+    if not changes:
+        raise HTTPException(status_code=400, detail="No finished batch details were changed")
+    now = get_uk_time_iso()
+    await TRACEABILITY_COLLECTIONS["finished"].update_one(
+        {"id": batch_id}, {"$set": {**corrected, "updated_at": now}}
+    )
+    history = {
+        "id": str(uuid.uuid4()), "finished_batch_id": batch_id,
+        "finishedBatchCode": corrected.get("finishedBatchCode"),
+        "reason": reason, "changes": changes, "edited_by": user["id"],
+        "edited_by_name": user["name"], "edited_at": now,
+        "company_id": user.get("company_id"),
+    }
+    await db.traceability_finished_batch_history.insert_one(history)
+    return {**batch, **corrected, "updated_at": now}
+
+
+@api_router.get("/traceability/finished/{batch_id}/history")
+async def get_finished_batch_history(
+    batch_id: str,
+    user: dict = Depends(require_feature("traceability")),
+):
+    batch = await TRACEABILITY_COLLECTIONS["finished"].find_one({"id": batch_id}, {"_id": 0})
+    if not batch or not can_access_company_record(user, batch):
+        raise HTTPException(status_code=404, detail="Finished batch not found")
+    return await db.traceability_finished_batch_history.find(
+        {"finished_batch_id": batch_id}, {"_id": 0}
+    ).sort("edited_at", -1).to_list(10_000)
+
+
 @api_router.delete("/traceability/records/{record_type}/{record_id}")
 async def delete_traceability_record(
     record_type: str,
     record_id: str,
-    user: dict = Depends(require_feature("traceability")),
+    user: dict = Depends(require_feature("traceability_edit")),
 ):
     if record_type not in TRACEABILITY_SCHEMAS:
         raise HTTPException(status_code=400, detail="Unknown traceability record type")
@@ -2364,7 +2482,7 @@ async def export_traceability_excel(
 @api_router.post("/traceability/bulk-import")
 async def import_traceability_excel(
     file: UploadFile = File(...),
-    user: dict = Depends(require_feature("traceability")),
+    user: dict = Depends(require_feature("traceability_edit")),
 ):
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="Upload an .xlsx Excel workbook")
@@ -2459,7 +2577,7 @@ class TraceabilityDocumentSubmit(BaseModel):
 @api_router.post("/traceability/templates")
 async def create_traceability_template(
     data: TraceabilityTemplateCreate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents_edit"))
 ):
     template_id = str(uuid.uuid4())
     now = get_uk_time_iso()
@@ -2515,7 +2633,7 @@ async def get_traceability_template(template_id: str, user: dict = Depends(requi
 async def update_traceability_template(
     template_id: str,
     data: TraceabilityTemplateUpdate,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents_edit"))
 ):
     t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
     if not t:
@@ -2549,7 +2667,7 @@ async def update_traceability_template(
 @api_router.delete("/traceability/templates/{template_id}")
 async def delete_traceability_template(
     template_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "documents"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN], "documents_edit"))
 ):
     result = await db.traceability_templates.delete_one({"id": template_id})
     if result.deleted_count == 0:
@@ -2617,7 +2735,7 @@ async def get_traceability_document(doc_id: str, user: dict = Depends(require_fe
     return doc
 
 @api_router.delete("/traceability/documents/{doc_id}")
-async def delete_traceability_document(doc_id: str, user: dict = Depends(require_feature("documents"))):
+async def delete_traceability_document(doc_id: str, user: dict = Depends(require_feature("documents_edit"))):
     doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -2787,7 +2905,7 @@ async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require
 @api_router.post("/traceability/templates/{template_id}/duplicate")
 async def duplicate_traceability_template(
     template_id: str,
-    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents"))
+    user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "documents_edit"))
 ):
     """Clone an existing template"""
     t = await db.traceability_templates.find_one({"id": template_id}, {"_id": 0})
@@ -2848,6 +2966,8 @@ async def startup_event():
     await db.traceability_finished_batches.create_index("id", unique=True)
     await db.traceability_dispatches.create_index("id", unique=True)
     await db.traceability_dispatches.create_index("finished_batch_id")
+    await db.traceability_finished_batch_history.create_index("id", unique=True)
+    await db.traceability_finished_batch_history.create_index("finished_batch_id")
     await db.traceability_material_usage.create_index("id", unique=True)
     await db.traceability_config.create_index("id", unique=True)
     

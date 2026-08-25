@@ -63,9 +63,13 @@ export const AuthProvider = ({ children }) => {
   const hasFeature = (feature) => {
     if (isAdmin()) return true;
     if (feature === 'actions') return true;
-    return user?.feature_access?.[feature] === true;
+    const aliases = { audits: 'audits_view', traceability: 'traceability_view', documents: 'documents_view' };
+    const resolved = aliases[feature] || feature;
+    const access = user?.feature_access || {};
+    if (access[resolved] === true) return true;
+    return resolved.endsWith('_view') && access[resolved.replace('_view', '')] === true;
   };
-  const isAuditCreator = () => hasFeature('audits') && ['system_admin', 'company_admin', 'admin', 'audit_creator'].includes(user?.role);
+  const isAuditCreator = () => hasFeature('audits_edit') && ['system_admin', 'company_admin', 'admin', 'audit_creator'].includes(user?.role);
   const canRunAudits = () => !!user && hasFeature('audits');
   const canViewReports = () => !!user && hasFeature('audits');
 

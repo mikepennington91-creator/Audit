@@ -44,7 +44,7 @@ const Layout = ({ children }) => {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, show: true },
     { path: '/user-management', label: 'User Management', icon: Users, show: isAdmin() },
-    { path: '/configuration', label: 'Configuration', icon: Settings, show: isAdmin() },
+    { path: '/configuration', label: 'Configuration', icon: Settings, show: isAdmin() || hasFeature('audits_edit') },
     { path: '/create-audit', label: 'Create Audit', icon: FilePlus, show: isAuditCreator() },
     { path: '/schedule', label: 'Schedule', icon: Calendar, show: isAuditCreator() },
     { path: '/run-audit', label: 'Run Audit', icon: ClipboardCheck, show: hasFeature('audits') },

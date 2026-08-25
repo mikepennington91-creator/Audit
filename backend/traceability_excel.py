@@ -56,6 +56,7 @@ TRACEABILITY_SCHEMAS = {
             ("Production Date", "productionDate", "date"),
             ("Finished Product", "finishedProduct", "text"),
             ("Finished Batch Code", "finishedBatchCode", "text"),
+            ("Pallet Label", "palletLabel", "text"),
             ("Units Produced", "unitsProduced", "number"),
             ("Line Number", "lineNumber", "text"),
             ("Best Before Date", "bestBeforeDate", "date"),
