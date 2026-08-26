@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from 'sonner';
 import {
   Plus, FileText, ChevronRight, Calendar, Trash2,
-  AlertTriangle, Eye, FileDown, ClipboardCheck, PenLine, Copy
+  AlertTriangle, Eye, FileDown, ClipboardCheck, PenLine, Copy, CircleCheck
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -25,6 +25,8 @@ const DocumentList = () => {
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [documentAction, setDocumentAction] = useState(null);
+  const [processingDocument, setProcessingDocument] = useState(false);
   const [duplicating, setDuplicating] = useState(null);
 
   // Batch PDF state
@@ -82,6 +84,28 @@ const DocumentList = () => {
       toast.error('Failed to duplicate');
     } finally {
       setDuplicating(null);
+    }
+  };
+
+  const handleDocumentAction = async () => {
+    if (!documentAction) return;
+    setProcessingDocument(true);
+    const { type, document: target } = documentAction;
+    try {
+      if (type === 'close') {
+        const res = await axios.put(`${API}/traceability/documents/${target.id}/close-out`);
+        setDocuments(prev => prev.map(d => d.id === target.id ? res.data : d));
+        toast.success('Document closed out');
+      } else {
+        await axios.delete(`${API}/traceability/documents/${target.id}`);
+        setDocuments(prev => prev.filter(d => d.id !== target.id));
+        toast.success('In-progress document deleted');
+      }
+      setDocumentAction(null);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Failed to ${type === 'close' ? 'close out' : 'delete'} document`);
+    } finally {
+      setProcessingDocument(false);
     }
   };
 
@@ -274,7 +298,9 @@ const DocumentList = () => {
                         <ClipboardCheck className="w-5 h-5 text-emerald-600" />
                         <div>
                           <p className="font-medium">{d.template_title}</p>
-                          <p className="text-xs text-muted-foreground">{d.document_reference} | v{d.version} | {formatDate(d.completed_at)} | by {d.completed_by_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {d.document_reference} | v{d.version} | {formatDate(d.completed_at)} | {d.admin_closed_out ? `closed out by ${d.closed_out_by_name}` : `by ${d.completed_by_name}`}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -301,16 +327,40 @@ const DocumentList = () => {
           <TabsContent value="progress" className="mt-4">
             <div className="space-y-3">
               {inProgressDocs.map(d => (
-                <Card key={d.id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate(`/documents/fill/${d.id}`)} data-testid={`progress-doc-${d.id}`}>
+                <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`progress-doc-${d.id}`}>
                   <CardContent className="py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => navigate(`/documents/fill/${d.id}`)}>
                       <PenLine className="w-5 h-5 text-amber-500" />
                       <div>
                         <p className="font-medium">{d.template_title}</p>
-                        <p className="text-xs text-muted-foreground">{d.document_reference} | Started {formatDate(d.created_at)}</p>
+                        <p className="text-xs text-muted-foreground">{d.document_reference} | Started {formatDate(d.created_at)} | by {d.completed_by_name}</p>
                       </div>
                     </div>
-                    <Badge variant="outline">In Progress</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">In Progress</Badge>
+                      {isAdmin() && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setDocumentAction({ type: 'close', document: d })}
+                            data-testid={`close-out-document-${d.id}`}
+                          >
+                            <CircleCheck className="w-4 h-4 mr-1" />Close Out
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-destructive"
+                            onClick={() => setDocumentAction({ type: 'delete', document: d })}
+                            data-testid={`delete-document-${d.id}`}
+                            aria-label={`Delete ${d.template_title}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -329,6 +379,39 @@ const DocumentList = () => {
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
             <Button variant="destructive" onClick={handleDelete} disabled={deleting} data-testid="confirm-delete">{deleting ? 'Deleting...' : 'Delete'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Admin action dialog for in-progress documents */}
+      <Dialog open={!!documentAction} onOpenChange={(o) => !o && setDocumentAction(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className={`w-5 h-5 ${documentAction?.type === 'delete' ? 'text-destructive' : 'text-amber-500'}`} />
+              {documentAction?.type === 'delete' ? 'Delete In-Progress Document' : 'Close Out Document'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p>
+              {documentAction?.type === 'delete'
+                ? <>Permanently delete <strong>{documentAction?.document?.template_title}</strong>? This cannot be undone.</>
+                : <>Close out <strong>{documentAction?.document?.template_title}</strong> as completed?</>}
+            </p>
+            {documentAction?.type === 'close' && (
+              <p>This keeps the values currently recorded and logs you as the admin who closed it out.</p>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDocumentAction(null)} disabled={processingDocument}>Cancel</Button>
+            <Button
+              variant={documentAction?.type === 'delete' ? 'destructive' : 'default'}
+              onClick={handleDocumentAction}
+              disabled={processingDocument}
+              data-testid="confirm-document-action"
+            >
+              {processingDocument ? 'Processing...' : documentAction?.type === 'delete' ? 'Delete Document' : 'Close Out'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

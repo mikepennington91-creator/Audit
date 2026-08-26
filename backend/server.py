@@ -2734,14 +2734,60 @@ async def get_traceability_document(doc_id: str, user: dict = Depends(require_fe
         raise HTTPException(status_code=404, detail="Document not found")
     return doc
 
-@api_router.delete("/traceability/documents/{doc_id}")
-async def delete_traceability_document(doc_id: str, user: dict = Depends(require_feature("documents_edit"))):
+def ensure_document_admin_access(doc: dict, user: dict) -> None:
+    """Keep company admins within their company while system admins retain global access."""
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not is_system_admin(user) and doc.get("company_id") != user.get("company_id"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+@api_router.put("/traceability/documents/{doc_id}/close-out")
+async def close_out_traceability_document(
+    doc_id: str,
+    user: dict = Depends(require_role(
+        [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN],
+        "documents_edit",
+    )),
+):
     doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    if doc["completed_by"] != user["id"] and not is_admin(user):
-        raise HTTPException(status_code=403, detail="Access denied")
-    await db.traceability_documents.delete_one({"id": doc_id})
+    ensure_document_admin_access(doc, user)
+    if doc.get("completed"):
+        raise HTTPException(status_code=409, detail="Only in-progress documents can be closed out")
+
+    now = get_uk_time_iso()
+    await db.traceability_documents.update_one(
+        {"id": doc_id, "completed": False},
+        {"$set": {
+            "completed": True,
+            "completed_at": now,
+            "admin_closed_out": True,
+            "closed_out_by": user["id"],
+            "closed_out_by_name": user["name"],
+            "closed_out_at": now,
+        }},
+    )
+    updated = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
+    return updated
+
+@api_router.delete("/traceability/documents/{doc_id}")
+async def delete_traceability_document(
+    doc_id: str,
+    user: dict = Depends(require_role(
+        [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN],
+        "documents_edit",
+    )),
+):
+    doc = await db.traceability_documents.find_one({"id": doc_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    ensure_document_admin_access(doc, user)
+    if doc.get("completed"):
+        raise HTTPException(status_code=409, detail="Completed documents cannot be deleted")
+    result = await db.traceability_documents.delete_one({"id": doc_id, "completed": False})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=409, detail="Document is no longer in progress")
     return {"message": "Document deleted"}
 
 @api_router.get("/traceability/documents/{doc_id}/pdf")
@@ -2814,8 +2860,14 @@ async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(req
         ["Version:", str(doc.get("version", 1))],
         ["Document Ref:", doc.get("document_reference", "N/A")],
         ["Authorised By:", doc.get("authorised_by", "N/A")],
-        ["Completed By:", doc.get("completed_by_name", "N/A")],
     ]
+    if doc.get("admin_closed_out"):
+        footer_data.extend([
+            ["Started By:", doc.get("completed_by_name", "N/A")],
+            ["Closed Out By:", doc.get("closed_out_by_name", "N/A")],
+        ])
+    else:
+        footer_data.append(["Completed By:", doc.get("completed_by_name", "N/A")])
     ft = Table(footer_data, colWidths=[2*inch, 4*inch])
     ft.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (0, -1), HexColor('#f0f9f8')),
@@ -2884,8 +2936,14 @@ async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require
             ["Version:", str(doc.get("version", 1))],
             ["Document Ref:", doc.get("document_reference", "N/A")],
             ["Authorised By:", doc.get("authorised_by", "N/A")],
-            ["Completed By:", doc.get("completed_by_name", "N/A")],
         ]
+        if doc.get("admin_closed_out"):
+            footer_data.extend([
+                ["Started By:", doc.get("completed_by_name", "N/A")],
+                ["Closed Out By:", doc.get("closed_out_by_name", "N/A")],
+            ])
+        else:
+            footer_data.append(["Completed By:", doc.get("completed_by_name", "N/A")])
         ft = Table(footer_data, colWidths=[2*inch, 4*inch])
         ft.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, -1), HexColor('#f0f9f8')),

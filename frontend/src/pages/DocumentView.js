@@ -78,6 +78,7 @@ const DocumentView = () => {
               <Badge className={doc.completed ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-amber-100 text-amber-800'}>
                 {doc.completed ? 'Completed' : 'In Progress'}
               </Badge>
+              {doc.admin_closed_out && <Badge variant="outline">Admin Closed Out</Badge>}
             </div>
           </div>
         </div>
@@ -176,6 +177,18 @@ const DocumentView = () => {
               <p className="text-xs text-muted-foreground flex items-center gap-1"><User className="w-3 h-3" />Authorised By</p>
               <p className="font-medium">{doc.authorised_by}</p>
             </div>
+            {doc.admin_closed_out && (
+              <>
+                <div>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1"><User className="w-3 h-3" />Started By</p>
+                  <p className="font-medium">{doc.completed_by_name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1"><User className="w-3 h-3" />Closed Out By</p>
+                  <p className="font-medium">{doc.closed_out_by_name}</p>
+                </div>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
