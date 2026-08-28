@@ -1,0 +1,48 @@
+name: Finalize audit draft saving
+
+on:
+  push:
+    branches:
+      - feature/audit-save-photo-usability
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/audit-save-photo-usability
+      - name: Allow incomplete failed answers in saved drafts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('backend/server.py')
+          s = p.read_text()
+          old = '''    # Validate that negative responses have comments\n    answers = [a.model_dump() for a in submit_data.answers]\n    for answer in answers:\n        if answer.get("is_negative") and not answer.get("notes"):\n            raise HTTPException(\n                status_code=400, \n                detail=f"Comment required for negative/fail response on question"\n            )\n    \n    audit = None\n'''
+          new = '''    answers = [a.model_dump() for a in submit_data.answers]\n    # Drafts may be incomplete. Submission-only rules are enforced when the audit is completed.\n    if submit_data.completed:\n        for answer in answers:\n            if answer.get("is_negative") and not answer.get("notes"):\n                raise HTTPException(\n                    status_code=400,\n                    detail="Comment required for negative/fail response on question"\n                )\n    \n    audit = None\n'''
+          if old not in s:
+              raise SystemExit('backend validation block not found')
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('frontend/src/pages/RunAudit.js')
+          s = p.read_text()
+          old = '''    if (!isOnline || activeRun.offline) {\n      toast.info('Offline audits are kept on this device and will sync when you reconnect.');\n      if (exitAfterSave) navigate('/run-audit');\n      return;\n    }\n'''
+          new = '''    if (!isOnline || activeRun.offline) {\n      toast.info('Connect to the internet to save this audit as a resumable draft.');\n      return;\n    }\n'''
+          if old not in s:
+              raise SystemExit('offline save block not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+      - name: Validate backend syntax
+        run: python -m py_compile backend/server.py
+      - name: Remove temporary workflow and commit
+        run: |
+          rm .github/workflows/finalize-audit-drafts.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/server.py frontend/src/pages/RunAudit.js .github/workflows/finalize-audit-drafts.yml
+          git commit -m "Allow incomplete audits to be saved as drafts"
+          git push origin HEAD:feature/audit-save-photo-usability
