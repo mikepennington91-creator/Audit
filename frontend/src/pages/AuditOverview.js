@@ -406,16 +406,18 @@ const AuditOverview = () => {
                               <div className="flex items-center gap-2 mb-2">
                                 <Badge variant="outline" className="text-xs">Q{index + 1}</Badge>
                                 {(answer.pass_fail || answer.is_negative !== undefined) && (
-                                  <Badge className={
-                                    (answer.pass_fail === 'fail' || answer.is_negative)
-                                      ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                  }>
-                                    {(answer.pass_fail === 'fail' || answer.is_negative) ? 'Fail' : 'Pass'}
-                                  </Badge>
-                                  {answer.repeat_non_conformance && (
-                                    <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">Repeat NC ×2</Badge>
-                                  )}
+                                  <>
+                                    <Badge className={
+                                      (answer.pass_fail === 'fail' || answer.is_negative)
+                                        ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                    }>
+                                      {(answer.pass_fail === 'fail' || answer.is_negative) ? 'Fail' : 'Pass'}
+                                    </Badge>
+                                    {answer.repeat_non_conformance && (
+                                      <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">Repeat NC ×2</Badge>
+                                    )}
+                                  </>
                                 )}
                               </div>
                               <p className="font-medium mb-3">{answer.question_text}</p>
