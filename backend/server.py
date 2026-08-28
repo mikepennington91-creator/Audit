@@ -1320,14 +1320,15 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
     if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Validate that negative responses have comments
     answers = [a.model_dump() for a in submit_data.answers]
-    for answer in answers:
-        if answer.get("is_negative") and not answer.get("notes"):
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Comment required for negative/fail response on question"
-            )
+    # Drafts may be incomplete. Submission-only rules are enforced when the audit is completed.
+    if submit_data.completed:
+        for answer in answers:
+            if answer.get("is_negative") and not answer.get("notes"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Comment required for negative/fail response on question"
+                )
     
     audit = None
     if submit_data.completed:

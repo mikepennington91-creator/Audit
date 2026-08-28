@@ -438,8 +438,7 @@ const RunAudit = () => {
   const saveProgress = async (exitAfterSave = false) => {
     if (!activeRun) return;
     if (!isOnline || activeRun.offline) {
-      toast.info('Offline audits are kept on this device and will sync when you reconnect.');
-      if (exitAfterSave) navigate('/run-audit');
+      toast.info('Connect to the internet to save this audit as a resumable draft.');
       return;
     }
     try {
