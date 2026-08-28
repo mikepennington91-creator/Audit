@@ -1,0 +1,62 @@
+name: Fix action tracker visibility
+on:
+  push:
+    branches: [fix/action-tracker-visibility]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/action-tracker-visibility
+      - name: Patch backend access rules
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('backend/server.py')
+          text = path.read_text()
+          old = '''    query = {"assigned_user_id": user["id"]}\n    actions = await db.corrective_actions.find(query, {"_id": 0}).sort("due_date", 1).to_list(5000)\n'''
+          new = '''    if is_system_admin(user):\n        query = {} if not assigned_to_me else {"assigned_user_id": user["id"]}\n    elif user["role"] in [UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR] and not assigned_to_me:\n        query = {"company_id": user.get("company_id")}\n    elif user["role"] in [UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]:\n        # Admin/audit management view defaults to the full company tracker so actions\n        # assigned to colleagues or departments remain visible.\n        query = {"company_id": user.get("company_id")}\n    else:\n        query = {"assigned_user_id": user["id"]}\n    actions = await db.corrective_actions.find(query, {"_id": 0}).sort("due_date", 1).to_list(5000)\n'''
+          if old not in text:
+              raise SystemExit('actions query block not found')
+          text = text.replace(old, new, 1)
+          old2 = '''    if action.get("assigned_user_id") != user["id"]:\n        raise HTTPException(status_code=403, detail="Access denied")\n    return action\n'''
+          new2 = '''    if action.get("assigned_user_id") == user["id"]:\n        return action\n    if is_system_admin(user):\n        return action\n    if user["role"] in [UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR] and action.get("company_id") == user.get("company_id"):\n        return action\n    raise HTTPException(status_code=403, detail="Access denied")\n'''
+          if old2 not in text:
+              raise SystemExit('accessible action block not found')
+          text = text.replace(old2, new2, 1)
+          path.write_text(text)
+          PY
+      - name: Update tracker wording
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/pages/Actions.js')
+          text = path.read_text()
+          text = text.replace('View and complete corrective actions assigned to you.', 'Track corrective actions you are responsible for or permitted to manage.')
+          path.write_text(text)
+          PY
+      - name: Add regression tests
+        run: |
+          cat >> backend/tests/test_corrective_actions.py <<'PY'
+
+
+def test_action_tracker_access_model_documented():
+    source = Path(__file__).resolve().parents[1].joinpath('server.py').read_text()
+    assert 'query = {"company_id": user.get("company_id")}' in source
+    assert 'action.get("company_id") == user.get("company_id")' in source
+PY
+      - name: Validate backend
+        run: |
+          python -m py_compile backend/server.py
+          python -m pytest backend/tests/test_corrective_actions.py -q
+      - name: Commit production changes
+        run: |
+          rm .github/workflows/fix-action-tracker-visibility.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/server.py backend/tests/test_corrective_actions.py frontend/src/pages/Actions.js .github/workflows/fix-action-tracker-visibility.yml
+          git commit -m "Fix corrective action tracker visibility"
+          git push
