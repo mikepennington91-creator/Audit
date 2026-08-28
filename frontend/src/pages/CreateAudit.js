@@ -40,6 +40,8 @@ const CreateAudit = () => {
   const [description, setDescription] = useState('');
   const [auditTypeId, setAuditTypeId] = useState('');
   const [passRate, setPassRate] = useState('');
+  const [scoringMode, setScoringMode] = useState('percentage');
+  const [maxNonConformances, setMaxNonConformances] = useState('0');
   const [isPrivate, setIsPrivate] = useState(false);
   const [questions, setQuestions] = useState([]);
 
@@ -65,6 +67,8 @@ const CreateAudit = () => {
       setDescription(audit.description || '');
       setAuditTypeId(audit.audit_type_id || '');
       setPassRate(audit.pass_rate != null ? String(audit.pass_rate) : '');
+      setScoringMode(audit.scoring_mode || 'percentage');
+      setMaxNonConformances(String(audit.max_non_conformances ?? 0));
       setIsPrivate(audit.is_private || false);
       setQuestions((audit.questions || []).map(q => ({
         id: q.id || Date.now() + Math.random(),
@@ -218,7 +222,9 @@ const CreateAudit = () => {
         name: auditName.trim(),
         description: description.trim() || null,
         audit_type_id: auditTypeId || null,
-        pass_rate: passRate ? parseFloat(passRate) : null,
+        pass_rate: scoringMode === 'percentage' && passRate ? parseFloat(passRate) : null,
+        scoring_mode: scoringMode,
+        max_non_conformances: scoringMode === 'non_conformances' ? Math.max(0, parseInt(maxNonConformances || '0', 10)) : 0,
         is_private: isPrivate,
         questions: questions.map((q, i) => ({
           text: q.text.trim(),
@@ -612,22 +618,26 @@ const CreateAudit = () => {
 
                 <Separator />
 
-                <div className="space-y-2">
-                  <Label htmlFor="passRate">Pass Rate (%)</Label>
-                  <Input
-                    id="passRate"
-                    type="number"
-                    placeholder="e.g., 85"
-                    value={passRate}
-                    onChange={(e) => setPassRate(e.target.value)}
-                    min="0"
-                    max="100"
-                    data-testid="pass-rate-input"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Minimum pass percentage - audits scoring below this will be flagged as failed
-                  </p>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
+                  <div>
+                    <Label htmlFor="nc-scoring">Score by Non-Conformances</Label>
+                    <p className="text-xs text-muted-foreground">Failures count as NCs; repeat failures count double</p>
+                  </div>
+                  <Switch id="nc-scoring" checked={scoringMode === 'non_conformances'} onCheckedChange={(checked) => setScoringMode(checked ? 'non_conformances' : 'percentage')} />
                 </div>
+                {scoringMode === 'non_conformances' ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="maxNCs">Maximum NCs to Pass</Label>
+                    <Input id="maxNCs" type="number" min="0" value={maxNonConformances} onChange={(e) => setMaxNonConformances(e.target.value)} data-testid="max-nc-input" />
+                    <p className="text-xs text-muted-foreground">A normal fail = 1 NC. A repeat non-conformance = 2 NCs.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="passRate">Pass Rate (%)</Label>
+                    <Input id="passRate" type="number" placeholder="e.g., 85" value={passRate} onChange={(e) => setPassRate(e.target.value)} min="0" max="100" data-testid="pass-rate-input" />
+                    <p className="text-xs text-muted-foreground">Minimum pass percentage - audits scoring below this will be flagged as failed</p>
+                  </div>
+                )}
 
                 <Separator />
 
