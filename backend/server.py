@@ -1482,7 +1482,12 @@ async def get_corrective_actions(
     if status and status not in {"open", "overdue", "completed"}:
         raise HTTPException(status_code=400, detail="Unknown action status")
 
-    query = {"assigned_user_id": user["id"]}
+    if is_system_admin(user):
+        query = {}
+    elif user["role"] in [UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
+        query = {"company_id": user.get("company_id")}
+    else:
+        query = {"assigned_user_id": user["id"]}
     actions = await db.corrective_actions.find(query, {"_id": 0}).sort("due_date", 1).to_list(5000)
     results = []
     for action in actions:
@@ -1495,9 +1500,13 @@ async def get_accessible_corrective_action(action_id: str, user: dict) -> dict:
     action = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
     if not action:
         raise HTTPException(status_code=404, detail="Corrective action not found")
-    if action.get("assigned_user_id") != user["id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    return action
+    if action.get("assigned_user_id") == user["id"]:
+        return action
+    if is_system_admin(user):
+        return action
+    if user["role"] in [UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR] and action.get("company_id") == user.get("company_id"):
+        return action
+    raise HTTPException(status_code=403, detail="Access denied")
 
 @api_router.put("/actions/{action_id}", response_model=CorrectiveActionResponse)
 async def complete_corrective_action(
