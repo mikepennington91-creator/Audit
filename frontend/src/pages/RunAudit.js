@@ -1126,13 +1126,17 @@ const RunAudit = () => {
         <CardContent>
           <div className="flex flex-wrap gap-2">
             {currentAudit?.questions.map((q, i) => {
-              const answered = answers[q.id]?.response_value;
+              const answer = answers[q.id];
+              const answered = answer?.response_value;
+              const failed = answer?.is_negative || answer?.pass_fail === 'fail';
               return (
                 <button
                   key={q.id}
                   onClick={() => setCurrentQuestionIndex(i)}
                   className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
-                    i === currentQuestionIndex
+                    failed
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                      : i === currentQuestionIndex
                       ? 'bg-primary text-primary-foreground'
                       : answered
                       ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
