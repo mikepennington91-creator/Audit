@@ -339,6 +339,18 @@ class ActionAssigneeResponse(BaseModel):
 class CorrectiveActionUpdate(BaseModel):
     action_taken: str
 
+class CorrectiveActionReassign(BaseModel):
+    assigned_user_id: str
+    reason: str
+
+class CorrectiveActionExtensionRequest(BaseModel):
+    requested_due_date: str
+    reason: str
+
+class CorrectiveActionExtensionDecision(BaseModel):
+    approved: bool
+    comment: Optional[str] = None
+
 class CorrectiveActionResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
@@ -365,6 +377,12 @@ class CorrectiveActionResponse(BaseModel):
     created_at: str
     updated_at: str
     completed_at: Optional[str] = None
+    archived: bool = False
+    archived_by_id: Optional[str] = None
+    archived_by_name: Optional[str] = None
+    archived_at: Optional[str] = None
+    history: List[Dict[str, Any]] = Field(default_factory=list)
+    extension_request: Optional[Dict[str, Any]] = None
 
 # ==================== AUTH HELPERS ====================
 
@@ -1331,6 +1349,9 @@ async def prepare_corrective_actions(run_audit: dict, audit: dict, answers: List
                 "completed_by_name": None,
                 "created_at": now,
                 "completed_at": None,
+                "archived": False,
+                "history": [],
+                "extension_request": None,
             })
 
 @api_router.put("/run-audits/{run_id}", response_model=RunAuditResponse)
@@ -1467,8 +1488,8 @@ async def get_run_audit_details(run_id: str, user: dict = Depends(require_featur
 # ==================== CORRECTIVE ACTIONS ====================
 
 @api_router.get("/action-assignees", response_model=List[ActionAssigneeResponse])
-async def get_action_assignees(user: dict = Depends(require_feature("audits"))):
-    """Return a minimal, company-scoped list for assigning audit actions."""
+async def get_action_assignees(user: dict = Depends(require_feature("actions"))):
+    """Return a minimal, company-scoped list for assigning and reassigning actions."""
     query = {} if is_system_admin(user) else {"company_id": user.get("company_id")}
     users = await db.users.find(query, {"_id": 0, "password": 0}).sort("name", 1).to_list(1000)
     return [ActionAssigneeResponse(id=item["id"], name=item["name"], email=item["email"]) for item in users]
@@ -1477,6 +1498,7 @@ async def get_action_assignees(user: dict = Depends(require_feature("audits"))):
 async def get_corrective_actions(
     status: Optional[str] = None,
     assigned_to_me: bool = True,
+    include_archived: bool = False,
     user: dict = Depends(require_feature("actions")),
 ):
     if status and status not in {"open", "overdue", "completed"}:
@@ -1492,9 +1514,36 @@ async def get_corrective_actions(
     results = []
     for action in actions:
         action = {**action, "status": corrective_action_status(action)}
+        if action.get("archived", False) and not include_archived:
+            continue
         if not status or action["status"] == status:
             results.append(CorrectiveActionResponse(**action))
     return results
+
+def is_action_admin(user: dict) -> bool:
+    return is_system_admin(user) or user.get("role") in [UserRole.COMPANY_ADMIN, UserRole.ADMIN]
+
+def action_history_entry(event_type: str, user: dict, message: str, **extra) -> dict:
+    return {
+        "id": str(uuid.uuid4()),
+        "type": event_type,
+        "message": message,
+        "user_id": user.get("id"),
+        "user_name": user.get("name"),
+        "created_at": get_uk_time_iso(),
+        **extra,
+    }
+
+async def sync_action_to_audit(action: dict, **changes) -> None:
+    run_audit = await db.run_audits.find_one({"id": action.get("run_id")}, {"_id": 0})
+    if not run_audit:
+        return
+    updated_answers = []
+    for answer in run_audit.get("answers", []):
+        if answer.get("question_id") == action.get("question_id"):
+            answer = {**answer, **changes}
+        updated_answers.append(answer)
+    await db.run_audits.update_one({"id": action.get("run_id")}, {"$set": {"answers": updated_answers}})
 
 async def get_accessible_corrective_action(action_id: str, user: dict) -> dict:
     action = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
@@ -1507,6 +1556,145 @@ async def get_accessible_corrective_action(action_id: str, user: dict) -> dict:
     if user["role"] in [UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR] and action.get("company_id") == user.get("company_id"):
         return action
     raise HTTPException(status_code=403, detail="Access denied")
+
+@api_router.put("/actions/{action_id}/reassign", response_model=CorrectiveActionResponse)
+async def reassign_corrective_action(
+    action_id: str,
+    update: CorrectiveActionReassign,
+    user: dict = Depends(require_feature("actions")),
+):
+    action = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    if not action:
+        raise HTTPException(status_code=404, detail="Corrective action not found")
+    if action.get("assigned_user_id") != user.get("id"):
+        raise HTTPException(status_code=403, detail="You can only reassign actions currently assigned to you")
+    if action.get("archived") or action.get("status") == "completed":
+        raise HTTPException(status_code=400, detail="Archived or completed actions cannot be reassigned")
+    reason = update.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="A reason is required for reassignment")
+    new_owner = await db.users.find_one({"id": update.assigned_user_id}, {"_id": 0, "password": 0})
+    if not new_owner or new_owner.get("company_id") != action.get("company_id"):
+        raise HTTPException(status_code=400, detail="Select a valid user from your company")
+    old_name = action.get("assigned_user_name") or user.get("name") or "Unknown"
+    history = list(action.get("history") or [])
+    history.append(action_history_entry(
+        "reassigned", user, f"Reassigned from {old_name} to {new_owner['name']}: {reason}",
+        from_user_id=action.get("assigned_user_id"), from_user_name=old_name,
+        to_user_id=new_owner["id"], to_user_name=new_owner["name"], reason=reason,
+    ))
+    now = get_uk_time_iso()
+    changes = {
+        "assigned_user_id": new_owner["id"], "assigned_user_name": new_owner["name"],
+        "assigned_user_email": new_owner.get("email"), "assigned_department": None,
+        "history": history, "updated_at": now,
+    }
+    await db.corrective_actions.update_one({"id": action_id}, {"$set": changes})
+    await sync_action_to_audit(action, assigned_user_id=new_owner["id"], assigned_user_name=new_owner["name"], assigned_user_email=new_owner.get("email"), assigned_department=None)
+    updated = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    return CorrectiveActionResponse(**updated)
+
+@api_router.put("/actions/{action_id}/extension-request", response_model=CorrectiveActionResponse)
+async def request_action_extension(
+    action_id: str,
+    request: CorrectiveActionExtensionRequest,
+    user: dict = Depends(require_feature("actions")),
+):
+    action = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    if not action:
+        raise HTTPException(status_code=404, detail="Corrective action not found")
+    if action.get("assigned_user_id") != user.get("id"):
+        raise HTTPException(status_code=403, detail="You can only request an extension for your own action")
+    if action.get("archived") or action.get("status") == "completed":
+        raise HTTPException(status_code=400, detail="Archived or completed actions cannot be extended")
+    reason = request.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="A reason is required for an extension request")
+    try:
+        requested_date = date.fromisoformat(request.requested_due_date)
+        current_date = date.fromisoformat(action.get("due_date"))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Enter a valid requested due date")
+    if requested_date <= current_date:
+        raise HTTPException(status_code=400, detail="The requested due date must be later than the current due date")
+    existing_request = action.get("extension_request") or {}
+    if existing_request.get("status") == "pending":
+        raise HTTPException(status_code=409, detail="An extension request is already awaiting approval")
+    now = get_uk_time_iso()
+    extension_request = {
+        "status": "pending", "requested_due_date": request.requested_due_date, "reason": reason,
+        "requested_by_id": user["id"], "requested_by_name": user["name"], "requested_at": now,
+    }
+    history = list(action.get("history") or [])
+    history.append(action_history_entry("extension_requested", user, f"Requested due date extension from {action.get('due_date')} to {request.requested_due_date}: {reason}", requested_due_date=request.requested_due_date, reason=reason))
+    await db.corrective_actions.update_one({"id": action_id}, {"$set": {"extension_request": extension_request, "history": history, "updated_at": now}})
+    updated = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    return CorrectiveActionResponse(**updated)
+
+@api_router.put("/actions/{action_id}/extension-decision", response_model=CorrectiveActionResponse)
+async def decide_action_extension(
+    action_id: str,
+    decision: CorrectiveActionExtensionDecision,
+    user: dict = Depends(require_feature("actions")),
+):
+    action = await get_accessible_corrective_action(action_id, user)
+    if not is_action_admin(user):
+        raise HTTPException(status_code=403, detail="Only an administrator can approve due date extensions")
+    request = dict(action.get("extension_request") or {})
+    if request.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="There is no pending extension request")
+    now = get_uk_time_iso()
+    request.update({
+        "status": "approved" if decision.approved else "rejected",
+        "decided_by_id": user["id"], "decided_by_name": user["name"], "decided_at": now,
+        "decision_comment": (decision.comment or "").strip() or None,
+    })
+    history = list(action.get("history") or [])
+    decision_word = "Approved" if decision.approved else "Rejected"
+    message = f"{decision_word} due date extension request to {request.get('requested_due_date')}"
+    if request.get("decision_comment"):
+        message += f": {request['decision_comment']}"
+    history.append(action_history_entry("extension_approved" if decision.approved else "extension_rejected", user, message, requested_due_date=request.get("requested_due_date"), comment=request.get("decision_comment")))
+    changes = {"extension_request": request, "history": history, "updated_at": now}
+    if decision.approved:
+        changes["due_date"] = request.get("requested_due_date")
+    await db.corrective_actions.update_one({"id": action_id}, {"$set": changes})
+    if decision.approved:
+        await sync_action_to_audit(action, action_due_date=request.get("requested_due_date"))
+    updated = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    return CorrectiveActionResponse(**updated)
+
+@api_router.put("/actions/{action_id}/archive", response_model=CorrectiveActionResponse)
+async def archive_corrective_action(action_id: str, user: dict = Depends(require_feature("actions"))):
+    action = await get_accessible_corrective_action(action_id, user)
+    if not is_action_admin(user):
+        raise HTTPException(status_code=403, detail="Only an administrator can archive actions")
+    now = get_uk_time_iso()
+    history = list(action.get("history") or [])
+    history.append(action_history_entry("archived", user, f"Action archived by {user['name']}"))
+    await db.corrective_actions.update_one({"id": action_id}, {"$set": {"archived": True, "archived_by_id": user["id"], "archived_by_name": user["name"], "archived_at": now, "history": history, "updated_at": now}})
+    updated = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    return CorrectiveActionResponse(**updated)
+
+@api_router.put("/actions/{action_id}/restore", response_model=CorrectiveActionResponse)
+async def restore_corrective_action(action_id: str, user: dict = Depends(require_feature("actions"))):
+    action = await get_accessible_corrective_action(action_id, user)
+    if not is_action_admin(user):
+        raise HTTPException(status_code=403, detail="Only an administrator can restore actions")
+    now = get_uk_time_iso()
+    history = list(action.get("history") or [])
+    history.append(action_history_entry("restored", user, f"Action restored by {user['name']}"))
+    await db.corrective_actions.update_one({"id": action_id}, {"$set": {"archived": False, "archived_by_id": None, "archived_by_name": None, "archived_at": None, "history": history, "updated_at": now}})
+    updated = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    return CorrectiveActionResponse(**updated)
+
+@api_router.delete("/actions/{action_id}")
+async def delete_corrective_action(action_id: str, user: dict = Depends(require_feature("actions"))):
+    action = await get_accessible_corrective_action(action_id, user)
+    if not is_action_admin(user):
+        raise HTTPException(status_code=403, detail="Only an administrator can delete actions")
+    await db.corrective_actions.delete_one({"id": action_id})
+    return {"message": "Corrective action permanently deleted"}
 
 @api_router.put("/actions/{action_id}", response_model=CorrectiveActionResponse)
 async def complete_corrective_action(
