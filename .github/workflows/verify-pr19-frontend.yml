@@ -1,0 +1,44 @@
+name: Verify PR19 frontend
+
+on:
+  push:
+    branches:
+      - feature/audit-nc-scoring-photo-pdf
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/audit-nc-scoring-photo-pdf
+      - name: Remove leftover location references
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/pages/RunAudit.js')
+          text = path.read_text()
+          text = text.replace('  MapPin,\n', '')
+          text = text.replace("  const [location, setLocation] = useState('');\n", '')
+          path.write_text(text)
+          PY
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Production build
+        working-directory: frontend
+        env:
+          CI: true
+        run: npm run build
+      - name: Commit verified cleanup
+        run: |
+          rm .github/workflows/verify-pr19-frontend.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/pages/RunAudit.js .github/workflows/verify-pr19-frontend.yml
+          git commit -m "Fix frontend build after location removal"
+          git push origin HEAD:feature/audit-nc-scoring-photo-pdf
