@@ -1,0 +1,54 @@
+name: Fix audit PDF download
+
+on:
+  push:
+    branches:
+      - fix/audit-pdf-download
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/audit-pdf-download
+      - name: Make audit PDF generation safe for report text and filenames
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('backend/server.py')
+          text = path.read_text()
+
+          replacements = {
+              'Paragraph(f"<b>Q{i+1}:</b> {question_text}", normal_style)': 'Paragraph(f"<b>Q{i+1}:</b> {escape(str(question_text))}", normal_style)',
+              'Paragraph(f"<b>Response:</b> {answer.get(\'response_label\', \'N/A\')}", normal_style)': 'Paragraph(f"<b>Response:</b> {escape(str(answer.get(\'response_label\', \'N/A\')))}", normal_style)',
+              'Paragraph(f"<b>Comment:</b> {answer.get(\'notes\')}", normal_style)': 'Paragraph(f"<b>Comment:</b> {escape(str(answer.get(\'notes\')))}", normal_style)',
+              'Paragraph(f"<b>Action Required:</b> {answer.get(\'action_required\')}", normal_style)': 'Paragraph(f"<b>Action Required:</b> {escape(str(answer.get(\'action_required\')))}", normal_style)',
+              'Paragraph(f"<b>Assigned To:</b> {assigned_to}", normal_style)': 'Paragraph(f"<b>Assigned To:</b> {escape(str(assigned_to))}", normal_style)',
+              'Paragraph(f"<b>Due Date:</b> {answer.get(\'action_due_date\', \'N/A\')}", normal_style)': 'Paragraph(f"<b>Due Date:</b> {escape(str(answer.get(\'action_due_date\', \'N/A\')))}", normal_style)',
+              'Paragraph(f"<b>Action Taken:</b> {answer.get(\'action_taken\')}", normal_style)': 'Paragraph(f"<b>Action Taken:</b> {escape(str(answer.get(\'action_taken\')))}", normal_style)',
+              'story.append(Paragraph(run_audit.get("notes"), normal_style))': 'story.append(Paragraph(escape(str(run_audit.get("notes"))), normal_style))',
+              'filename = f"audit_report_{run_audit[\'audit_name\'].replace(\' \', \'_\')}_{datetime.now().strftime(\'%Y%m%d\')}.pdf"': 'safe_audit_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(run_audit.get("audit_name", "audit")).encode("ascii", "ignore").decode("ascii").replace(" ", "_")) or "audit"\n    filename = f"audit_report_{safe_audit_name}_{datetime.now().strftime(\'%Y%m%d\')}.pdf"',
+          }
+
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'Expected PDF code not found: {old}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+      - name: Validate backend syntax
+        run: python -m py_compile backend/server.py
+      - name: Remove temporary workflow and commit
+        run: |
+          rm .github/workflows/fix-audit-pdf-download.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/server.py .github/workflows/fix-audit-pdf-download.yml
+          git commit -m "Fix audit PDF downloads"
+          git push origin HEAD:fix/audit-pdf-download
