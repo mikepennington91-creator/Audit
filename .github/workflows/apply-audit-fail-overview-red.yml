@@ -1,0 +1,68 @@
+name: Apply audit fail overview red
+
+on:
+  push:
+    branches:
+      - feature/audit-fail-overview-red
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/audit-fail-overview-red
+      - name: Update failed question overview colour
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/pages/RunAudit.js')
+          text = path.read_text()
+          old = '''            {currentAudit?.questions.map((q, i) => {
+              const answered = answers[q.id]?.response_value;
+              return (
+                <button
+                  key={q.id}
+                  onClick={() => setCurrentQuestionIndex(i)}
+                  className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
+                    i === currentQuestionIndex
+                      ? 'bg-primary text-primary-foreground'
+                      : answered
+                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  }`}
+'''
+          new = '''            {currentAudit?.questions.map((q, i) => {
+              const answer = answers[q.id];
+              const answered = answer?.response_value;
+              const failed = answer?.is_negative || answer?.pass_fail === 'fail';
+              return (
+                <button
+                  key={q.id}
+                  onClick={() => setCurrentQuestionIndex(i)}
+                  className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
+                    failed
+                      ? `bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 ${i === currentQuestionIndex ? 'ring-2 ring-red-500 ring-offset-2' : ''}`
+                      : i === currentQuestionIndex
+                      ? 'bg-primary text-primary-foreground'
+                      : answered
+                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  }`}
+'''
+          if old not in text:
+              raise SystemExit('Expected question overview block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Remove temporary workflow and commit
+        run: |
+          rm .github/workflows/apply-audit-fail-overview-red.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/pages/RunAudit.js .github/workflows/apply-audit-fail-overview-red.yml
+          git commit -m "Show failed audit questions in red"
+          git push origin HEAD:feature/audit-fail-overview-red
