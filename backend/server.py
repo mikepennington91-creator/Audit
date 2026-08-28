@@ -1729,25 +1729,25 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
         
         # Question box
         q_data = [
-            [Paragraph(f"<b>Q{i+1}:</b> {question_text}", normal_style)],
-            [Paragraph(f"<b>Response:</b> {answer.get('response_label', 'N/A')}", normal_style)],
+            [Paragraph(f"<b>Q{i+1}:</b> {escape(str(question_text))}", normal_style)],
+            [Paragraph(f"<b>Response:</b> {escape(str(answer.get('response_label', 'N/A')))}", normal_style)],
         ]
         
         if answer.get("score") is not None:
             q_data.append([Paragraph(f"<b>Score:</b> {answer.get('score')}", normal_style)])
         
         if answer.get("notes"):
-            q_data.append([Paragraph(f"<b>Comment:</b> {answer.get('notes')}", normal_style)])
+            q_data.append([Paragraph(f"<b>Comment:</b> {escape(str(answer.get('notes')))}", normal_style)])
 
         if answer.get("is_negative") and answer.get("action_required"):
             assigned_to = answer.get("assigned_user_name") or answer.get("assigned_department") or "Unassigned"
             q_data.extend([
-                [Paragraph(f"<b>Action Required:</b> {answer.get('action_required')}", normal_style)],
-                [Paragraph(f"<b>Assigned To:</b> {assigned_to}", normal_style)],
-                [Paragraph(f"<b>Due Date:</b> {answer.get('action_due_date', 'N/A')}", normal_style)],
+                [Paragraph(f"<b>Action Required:</b> {escape(str(answer.get('action_required')))}", normal_style)],
+                [Paragraph(f"<b>Assigned To:</b> {escape(str(assigned_to))}", normal_style)],
+                [Paragraph(f"<b>Due Date:</b> {escape(str(answer.get('action_due_date', 'N/A')))}", normal_style)],
             ])
             if answer.get("action_taken"):
-                q_data.append([Paragraph(f"<b>Action Taken:</b> {answer.get('action_taken')}", normal_style)])
+                q_data.append([Paragraph(f"<b>Action Taken:</b> {escape(str(answer.get('action_taken')))}", normal_style)])
         
         if answer.get("photos"):
             q_data.append([Paragraph(f"<b>Photos:</b> {len(answer.get('photos', []))} attached", normal_style)])
@@ -1769,7 +1769,7 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
     if run_audit.get("notes"):
         story.append(Spacer(1, 0.2*inch))
         story.append(Paragraph("General Notes", heading_style))
-        story.append(Paragraph(run_audit.get("notes"), normal_style))
+        story.append(Paragraph(escape(str(run_audit.get("notes"))), normal_style))
     
     # Sign-off section
     if run_audit.get("signoff_name"):
@@ -1812,7 +1812,8 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
     doc.build(story)
     buffer.seek(0)
     
-    filename = f"audit_report_{run_audit['audit_name'].replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    safe_audit_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(run_audit.get("audit_name", "audit")).encode("ascii", "ignore").decode("ascii").replace(" ", "_")) or "audit"
+    filename = f"audit_report_{safe_audit_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
     
     return StreamingResponse(
         buffer,
