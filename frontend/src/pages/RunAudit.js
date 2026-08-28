@@ -51,6 +51,7 @@ const RunAudit = () => {
   const [responseGroups, setResponseGroups] = useState([]);
   const [linesShifts, setLinesShifts] = useState([]);
   const [actionAssignees, setActionAssignees] = useState([]);
+  const [savedRuns, setSavedRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
@@ -74,21 +75,27 @@ const RunAudit = () => {
     fetchData();
   }, [runId]);
 
+  useEffect(() => {
+    if (activeRun) window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [currentQuestionIndex]);
+
   const fetchData = async () => {
     try {
       let auditsData, groupsData, linesShiftsData, assigneesData;
       
       if (isOnline) {
-        const [auditsRes, groupsRes, linesShiftsRes, assigneesRes] = await Promise.all([
+        const [auditsRes, groupsRes, linesShiftsRes, assigneesRes, savedRunsRes] = await Promise.all([
           axios.get(`${API}/audits`),
           axios.get(`${API}/response-groups`),
           axios.get(`${API}/lines-shifts`),
-          axios.get(`${API}/action-assignees`)
+          axios.get(`${API}/action-assignees`),
+          axios.get(`${API}/run-audits?completed=false`)
         ]);
         auditsData = auditsRes.data;
         groupsData = groupsRes.data;
         linesShiftsData = linesShiftsRes.data;
         assigneesData = assigneesRes.data;
+        setSavedRuns(savedRunsRes.data.filter(run => run.auditor_id === user?.id));
         
         // Cache data for offline use
         await cacheData('audits', auditsData);
@@ -125,6 +132,8 @@ const RunAudit = () => {
         });
         setAnswers(savedAnswers);
         setNotes(runRes.data.notes || '');
+        const firstUnanswered = audit?.questions?.findIndex(q => !savedAnswers[q.id]?.response_value) ?? -1;
+        setCurrentQuestionIndex(firstUnanswered >= 0 ? firstUnanswered : 0);
       }
     } catch (error) {
       // Try to load from cache on any error
@@ -316,34 +325,53 @@ const RunAudit = () => {
     setSignature(null);
   };
 
+  const compressAuditPhoto = (file) => new Promise((resolve) => {
+    if (!file?.type?.startsWith('image/')) return resolve(file);
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    image.onload = () => {
+      try {
+        const maxDimension = 1600;
+        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          URL.revokeObjectURL(objectUrl);
+          if (!blob) return resolve(file);
+          const baseName = (file.name || 'audit-photo').replace(/\.[^.]+$/, '');
+          resolve(new File([blob], `${baseName}.jpg`, { type: 'image/jpeg', lastModified: Date.now() }));
+        }, 'image/jpeg', 0.72);
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      }
+    };
+    image.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file); };
+    image.src = objectUrl;
+  });
+
   const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !currentPhotoQuestion) return;
+    const questionId = currentPhotoQuestion.id;
+    e.target.value = '';
     
     setUploadingPhoto(true);
     try {
+      const compressedFile = await compressAuditPhoto(file);
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', compressedFile);
       
       const response = await axios.post(`${API}/upload-photo`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
-      const currentAnswer = answers[currentPhotoQuestion.id] || {
-        question_id: currentPhotoQuestion.id,
-        response_value: '',
-        response_label: '',
-        score: null,
-        notes: '',
-        photos: []
-      };
-      
-      setAnswers({
-        ...answers,
-        [currentPhotoQuestion.id]: {
-          ...currentAnswer,
-          photos: [...(currentAnswer.photos || []), response.data.url]
-        }
+      setAnswers(prev => {
+        const currentAnswer = prev[questionId] || { question_id: questionId, response_value: '', response_label: '', score: null, notes: '', photos: [] };
+        return { ...prev, [questionId]: { ...currentAnswer, photos: [...(currentAnswer.photos || []), response.data.url] } };
       });
       
       toast.success('Photo uploaded');
@@ -407,16 +435,17 @@ const RunAudit = () => {
     });
   };
 
-  const saveProgress = async () => {
+  const saveProgress = async (exitAfterSave = false) => {
     if (!activeRun) return;
-    
+    if (!isOnline || activeRun.offline) {
+      toast.info('Offline audits are kept on this device and will sync when you reconnect.');
+      if (exitAfterSave) navigate('/run-audit');
+      return;
+    }
     try {
-      await axios.put(`${API}/run-audits/${activeRun.id}`, {
-        answers: Object.values(answers),
-        notes,
-        completed: false
-      });
-      toast.success('Progress saved');
+      await axios.put(`${API}/run-audits/${activeRun.id}`, { answers: Object.values(answers), notes, completed: false });
+      toast.success(exitAfterSave ? 'Audit saved. You can continue it later.' : 'Progress saved');
+      if (exitAfterSave) navigate('/run-audit');
     } catch (error) {
       toast.error('Failed to save progress');
     }
@@ -609,6 +638,26 @@ const RunAudit = () => {
           </div>
         )}
 
+        {isOnline && savedRuns.length > 0 && (
+          <Card className="border-primary/30">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2"><Save className="w-5 h-5" />Saved Audits</CardTitle>
+              <CardDescription>Continue an audit you saved earlier.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {savedRuns.map(run => (
+                <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-3">
+                  <div>
+                    <p className="font-medium">{run.audit_name}</p>
+                    <p className="text-xs text-muted-foreground">Started {new Date(run.started_at).toLocaleString('en-GB')}{run.location ? ` • ${run.location}` : ''}</p>
+                  </div>
+                  <Button onClick={() => navigate(`/run-audit/${run.id}`)} data-testid={`continue-audit-${run.id}`}><Play className="w-4 h-4 mr-2" />Continue Audit</Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Location and Line/Shift Input */}
         <Card>
           <CardContent className="pt-6 space-y-4">
@@ -761,9 +810,9 @@ const RunAudit = () => {
             </p>
           </div>
         </div>
-        <Button variant="outline" onClick={saveProgress} data-testid="save-progress-btn">
+        <Button variant="outline" onClick={() => saveProgress(true)} data-testid="save-progress-btn">
           <Save className="w-4 h-4 mr-2" />
-          Save
+          Save & Exit
         </Button>
       </div>
 
