@@ -1,0 +1,51 @@
+name: Fix audit PDF photo orientation
+on:
+  push:
+    branches: [fix/audit-pdf-photo-orientation]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/audit-pdf-photo-orientation
+      - name: Patch PDF image orientation handling
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('backend/server.py')
+          text = path.read_text()
+
+          import_anchor = 'import base64\nfrom reportlab.lib.pagesizes import A4\n'
+          import_replacement = 'import base64\nfrom PIL import Image as PILImage, ImageOps\nfrom reportlab.lib.pagesizes import A4\n'
+          if import_anchor not in text:
+              raise SystemExit('Pillow import anchor not found')
+          text = text.replace(import_anchor, import_replacement, 1)
+
+          old = '''            try:\n                photo_img = RLImage(io.BytesIO(base64.b64decode(photo_data.split(",", 1)[1])))\n                photo_img._restrictSize(5.5 * inch, 3.5 * inch)\n                story.append(Spacer(1, 0.08*inch))\n                story.append(Paragraph(f"<b>Evidence Photo {photo_index}</b>", normal_style))\n                story.append(Spacer(1, 0.04*inch))\n                story.append(photo_img)\n            except Exception as exc:\n                logger.warning("Skipping unreadable audit photo in PDF: %s", exc)\n'''
+          new = '''            try:\n                raw_photo = base64.b64decode(photo_data.split(",", 1)[1])\n                with PILImage.open(io.BytesIO(raw_photo)) as source_image:\n                    # Phone cameras commonly store portrait photos as landscape pixels plus\n                    # an EXIF orientation flag. ReportLab does not reliably apply that flag,\n                    # so normalise the pixels before embedding them in the PDF.\n                    normalised_image = ImageOps.exif_transpose(source_image)\n                    if normalised_image.mode not in ("RGB", "L"):\n                        normalised_image = normalised_image.convert("RGB")\n                    normalised_buffer = io.BytesIO()\n                    normalised_image.save(normalised_buffer, format="JPEG", quality=90)\n                    normalised_buffer.seek(0)\n                photo_img = RLImage(normalised_buffer)\n                photo_img._restrictSize(5.5 * inch, 3.5 * inch)\n                story.append(Spacer(1, 0.08*inch))\n                story.append(Paragraph(f"<b>Evidence Photo {photo_index}</b>", normal_style))\n                story.append(Spacer(1, 0.04*inch))\n                story.append(photo_img)\n            except Exception as exc:\n                logger.warning("Skipping unreadable audit photo in PDF: %s", exc)\n'''
+          if old not in text:
+              raise SystemExit('Audit PDF photo block not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+      - name: Validate backend
+        run: |
+          python -m py_compile backend/server.py
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('backend/server.py').read_text()
+          assert 'ImageOps.exif_transpose(source_image)' in source
+          assert 'normalised_image.save(normalised_buffer, format="JPEG", quality=90)' in source
+          PY
+      - name: Commit production change
+        run: |
+          rm .github/workflows/fix-audit-photo-orientation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/server.py .github/workflows/fix-audit-photo-orientation.yml
+          git commit -m "Fix audit PDF photo orientation"
+          git push
