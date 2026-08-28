@@ -81,11 +81,15 @@ class CompanyResponse(BaseModel):
     id: str
     name: str
     description: Optional[str]
+    logo_data: Optional[str] = None
     created_at: str
 
 class CompanyUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+
+class CompanyBrandingUpdate(BaseModel):
+    logo_data: Optional[str] = None
 
 # User Models
 FEATURE_KEYS = (
@@ -596,6 +600,38 @@ async def update_company(company_id: str, update_data: CompanyUpdate, user: dict
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Company not found")
     
+    updated = await db.companies.find_one({"id": company_id}, {"_id": 0})
+    return CompanyResponse(**updated)
+
+def validate_company_logo(logo_data: Optional[str]) -> None:
+    if logo_data is None:
+        return
+    allowed_prefixes = (
+        "data:image/png;base64,",
+        "data:image/jpeg;base64,",
+        "data:image/webp;base64,",
+    )
+    if not logo_data.startswith(allowed_prefixes):
+        raise HTTPException(status_code=400, detail="Logo must be a PNG, JPG or WebP image")
+    try:
+        encoded = logo_data.split(",", 1)[1]
+        raw = base64.b64decode(encoded, validate=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid logo image data")
+    if len(raw) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Logo must be 2 MB or smaller")
+
+@api_router.put("/companies/{company_id}/branding", response_model=CompanyResponse)
+async def update_company_branding(company_id: str, data: CompanyBrandingUpdate, user: dict = Depends(get_current_user)):
+    if not is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not is_system_admin(user) and user.get("company_id") != company_id:
+        raise HTTPException(status_code=403, detail="Cannot change branding for another company")
+    company = await db.companies.find_one({"id": company_id}, {"_id": 0})
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    validate_company_logo(data.logo_data)
+    await db.companies.update_one({"id": company_id}, {"$set": {"logo_data": data.logo_data}})
     updated = await db.companies.find_one({"id": company_id}, {"_id": 0})
     return CompanyResponse(**updated)
 
@@ -1586,6 +1622,37 @@ async def get_dashboard_stats(user: dict = Depends(require_feature("audits"))):
 
 # ==================== PDF EXPORT ====================
 
+def build_company_pdf_header(company: Optional[dict], report_title: str, styles) -> list:
+    company_name = (company or {}).get("name") or "INFINIT-AUDIT"
+    company_style = ParagraphStyle(
+        'BrandCompany', parent=styles['Normal'], fontSize=13,
+        textColor=HexColor('#1a7a6e'), alignment=TA_RIGHT,
+    )
+    report_style = ParagraphStyle(
+        'BrandReportTitle', parent=styles['Heading1'], fontSize=18,
+        textColor=HexColor('#1a7a6e'), alignment=TA_LEFT, spaceAfter=14,
+    )
+    logo = None
+    logo_data = (company or {}).get("logo_data")
+    if logo_data and logo_data.startswith("data:image"):
+        try:
+            raw = base64.b64decode(logo_data.split(",", 1)[1])
+            logo = RLImage(io.BytesIO(raw))
+            logo._restrictSize(1.6 * inch, 0.7 * inch)
+        except Exception:
+            logo = None
+
+    left = logo if logo else Paragraph(f"<b>{escape(company_name)}</b>", company_style)
+    right = Paragraph(f"<b>{escape(company_name)}</b>", company_style) if logo else ""
+    header = Table([[left, right]], colWidths=[3.2 * inch, 3.2 * inch])
+    header.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('LINEBELOW', (0, 0), (-1, 0), 0.7, HexColor('#d9e7e5')),
+    ]))
+    return [header, Spacer(1, 0.16 * inch), Paragraph(escape(report_title), report_style)]
+
 def format_uk_datetime(iso_string: str) -> str:
     """Format ISO datetime to UK readable format"""
     if not iso_string:
@@ -1623,11 +1690,11 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
     normal_style = styles['Normal']
     
     story = []
-    
-    # Header
-    story.append(Paragraph("INFINIT-AUDIT", title_style))
-    story.append(Paragraph(f"<b>Audit Report: {run_audit['audit_name']}</b>", styles['Heading2']))
-    story.append(Spacer(1, 0.3*inch))
+    company = None
+    if audit.get("company_id"):
+        company = await db.companies.find_one({"id": audit.get("company_id")}, {"_id": 0})
+    story.extend(build_company_pdf_header(company, f"Audit Report: {run_audit['audit_name']}", styles))
+    story.append(Spacer(1, 0.12*inch))
     
     # Meta information table
     meta_data = [
@@ -2804,8 +2871,11 @@ async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(req
     value_style = ParagraphStyle('FieldValue', parent=styles['Normal'], fontSize=12, spaceBefore=2, spaceAfter=6)
 
     story = []
-    story.append(Paragraph(doc["template_title"], title_style))
-    story.append(Spacer(1, 0.3*inch))
+    company = None
+    if doc.get("company_id"):
+        company = await db.companies.find_one({"id": doc.get("company_id")}, {"_id": 0})
+    story.extend(build_company_pdf_header(company, doc["template_title"], styles))
+    story.append(Spacer(1, 0.12*inch))
 
     # Build field map
     field_map = {f["id"]: f for f in doc.get("fields", [])}
@@ -2917,8 +2987,11 @@ async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require
             from reportlab.platypus import PageBreak
             story.append(PageBreak())
 
-        story.append(Paragraph(doc["template_title"], title_style))
-        story.append(Spacer(1, 0.3*inch))
+        company = None
+        if doc.get("company_id"):
+            company = await db.companies.find_one({"id": doc.get("company_id")}, {"_id": 0})
+        story.extend(build_company_pdf_header(company, doc["template_title"], styles))
+        story.append(Spacer(1, 0.12*inch))
 
         field_map = {f["id"]: f for f in doc.get("fields", [])}
         for fv in doc.get("field_values", []):

@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Skeleton } from '../components/ui/skeleton';
 import { toast } from 'sonner';
-import { Building2, FolderOpen, Layers, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
+import { Building2, FolderOpen, ImageIcon, Layers, Pencil, Plus, Settings, Trash2, Upload } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -24,8 +24,8 @@ const Configuration = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const allowedTabs = isSystemAdmin
-    ? ['companies', 'lines-shifts', 'groups']
-    : isConfigurationAdmin ? ['lines-shifts', 'groups'] : ['groups'];
+    ? ['companies', 'branding', 'lines-shifts', 'groups']
+    : isConfigurationAdmin ? ['branding', 'lines-shifts', 'groups'] : ['groups'];
   const [companies, setCompanies] = useState([]);
   const [lines, setLines] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +37,7 @@ const Configuration = () => {
   const [companyDialogOpen, setCompanyDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
   const [companyForm, setCompanyForm] = useState({ name: '', description: '' });
+  const [brandingCompanyId, setBrandingCompanyId] = useState('');
   const [lineDialogOpen, setLineDialogOpen] = useState(false);
   const [editingLine, setEditingLine] = useState(null);
   const [lineTitle, setLineTitle] = useState('');
@@ -48,10 +49,13 @@ const Configuration = () => {
     }
     try {
       const requests = [axios.get(`${API}/lines-shifts`)];
-      if (isSystemAdmin) requests.push(axios.get(`${API}/companies`));
+      if (isConfigurationAdmin) requests.push(axios.get(`${API}/companies`));
       const [linesRes, companiesRes] = await Promise.all(requests);
       setLines(linesRes.data);
-      if (companiesRes) setCompanies(companiesRes.data);
+      if (companiesRes) {
+        setCompanies(companiesRes.data);
+        setBrandingCompanyId((current) => current || (isSystemAdmin ? companiesRes.data[0]?.id : user?.company_id) || '');
+      }
     } catch (error) {
       toast.error('Failed to load configuration');
     } finally {
@@ -99,6 +103,45 @@ const Configuration = () => {
       toast.success('Company deleted successfully');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete company');
+    }
+  };
+
+  const brandingCompany = companies.find((company) => company.id === brandingCompanyId) || companies[0];
+
+  const uploadCompanyLogo = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !brandingCompany) return;
+    const allowed = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      toast.error('Logo must be PNG, JPG or WebP');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Logo must be 2 MB or smaller');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        await axios.put(`${API}/companies/${brandingCompany.id}/branding`, { logo_data: reader.result });
+        toast.success('Company logo updated');
+        await fetchData();
+      } catch (error) {
+        toast.error(error.response?.data?.detail || 'Unable to update company logo');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeCompanyLogo = async () => {
+    if (!brandingCompany || !window.confirm('Remove this company logo?')) return;
+    try {
+      await axios.put(`${API}/companies/${brandingCompany.id}/branding`, { logo_data: null });
+      toast.success('Company logo removed');
+      await fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Unable to remove company logo');
     }
   };
 
@@ -154,8 +197,9 @@ const Configuration = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={changeTab}>
-        <TabsList className={`grid w-full max-w-2xl ${isSystemAdmin ? 'grid-cols-3' : isConfigurationAdmin ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        <TabsList className={`grid w-full max-w-3xl ${isSystemAdmin ? 'grid-cols-4' : isConfigurationAdmin ? 'grid-cols-3' : 'grid-cols-1'}`}>
           {isSystemAdmin && <TabsTrigger value="companies"><Building2 className="w-4 h-4 mr-2" />Companies</TabsTrigger>}
+          {isConfigurationAdmin && <TabsTrigger value="branding"><ImageIcon className="w-4 h-4 mr-2" />Branding</TabsTrigger>}
           {isConfigurationAdmin && <TabsTrigger value="lines-shifts"><Layers className="w-4 h-4 mr-2" />Lines/Shifts</TabsTrigger>}
           <TabsTrigger value="groups"><FolderOpen className="w-4 h-4 mr-2" />Groups</TabsTrigger>
         </TabsList>
@@ -183,6 +227,49 @@ const Configuration = () => {
                     <TableBody>{companies.map((company) => <TableRow key={company.id}><TableCell className="font-medium">{company.name}</TableCell><TableCell className="text-muted-foreground">{company.description || '-'}</TableCell><TableCell>{new Date(company.created_at).toLocaleDateString('en-GB')}</TableCell><TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => editCompany(company)}><Pencil className="w-4 h-4" /></Button><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => deleteCompany(company.id)}><Trash2 className="w-4 h-4" /></Button></TableCell></TableRow>)}</TableBody>
                   </Table>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {isConfigurationAdmin && (
+          <TabsContent value="branding" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Company Branding</CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">This logo is used automatically on audit and document PDF exports.</p>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {isSystemAdmin && companies.length > 0 && (
+                  <div className="space-y-2 max-w-md">
+                    <Label htmlFor="branding-company">Company</Label>
+                    <select id="branding-company" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={brandingCompanyId} onChange={(e) => setBrandingCompanyId(e.target.value)}>
+                      {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                {brandingCompany ? (
+                  <div className="rounded-lg border p-5 space-y-4 max-w-xl">
+                    <div>
+                      <p className="font-medium">{brandingCompany.name}</p>
+                      <p className="text-sm text-muted-foreground">PNG, JPG or WebP. Maximum 2 MB.</p>
+                    </div>
+                    {brandingCompany.logo_data ? (
+                      <div className="rounded-md border bg-white p-4 flex items-center justify-center min-h-28">
+                        <img src={brandingCompany.logo_data} alt={`${brandingCompany.name} logo`} className="max-h-24 max-w-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">No company logo uploaded.</div>
+                    )}
+                    <div className="flex flex-wrap gap-3">
+                      <Label className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground cursor-pointer hover:bg-primary/90">
+                        <Upload className="w-4 h-4 mr-2" />{brandingCompany.logo_data ? 'Replace Logo' : 'Upload Logo'}
+                        <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={uploadCompanyLogo} />
+                      </Label>
+                      {brandingCompany.logo_data && <Button variant="outline" onClick={removeCompanyLogo}>Remove Logo</Button>}
+                    </div>
+                  </div>
+                ) : <p className="text-muted-foreground">No company is available for branding.</p>}
               </CardContent>
             </Card>
           </TabsContent>
