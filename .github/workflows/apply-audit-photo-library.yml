@@ -1,0 +1,38 @@
+name: Apply audit photo library fix
+
+on:
+  push:
+    branches:
+      - feature/company-logo-branding
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/company-logo-branding
+      - name: Allow camera roll and gallery selection
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('frontend/src/pages/RunAudit.js')
+          text = path.read_text()
+          old = '                  capture="environment"\n'
+          if old not in text:
+              raise SystemExit('Expected audit capture attribute not found')
+          text = text.replace(old, '', 1)
+          path.write_text(text)
+          PY
+      - name: Remove temporary workflow and commit fix
+        run: |
+          rm .github/workflows/apply-audit-photo-library.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/pages/RunAudit.js .github/workflows/apply-audit-photo-library.yml
+          git commit -m "Allow audit photos from device library"
+          git push origin HEAD:feature/company-logo-branding
