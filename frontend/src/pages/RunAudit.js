@@ -161,7 +161,7 @@ const RunAudit = () => {
       try {
         const response = await axios.post(`${API}/run-audits`, {
           audit_id: audit.id,
-          location: location || null,
+          location: null,
           line_shift_id: selectedLineShift || null
         });
         setActiveRun(response.data);
@@ -178,7 +178,7 @@ const RunAudit = () => {
       const offlineRun = {
         id: `offline_${Date.now()}`,
         audit_id: audit.id,
-        location: location || null,
+        location: null,
         line_shift_id: selectedLineShift || null,
         line_shift_title: selectedLine?.title || null,
         started_at: new Date().toISOString(),
@@ -230,7 +230,8 @@ const RunAudit = () => {
         notes: existingAnswer.notes || '',
         photos: existingAnswer.photos || [],
         is_negative: isNegative,
-        pass_fail: isNegative ? 'fail' : 'pass'
+        pass_fail: isNegative ? 'fail' : 'pass',
+        repeat_non_conformance: isNegative ? (existingAnswer.repeat_non_conformance || false) : false
       }
     });
   };
@@ -267,7 +268,8 @@ const RunAudit = () => {
       [questionId]: {
         ...currentAns,
         pass_fail: status,
-        is_negative: status === 'fail'
+        is_negative: status === 'fail',
+        repeat_non_conformance: status === 'fail' ? (currentAns.repeat_non_conformance || false) : false
       }
     });
   };
@@ -648,7 +650,7 @@ const RunAudit = () => {
                 <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-3">
                   <div>
                     <p className="font-medium">{run.audit_name}</p>
-                    <p className="text-xs text-muted-foreground">Started {new Date(run.started_at).toLocaleString('en-GB')}{run.location ? ` • ${run.location}` : ''}</p>
+                    <p className="text-xs text-muted-foreground">Started {new Date(run.started_at).toLocaleString('en-GB')}</p>
                   </div>
                   <Button onClick={() => navigate(`/run-audit/${run.id}`)} data-testid={`continue-audit-${run.id}`}><Play className="w-4 h-4 mr-2" />Continue Audit</Button>
                 </div>
@@ -660,17 +662,6 @@ const RunAudit = () => {
         {/* Location and Line/Shift Input */}
         <Card>
           <CardContent className="pt-6 space-y-4">
-            <div className="flex items-center gap-4">
-              <MapPin className="w-5 h-5 text-muted-foreground" />
-              <div className="flex-1">
-                <Input
-                  placeholder="Enter location (optional)"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  data-testid="location-input"
-                />
-              </div>
-            </div>
             
             {linesShifts.length > 0 && (
               <div className="flex items-center gap-4">
@@ -792,13 +783,6 @@ const RunAudit = () => {
             <p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
               <Clock className="w-3 h-3" />
               Started {new Date(activeRun.started_at).toLocaleTimeString()}
-              {activeRun.location && (
-                <>
-                  <span>•</span>
-                  <MapPin className="w-3 h-3" />
-                  {activeRun.location}
-                </>
-              )}
               {activeRun.line_shift_title && (
                 <>
                   <span>•</span>
@@ -967,6 +951,16 @@ const RunAudit = () => {
                     Fail
                   </Button>
                 </div>
+              </div>
+            )}
+
+            {currentAnswer?.is_negative && (
+              <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50/70 p-3 dark:border-amber-900 dark:bg-amber-950/20" data-testid="repeat-nc-toggle">
+                <div>
+                  <Label htmlFor={`repeat-nc-${currentQuestion.id}`}>Repeat Non-Conformance</Label>
+                  <p className="text-xs text-muted-foreground">Counts this failure as 2 non-conformances.</p>
+                </div>
+                <input id={`repeat-nc-${currentQuestion.id}`} type="checkbox" className="h-5 w-5 accent-red-600" checked={!!currentAnswer.repeat_non_conformance} onChange={(e) => updateActionField(currentQuestion.id, 'repeat_non_conformance', e.target.checked)} />
               </div>
             )}
 

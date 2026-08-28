@@ -274,7 +274,6 @@ const AuditOverview = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Auditor</TableHead>
-                    <TableHead>Location</TableHead>
                     <TableHead>Date & Time (UK)</TableHead>
                     <TableHead>Score</TableHead>
                     <TableHead>Status</TableHead>
@@ -285,7 +284,6 @@ const AuditOverview = () => {
                   {runs.map((run) => (
                     <TableRow key={run.id} data-testid={`run-row-${run.id}`} className="cursor-pointer hover:bg-muted/50" onClick={() => openDetails(run)}>
                       <TableCell className="font-medium">{run.auditor_name}</TableCell>
-                      <TableCell className="text-muted-foreground">{run.location || '-'}</TableCell>
                       <TableCell className="text-muted-foreground">
                         <div className="flex items-center gap-1">
                           <CalendarIcon className="w-3 h-3" />
@@ -293,7 +291,9 @@ const AuditOverview = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {run.total_score !== null ? (
+                        {run.scoring_mode === 'non_conformances' ? (
+                          <span className="font-semibold">{run.non_conformance_count ?? 0} NC{(run.non_conformance_count ?? 0) === 1 ? '' : 's'}</span>
+                        ) : run.total_score !== null ? (
                           <span className="font-semibold">{Math.round(run.total_score)}%</span>
                         ) : '-'}
                       </TableCell>
@@ -349,7 +349,7 @@ const AuditOverview = () => {
                 {selectedRun?.pass_status && (
                   <Badge className={selectedRun.pass_status === 'pass' ? 'badge-pass' : 'badge-fail'}>
                     {selectedRun.pass_status === 'pass' ? 'Passed' : 'Failed'}
-                    {selectedRun.total_score !== null && ` - ${Math.round(selectedRun.total_score)}%`}
+                    {selectedRun.scoring_mode === 'non_conformances' ? ` - ${selectedRun.non_conformance_count ?? 0} NC${(selectedRun.non_conformance_count ?? 0) === 1 ? '' : 's'}` : selectedRun.total_score !== null ? ` - ${Math.round(selectedRun.total_score)}%` : ''}
                   </Badge>
                 )}
                 <Button variant="outline" size="sm" onClick={() => downloadPdf(selectedRun?.id, audit?.name)} disabled={downloadingPdf === selectedRun?.id} data-testid="modal-download-pdf">
@@ -376,14 +376,10 @@ const AuditOverview = () => {
           ) : runDetails ? (
             <div className="flex-1 overflow-y-auto pr-2">
               <div className="space-y-6 pb-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-muted/50 rounded-lg">
                   <div>
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">Auditor</p>
                     <p className="font-medium">{runDetails.auditor_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Location</p>
-                    <p className="font-medium">{runDetails.location || '-'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">Started</p>
@@ -417,6 +413,9 @@ const AuditOverview = () => {
                                   }>
                                     {(answer.pass_fail === 'fail' || answer.is_negative) ? 'Fail' : 'Pass'}
                                   </Badge>
+                                  {answer.repeat_non_conformance && (
+                                    <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">Repeat NC ×2</Badge>
+                                  )}
                                 )}
                               </div>
                               <p className="font-medium mb-3">{answer.question_text}</p>

@@ -237,6 +237,8 @@ class AuditCreate(BaseModel):
     description: Optional[str] = None
     audit_type_id: Optional[str] = None
     pass_rate: Optional[float] = None
+    scoring_mode: str = "percentage"
+    max_non_conformances: Optional[int] = 0
     is_private: bool = False
     questions: List[QuestionCreate] = []
 
@@ -248,6 +250,8 @@ class AuditResponse(BaseModel):
     audit_type_id: Optional[str]
     audit_type_name: Optional[str]
     pass_rate: Optional[float]
+    scoring_mode: str = "percentage"
+    max_non_conformances: Optional[int] = 0
     is_private: bool
     questions: List[Dict]
     created_by: str
@@ -261,6 +265,8 @@ class AuditUpdate(BaseModel):
     description: Optional[str] = None
     audit_type_id: Optional[str] = None
     pass_rate: Optional[float] = None
+    scoring_mode: Optional[str] = None
+    max_non_conformances: Optional[int] = None
     is_private: Optional[bool] = None
     questions: Optional[List[QuestionCreate]] = None
 
@@ -274,6 +280,7 @@ class AnswerSubmit(BaseModel):
     photos: Optional[List[str]] = []
     is_negative: bool = False  # True if this is a fail/negative response
     pass_fail: Optional[str] = None  # "pass" or "fail" - manual assignment for text questions
+    repeat_non_conformance: bool = False
     action_required: Optional[str] = None
     assigned_user_id: Optional[str] = None
     assigned_user_name: Optional[str] = None
@@ -313,6 +320,9 @@ class RunAuditResponse(BaseModel):
     notes: Optional[str]
     completed: bool
     total_score: Optional[float]
+    non_conformance_count: Optional[int] = None
+    scoring_mode: str = "percentage"
+    max_non_conformances: Optional[int] = 0
     pass_status: Optional[str]
     started_at: str
     completed_at: Optional[str]
@@ -1044,6 +1054,8 @@ async def create_audit(
         "audit_type_id": audit_data.audit_type_id,
         "audit_type_name": audit_type_name,
         "pass_rate": audit_data.pass_rate,
+        "scoring_mode": audit_data.scoring_mode if audit_data.scoring_mode in {"percentage", "non_conformances"} else "percentage",
+        "max_non_conformances": max(0, audit_data.max_non_conformances or 0),
         "is_private": audit_data.is_private,
         "questions": questions,
         "created_by": user["id"],
@@ -1104,6 +1116,12 @@ async def update_audit(
         update_dict["audit_type_name"] = audit_type["name"] if audit_type else None
     if update_data.pass_rate is not None:
         update_dict["pass_rate"] = update_data.pass_rate
+    if update_data.scoring_mode is not None:
+        if update_data.scoring_mode not in {"percentage", "non_conformances"}:
+            raise HTTPException(status_code=400, detail="Unknown audit scoring mode")
+        update_dict["scoring_mode"] = update_data.scoring_mode
+    if update_data.max_non_conformances is not None:
+        update_dict["max_non_conformances"] = max(0, update_data.max_non_conformances)
     if update_data.is_private is not None:
         update_dict["is_private"] = update_data.is_private
     if update_data.questions is not None:
@@ -1217,6 +1235,9 @@ async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(require
         "notes": None,
         "completed": False,
         "total_score": None,
+        "non_conformance_count": None,
+        "scoring_mode": audit.get("scoring_mode", "percentage"),
+        "max_non_conformances": audit.get("max_non_conformances", 0),
         "pass_status": None,
         "started_at": get_uk_time_iso(),
         "completed_at": None,
@@ -1337,32 +1358,41 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
             raise HTTPException(status_code=404, detail="Audit template not found")
         await prepare_corrective_actions(run_audit, audit, answers, user)
 
-    # Calculate score based on pass/fail per question
+    # Calculate the configured audit scoring metric.
     total_score = None
+    non_conformance_count = None
     pass_status = None
+    scoring_mode = (audit or {}).get("scoring_mode", run_audit.get("scoring_mode", "percentage"))
+    max_non_conformances = (audit or {}).get("max_non_conformances", run_audit.get("max_non_conformances", 0)) or 0
     
     if submit_data.completed:
-        total_questions = len(answers)
-        if total_questions > 0:
-            pass_count = 0
-            for answer in answers:
-                pf = answer.get("pass_fail")
-                if pf == "pass":
-                    pass_count += 1
-                elif pf == "fail":
-                    pass  # counted as fail
-                elif not answer.get("is_negative"):
-                    pass_count += 1  # backward compat: non-negative = pass
-            
-            total_score = (pass_count / total_questions) * 100
-            if audit and audit.get("pass_rate"):
-                pass_status = "pass" if total_score >= audit["pass_rate"] else "fail"
+        if scoring_mode == "non_conformances":
+            non_conformance_count = sum(2 if a.get("is_negative") and a.get("repeat_non_conformance") else 1 if a.get("is_negative") else 0 for a in answers)
+            pass_status = "pass" if non_conformance_count <= max_non_conformances else "fail"
+        else:
+            total_questions = len(answers)
+            if total_questions > 0:
+                pass_count = 0
+                for answer in answers:
+                    pf = answer.get("pass_fail")
+                    if pf == "pass":
+                        pass_count += 1
+                    elif pf == "fail":
+                        pass
+                    elif not answer.get("is_negative"):
+                        pass_count += 1
+                total_score = (pass_count / total_questions) * 100
+                if audit and audit.get("pass_rate"):
+                    pass_status = "pass" if total_score >= audit["pass_rate"] else "fail"
     
     update_dict = {
         "answers": answers,
         "notes": submit_data.notes,
         "completed": submit_data.completed,
         "total_score": total_score,
+        "non_conformance_count": non_conformance_count,
+        "scoring_mode": scoring_mode,
+        "max_non_conformances": max_non_conformances,
         "pass_status": pass_status,
         "signature": submit_data.signature,
         "signoff_name": submit_data.signoff_name,
@@ -1700,12 +1730,14 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
     # Meta information table
     meta_data = [
         ["Auditor:", run_audit.get("auditor_name", "N/A")],
-        ["Location:", run_audit.get("location", "N/A")],
         ["Started:", format_uk_datetime(run_audit.get("started_at"))],
         ["Completed:", format_uk_datetime(run_audit.get("completed_at"))],
         ["Status:", run_audit.get("pass_status", "Completed").upper() if run_audit.get("pass_status") else "Completed"],
-        ["Score:", f"{round(run_audit.get('total_score', 0))}%" if run_audit.get('total_score') is not None else "N/A"],
     ]
+    if run_audit.get("scoring_mode", audit.get("scoring_mode", "percentage")) == "non_conformances":
+        meta_data.append(["Non-Conformances:", str(run_audit.get("non_conformance_count", 0) or 0)])
+    else:
+        meta_data.append(["Score:", f"{round(run_audit.get('total_score', 0))}%" if run_audit.get('total_score') is not None else "N/A"])
     
     meta_table = Table(meta_data, colWidths=[2*inch, 4*inch])
     meta_table.setStyle(TableStyle([
@@ -1739,6 +1771,9 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
         if answer.get("notes"):
             q_data.append([Paragraph(f"<b>Comment:</b> {escape(str(answer.get('notes')))}", normal_style)])
 
+        if answer.get("is_negative") and answer.get("repeat_non_conformance"):
+            q_data.append([Paragraph("<b>Repeat Non-Conformance:</b> Yes (counts as 2)", normal_style)])
+
         if answer.get("is_negative") and answer.get("action_required"):
             assigned_to = answer.get("assigned_user_name") or answer.get("assigned_department") or "Unassigned"
             q_data.extend([
@@ -1748,9 +1783,6 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
             ])
             if answer.get("action_taken"):
                 q_data.append([Paragraph(f"<b>Action Taken:</b> {escape(str(answer.get('action_taken')))}", normal_style)])
-        
-        if answer.get("photos"):
-            q_data.append([Paragraph(f"<b>Photos:</b> {len(answer.get('photos', []))} attached", normal_style)])
         
         # Color based on negative response
         bg_color = HexColor('#ffebee') if answer.get("is_negative") else HexColor('#e8f5e9')
@@ -1763,6 +1795,18 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ]))
         story.append(q_table)
+        for photo_index, photo_data in enumerate(answer.get("photos") or [], start=1):
+            if not isinstance(photo_data, str) or not photo_data.startswith("data:image") or "," not in photo_data:
+                continue
+            try:
+                photo_img = RLImage(io.BytesIO(base64.b64decode(photo_data.split(",", 1)[1])))
+                photo_img._restrictSize(5.5 * inch, 3.5 * inch)
+                story.append(Spacer(1, 0.08*inch))
+                story.append(Paragraph(f"<b>Evidence Photo {photo_index}</b>", normal_style))
+                story.append(Spacer(1, 0.04*inch))
+                story.append(photo_img)
+            except Exception as exc:
+                logger.warning("Skipping unreadable audit photo in PDF: %s", exc)
         story.append(Spacer(1, 0.15*inch))
     
     # General notes
