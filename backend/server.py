@@ -17,6 +17,7 @@ from xml.sax.saxutils import escape
 import bcrypt
 import jwt
 import base64
+from PIL import Image as PILImage, ImageOps
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch, cm
@@ -1996,7 +1997,18 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
             if not isinstance(photo_data, str) or not photo_data.startswith("data:image") or "," not in photo_data:
                 continue
             try:
-                photo_img = RLImage(io.BytesIO(base64.b64decode(photo_data.split(",", 1)[1])))
+                raw_photo = base64.b64decode(photo_data.split(",", 1)[1])
+                with PILImage.open(io.BytesIO(raw_photo)) as source_image:
+                    # Phone cameras commonly store portrait photos as landscape pixels plus
+                    # an EXIF orientation flag. ReportLab does not reliably apply that flag,
+                    # so normalise the pixels before embedding them in the PDF.
+                    normalised_image = ImageOps.exif_transpose(source_image)
+                    if normalised_image.mode not in ("RGB", "L"):
+                        normalised_image = normalised_image.convert("RGB")
+                    normalised_buffer = io.BytesIO()
+                    normalised_image.save(normalised_buffer, format="JPEG", quality=90)
+                    normalised_buffer.seek(0)
+                photo_img = RLImage(normalised_buffer)
                 photo_img._restrictSize(5.5 * inch, 3.5 * inch)
                 story.append(Spacer(1, 0.08*inch))
                 story.append(Paragraph(f"<b>Evidence Photo {photo_index}</b>", normal_style))
