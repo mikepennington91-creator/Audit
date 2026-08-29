@@ -14,6 +14,7 @@ from app_core.documents import router as documents_router
 from app_core.notifications import router as notifications_router
 from app_core.reminders import reminder_loop, router as reminders_router
 from app_core.report_email import router as report_email_router
+from app_core.schedules import router as schedules_router
 
 
 app = FastAPI(title="Infinit-Audit API")
@@ -26,6 +27,7 @@ app.include_router(documents_router)
 app.include_router(notifications_router)
 app.include_router(reminders_router)
 app.include_router(report_email_router)
+app.include_router(schedules_router)
 
 _REPLACED_ROUTES = {
     ("PUT", "/api/run-audits/{run_id}"),
@@ -41,6 +43,11 @@ _REPLACED_ROUTES = {
     ("PUT", "/api/traceability/documents/{doc_id}"),
     ("GET", "/api/traceability/documents/{doc_id}/pdf"),
     ("POST", "/api/traceability/documents/batch-pdf"),
+    ("POST", "/api/scheduled-audits"),
+    ("GET", "/api/scheduled-audits"),
+    ("GET", "/api/scheduled-audits/my-schedule"),
+    ("PUT", "/api/scheduled-audits/{schedule_id}/complete"),
+    ("DELETE", "/api/scheduled-audits/{schedule_id}"),
 }
 
 for route in legacy.api_router.routes:
