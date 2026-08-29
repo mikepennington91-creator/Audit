@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Iterable, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
@@ -51,12 +51,32 @@ def _message_bodies(user: dict, custom_message: Optional[str], item_name: str) -
     text = f"{sender} sent you {item_name} from Infinit Audit."
     if note:
         text += f"\n\nMessage:\n{note}"
-    html_body = (
-        f"<p><strong>{html.escape(str(sender))}</strong> sent you {html.escape(item_name)} from Infinit Audit.</p>"
-    )
+    html_body = f"<p><strong>{html.escape(str(sender))}</strong> sent you {html.escape(item_name)} from Infinit Audit.</p>"
     if note:
         html_body += f"<p><strong>Message:</strong><br>{html.escape(note).replace(chr(10), '<br>')}</p>"
     return text, html_body
+
+
+def _document_access_allowed(document: dict, user: dict) -> bool:
+    """Mirror the intended document-list visibility, not the legacy ID-only fetch."""
+    if legacy.is_system_admin(user):
+        return True
+    if document.get("company_id") != user.get("company_id"):
+        return False
+    if user.get("role") == legacy.UserRole.USER:
+        return document.get("completed_by") == user.get("id")
+    return True
+
+
+async def _get_accessible_document(document_id: str, user: dict, *, completed: bool = False) -> dict:
+    document = await legacy.db.traceability_documents.find_one({"id": document_id}, {"_id": 0})
+    # Deliberately return the same 404 for missing and inaccessible IDs so this
+    # endpoint cannot be used to probe another company's document identifiers.
+    if not document or not _document_access_allowed(document, user):
+        raise HTTPException(status_code=404, detail="Document not found")
+    if completed and not document.get("completed"):
+        raise HTTPException(status_code=409, detail="Only completed documents can be emailed")
+    return document
 
 
 async def _deliver_attachment(
@@ -111,6 +131,8 @@ async def email_action_report(
     request: ReportEmailRequest,
     user: dict = Depends(legacy.require_feature("actions")),
 ):
+    # The legacy PDF exporter calls get_accessible_corrective_action, which
+    # performs the action/company access check before returning any bytes.
     response = await legacy.export_corrective_action_pdf(action_id, user)
     content = await _streaming_response_bytes(response)
     filename = _response_filename(response, f"action_report_{action_id[:8]}.pdf")
@@ -132,11 +154,11 @@ async def email_document_report(
     request: ReportEmailRequest,
     user: dict = Depends(legacy.require_feature("documents")),
 ):
+    document = await _get_accessible_document(document_id, user, completed=True)
     response = await legacy.export_traceability_document_pdf(document_id, user)
     content = await _streaming_response_bytes(response)
     filename = _response_filename(response, f"document_{document_id[:8]}.pdf")
-    document = await legacy.db.traceability_documents.find_one({"id": document_id}, {"_id": 0})
-    title = (document or {}).get("template_title") or "Document"
+    title = document.get("template_title") or "Document"
     return await _deliver_attachment(
         request=request,
         user=user,
@@ -152,9 +174,12 @@ async def email_document_batch(
     request: BatchDocumentEmailRequest,
     user: dict = Depends(legacy.require_feature("documents")),
 ):
-    response = await legacy.batch_export_traceability_pdf(
-        {"document_ids": request.document_ids}, user
-    )
+    # Validate every requested document before handing IDs to the legacy batch
+    # PDF generator. No inaccessible ID is silently ignored.
+    for document_id in request.document_ids:
+        await _get_accessible_document(document_id, user, completed=True)
+
+    response = await legacy.batch_export_traceability_pdf({"document_ids": request.document_ids}, user)
     content = await _streaming_response_bytes(response)
     filename = _response_filename(response, "batch_documents.pdf")
     return await _deliver_attachment(
@@ -177,6 +202,7 @@ async def email_traceability_export(
         date_from=request.date_from,
         date_to=request.date_to,
     )
+    # The existing Excel exporter scopes records to the current user's company.
     response = await legacy.export_traceability_excel(export_data, user)
     content = await _streaming_response_bytes(response)
     filename = _response_filename(response, "traceability_export.xlsx")
