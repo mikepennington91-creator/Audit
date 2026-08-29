@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import { Bell, CheckCheck, Mail, UserRound } from 'lucide-react';
+import { Bell, CheckCheck, ClipboardCheck, Mail, UserRound, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Label } from '../components/ui/label';
 import { Skeleton } from '../components/ui/skeleton';
+import { Textarea } from '../components/ui/textarea';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -21,17 +22,21 @@ const preferenceRows = [
 const Account = () => {
   const [account, setAccount] = useState(null);
   const [notifications, setNotifications] = useState([]);
+  const [signoffs, setSignoffs] = useState([]);
+  const [comments, setComments] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState('');
 
   const load = async () => {
     try {
-      const [accountRes, notificationsRes] = await Promise.all([
+      const [accountRes, notificationsRes, signoffsRes] = await Promise.all([
         axios.get(`${API}/account`),
         axios.get(`${API}/notifications`),
+        axios.get(`${API}/workflow/action-signoffs?status=pending`),
       ]);
       setAccount(accountRes.data);
       setNotifications(notificationsRes.data);
+      setSignoffs(signoffsRes.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to load account settings');
     } finally {
@@ -68,6 +73,19 @@ const Account = () => {
     }
   };
 
+  const reviewSignoff = async (signoff, approved) => {
+    setSaving(signoff.id);
+    try {
+      await axios.put(`${API}/workflow/action-signoffs/${signoff.id}`, { approved, comment: comments[signoff.id] || '' });
+      setSignoffs((current) => current.filter((item) => item.id !== signoff.id));
+      toast.success(approved ? 'Corrective action signed off' : 'Corrective action returned for more work');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to review corrective action');
+    } finally {
+      setSaving('');
+    }
+  };
+
   if (loading) return <div className="space-y-4"><Skeleton className="h-10 w-64" /><Skeleton className="h-52 w-full" /><Skeleton className="h-72 w-full" /></div>;
   if (!account) return null;
 
@@ -75,7 +93,7 @@ const Account = () => {
 
   return (
     <div className="space-y-6 max-w-5xl" data-testid="account-page">
-      <div><h1 className="text-3xl font-bold tracking-tight">My Account</h1><p className="text-muted-foreground mt-1">Manage your details and how Infinit Audit contacts you.</p></div>
+      <div><h1 className="text-3xl font-bold tracking-tight">My Account</h1><p className="text-muted-foreground mt-1">Manage your details, notifications and action sign-offs.</p></div>
 
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><UserRound className="w-5 h-5" />Account details</CardTitle></CardHeader>
@@ -83,6 +101,24 @@ const Account = () => {
           <div><p className="text-muted-foreground">Name</p><p className="font-medium">{account.name}</p></div>
           <div><p className="text-muted-foreground">Email</p><p className="font-medium">{account.email}</p></div>
           <div><p className="text-muted-foreground">Role</p><p className="font-medium capitalize">{account.role.replaceAll('_', ' ')}</p></div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardCheck className="w-5 h-5" />Actions awaiting my sign-off {signoffs.length > 0 && <Badge>{signoffs.length}</Badge>}</CardTitle><CardDescription>Review the recorded action taken before closing the corrective action workflow.</CardDescription></CardHeader>
+        <CardContent className="space-y-4">
+          {signoffs.length === 0 ? <p className="text-sm text-muted-foreground py-4 text-center">No corrective actions are waiting for your sign-off.</p> : signoffs.map((signoff) => (
+            <div key={signoff.id} className="rounded-lg border p-4 space-y-3">
+              <div><p className="font-medium">{signoff.action?.audit_name || 'Corrective action'}</p><p className="text-sm text-muted-foreground mt-1">{signoff.action?.action_required}</p></div>
+              <div className="rounded-md bg-muted/50 p-3"><p className="text-xs font-medium text-muted-foreground mb-1">ACTION TAKEN</p><p className="text-sm">{signoff.action_taken}</p></div>
+              <Textarea value={comments[signoff.id] || ''} onChange={(e) => setComments((current) => ({ ...current, [signoff.id]: e.target.value }))} placeholder="Optional sign-off comment" />
+              <div className="flex gap-2 flex-wrap">
+                <Button onClick={() => reviewSignoff(signoff, true)} disabled={saving === signoff.id}><CheckCheck className="w-4 h-4 mr-2" />Approve & Sign Off</Button>
+                <Button variant="outline" onClick={() => reviewSignoff(signoff, false)} disabled={saving === signoff.id}><XCircle className="w-4 h-4 mr-2" />Return for More Work</Button>
+                <Button variant="ghost" asChild><Link to="/actions">View Actions</Link></Button>
+              </div>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
@@ -99,7 +135,7 @@ const Account = () => {
       </Card>
 
       <Card>
-        <CardHeader><div className="flex items-center justify-between gap-4"><div><CardTitle className="flex items-center gap-2"><Bell className="w-5 h-5" />Notifications {unreadCount > 0 && <Badge>{unreadCount} unread</Badge>}</CardTitle><CardDescription>Updates that need your attention inside Infinit Audit.</CardDescription></div></div></CardHeader>
+        <CardHeader><CardTitle className="flex items-center gap-2"><Bell className="w-5 h-5" />Notifications {unreadCount > 0 && <Badge>{unreadCount} unread</Badge>}</CardTitle><CardDescription>Updates that need your attention inside Infinit Audit.</CardDescription></CardHeader>
         <CardContent className="space-y-3">
           {notifications.length === 0 ? <p className="text-sm text-muted-foreground py-6 text-center">You do not have any notifications yet.</p> : notifications.map((notification) => (
             <div key={notification.id} className={`rounded-lg border p-4 ${notification.read_at ? 'bg-background' : 'bg-muted/40'}`}>
