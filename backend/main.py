@@ -10,6 +10,7 @@ from starlette.middleware.cors import CORSMiddleware
 import server as legacy
 from app_core.account_auth import router as account_router
 from app_core.actions import router as actions_router
+from app_core.documents import router as documents_router
 from app_core.notifications import router as notifications_router
 from app_core.reminders import reminder_loop, router as reminders_router
 from app_core.report_email import router as report_email_router
@@ -17,10 +18,11 @@ from app_core.report_email import router as report_email_router
 
 app = FastAPI(title="Infinit-Audit API")
 
-# New modular routes are registered first. The small set below replaces legacy
-# implementations; every other stable legacy route is carried forward unchanged.
+# New modular routes are registered first. Selected legacy endpoints are replaced
+# below when they need the new workflow or tighter multi-tenant access checks.
 app.include_router(account_router)
 app.include_router(actions_router)
+app.include_router(documents_router)
 app.include_router(notifications_router)
 app.include_router(reminders_router)
 app.include_router(report_email_router)
@@ -30,6 +32,15 @@ _REPLACED_ROUTES = {
     ("GET", "/api/actions"),
     ("PUT", "/api/actions/{action_id}"),
     ("PUT", "/api/actions/{action_id}/reassign"),
+    ("GET", "/api/traceability/templates/{template_id}"),
+    ("PUT", "/api/traceability/templates/{template_id}"),
+    ("DELETE", "/api/traceability/templates/{template_id}"),
+    ("POST", "/api/traceability/documents"),
+    ("GET", "/api/traceability/documents"),
+    ("GET", "/api/traceability/documents/{doc_id}"),
+    ("PUT", "/api/traceability/documents/{doc_id}"),
+    ("GET", "/api/traceability/documents/{doc_id}/pdf"),
+    ("POST", "/api/traceability/documents/batch-pdf"),
 }
 
 for route in legacy.api_router.routes:
@@ -54,9 +65,6 @@ _reminder_task: asyncio.Task | None = None
 async def startup_event():
     global _reminder_task
     await legacy.startup_event()
-    # These collections use the same JSONB document store as the existing app.
-    # create_index is intentionally a no-op in the Postgres adapter today, but
-    # keeping the declarations here preserves the intended schema contract.
     await legacy.db.notifications.create_index("id", unique=True)
     await legacy.db.password_reset_tokens.create_index("id", unique=True)
     await legacy.db.email_delivery_events.create_index("id", unique=True)
