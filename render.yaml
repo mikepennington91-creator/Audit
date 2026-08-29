@@ -8,7 +8,7 @@ services:
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     rootDir: backend
     envVars:
       - key: DATABASE_URL
@@ -19,6 +19,25 @@ services:
         sync: false
       - key: BOOTSTRAP_ADMIN_PASSWORD
         sync: false
+      - key: APP_BASE_URL
+        value: https://www.infinit-audit.co.uk
+      # Add SMTP_* values in Render when email delivery is ready.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        value: info@infinit-audit.co.uk
+      - key: SMTP_FROM_NAME
+        value: Infinit Audit
+      - key: SMTP_USE_SSL
+        value: false
+      - key: SMTP_USE_STARTTLS
+        value: true
       - key: PYTHON_VERSION
         value: 3.11.0
 
