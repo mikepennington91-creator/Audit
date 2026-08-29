@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import EmailReportDialog from '../components/EmailReportDialog';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -11,8 +12,8 @@ import { Checkbox } from '../components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import {
-  Plus, FileText, ChevronRight, Calendar, Trash2,
-  AlertTriangle, Eye, FileDown, ClipboardCheck, PenLine, Copy, CircleCheck
+  Plus, FileText, ChevronRight, Trash2,
+  AlertTriangle, Eye, FileDown, ClipboardCheck, PenLine, Copy, CircleCheck, Mail
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -28,10 +29,9 @@ const DocumentList = () => {
   const [documentAction, setDocumentAction] = useState(null);
   const [processingDocument, setProcessingDocument] = useState(false);
   const [duplicating, setDuplicating] = useState(null);
-
-  // Batch PDF state
   const [selectedDocs, setSelectedDocs] = useState(new Set());
   const [downloadingBatch, setDownloadingBatch] = useState(false);
+  const [emailBatchOpen, setEmailBatchOpen] = useState(false);
 
   useEffect(() => { fetchData(); }, []);
 
@@ -120,25 +120,19 @@ const DocumentList = () => {
 
   const selectAllCompleted = () => {
     const completed = documents.filter(d => d.completed);
-    if (selectedDocs.size === completed.length) {
-      setSelectedDocs(new Set());
-    } else {
-      setSelectedDocs(new Set(completed.map(d => d.id)));
-    }
+    if (selectedDocs.size === completed.length) setSelectedDocs(new Set());
+    else setSelectedDocs(new Set(completed.map(d => d.id)));
   };
 
   const downloadBatchPdf = async () => {
     if (selectedDocs.size === 0) return toast.error('Select at least one document');
     setDownloadingBatch(true);
     try {
-      const res = await axios.post(`${API}/traceability/documents/batch-pdf`,
-        { document_ids: Array.from(selectedDocs) },
-        { responseType: 'blob' }
-      );
+      const res = await axios.post(`${API}/traceability/documents/batch-pdf`, { document_ids: Array.from(selectedDocs) }, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `batch_documents.pdf`);
+      link.setAttribute('download', 'batch_documents.pdf');
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -161,260 +155,65 @@ const DocumentList = () => {
 
   return (
     <div className="space-y-6" data-testid="document-list-page">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Documents</h1>
-          <p className="text-muted-foreground mt-1">Production paperwork and traceability documents</p>
-        </div>
-        {hasFeature('documents_edit') && (
-          <Button onClick={() => navigate('/documents/design')} data-testid="create-template-btn">
-            <Plus className="w-4 h-4 mr-2" />
-            New Template
-          </Button>
-        )}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div><h1 className="text-3xl font-bold tracking-tight">Documents</h1><p className="text-muted-foreground mt-1">Production paperwork and traceability documents</p></div>
+        {hasFeature('documents_edit') && <Button onClick={() => navigate('/documents/design')} data-testid="create-template-btn"><Plus className="w-4 h-4 mr-2" />New Template</Button>}
       </div>
 
       <Tabs defaultValue="templates">
-        <TabsList>
-          <TabsTrigger value="templates" data-testid="templates-tab">Templates ({templates.length})</TabsTrigger>
-          <TabsTrigger value="completed" data-testid="completed-tab">Completed ({completedDocs.length})</TabsTrigger>
-          {inProgressDocs.length > 0 && (
-            <TabsTrigger value="progress" data-testid="progress-tab">In Progress ({inProgressDocs.length})</TabsTrigger>
-          )}
-        </TabsList>
+        <TabsList><TabsTrigger value="templates" data-testid="templates-tab">Templates ({templates.length})</TabsTrigger><TabsTrigger value="completed" data-testid="completed-tab">Completed ({completedDocs.length})</TabsTrigger>{inProgressDocs.length > 0 && <TabsTrigger value="progress" data-testid="progress-tab">In Progress ({inProgressDocs.length})</TabsTrigger>}</TabsList>
 
-        {/* Templates Tab */}
         <TabsContent value="templates" className="mt-4">
           {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1,2,3].map(i => <Skeleton key={i} className="h-32 w-full rounded-lg" />)}
-            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{[1,2,3].map(i => <Skeleton key={i} className="h-32 w-full rounded-lg" />)}</div>
           ) : templates.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {templates.map(t => (
                 <Card key={t.id} className="hover:border-primary hover:shadow-md transition-all group" data-testid={`template-card-${t.id}`}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <CardTitle className="text-base truncate">{t.title}</CardTitle>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="secondary" className="text-xs">{t.document_reference}</Badge>
-                          <Badge variant="outline" className="text-xs">v{t.version}</Badge>
-                        </div>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">{t.fields?.length || 0} fields | Authorised by {t.authorised_by}</p>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" className="flex-1" onClick={() => startDocument(t.id)} data-testid={`fill-template-${t.id}`}>
-                        <PenLine className="w-4 h-4 mr-1" />
-                        Fill In
-                      </Button>
-                      {hasFeature('documents_edit') && (
-                        <>
-                          <Button variant="outline" size="sm" onClick={() => navigate(`/documents/design/${t.id}`)} data-testid={`edit-template-${t.id}`}>
-                            Edit
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDuplicate(t)}
-                            disabled={duplicating === t.id}
-                            data-testid={`duplicate-template-${t.id}`}
-                          >
-                            {duplicating === t.id ? (
-                              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <Copy className="w-4 h-4" />
-                            )}
-                          </Button>
-                        </>
-                      )}
-                      {isAdmin() && (
-                        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => setDeleteTarget(t)} data-testid={`delete-template-${t.id}`}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
+                  <CardHeader className="pb-3"><div className="flex items-start justify-between"><div className="flex-1 min-w-0"><CardTitle className="text-base truncate">{t.title}</CardTitle><div className="flex items-center gap-2 mt-1"><Badge variant="secondary" className="text-xs">{t.document_reference}</Badge><Badge variant="outline" className="text-xs">v{t.version}</Badge></div></div></div><p className="text-xs text-muted-foreground mt-1">{t.fields?.length || 0} fields | Authorised by {t.authorised_by}</p></CardHeader>
+                  <CardContent className="pt-0"><div className="flex items-center gap-2"><Button size="sm" className="flex-1" onClick={() => startDocument(t.id)} data-testid={`fill-template-${t.id}`}><PenLine className="w-4 h-4 mr-1" />Fill In</Button>{hasFeature('documents_edit') && <><Button variant="outline" size="sm" onClick={() => navigate(`/documents/design/${t.id}`)} data-testid={`edit-template-${t.id}`}>Edit</Button><Button variant="outline" size="sm" onClick={() => handleDuplicate(t)} disabled={duplicating === t.id} data-testid={`duplicate-template-${t.id}`}>{duplicating === t.id ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Copy className="w-4 h-4" />}</Button></>}{isAdmin() && <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => setDeleteTarget(t)} data-testid={`delete-template-${t.id}`}><Trash2 className="w-4 h-4" /></Button>}</div></CardContent>
                 </Card>
               ))}
             </div>
           ) : (
-            <Card className="border-dashed">
-              <CardContent className="py-12 text-center">
-                <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" />
-                <p className="text-muted-foreground">No document templates yet</p>
-                {hasFeature('documents_edit') && (
-                  <Button variant="outline" className="mt-4" onClick={() => navigate('/documents/design')}>
-                    <Plus className="w-4 h-4 mr-2" />Create Your First Template
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+            <Card className="border-dashed"><CardContent className="py-12 text-center"><FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" /><p className="text-muted-foreground">No document templates yet</p>{hasFeature('documents_edit') && <Button variant="outline" className="mt-4" onClick={() => navigate('/documents/design')}><Plus className="w-4 h-4 mr-2" />Create Your First Template</Button>}</CardContent></Card>
           )}
         </TabsContent>
 
-        {/* Completed Tab */}
         <TabsContent value="completed" className="mt-4">
           {completedDocs.length > 0 ? (
             <div className="space-y-3">
-              {/* Batch actions bar */}
-              <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <Checkbox
-                    checked={selectedDocs.size === completedDocs.length && completedDocs.length > 0}
-                    onCheckedChange={selectAllCompleted}
-                    data-testid="select-all-docs"
-                  />
-                  <span className="text-sm text-muted-foreground">
-                    {selectedDocs.size > 0 ? `${selectedDocs.size} selected` : 'Select all'}
-                  </span>
-                </div>
-                {selectedDocs.size > 0 && (
-                  <Button size="sm" variant="outline" onClick={downloadBatchPdf} disabled={downloadingBatch} data-testid="batch-pdf-btn">
-                    {downloadingBatch ? (
-                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" />
-                    ) : (
-                      <FileDown className="w-4 h-4 mr-2" />
-                    )}
-                    Download {selectedDocs.size} as PDF
-                  </Button>
-                )}
+              <div className="flex items-center justify-between gap-3 p-3 bg-muted/50 rounded-lg flex-wrap">
+                <div className="flex items-center gap-3"><Checkbox checked={selectedDocs.size === completedDocs.length && completedDocs.length > 0} onCheckedChange={selectAllCompleted} data-testid="select-all-docs" /><span className="text-sm text-muted-foreground">{selectedDocs.size > 0 ? `${selectedDocs.size} selected` : 'Select all'}</span></div>
+                {selectedDocs.size > 0 && <div className="flex gap-2 flex-wrap"><Button size="sm" variant="outline" onClick={downloadBatchPdf} disabled={downloadingBatch} data-testid="batch-pdf-btn">{downloadingBatch ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-2" /> : <FileDown className="w-4 h-4 mr-2" />}Download {selectedDocs.size} as PDF</Button><Button size="sm" variant="outline" onClick={() => setEmailBatchOpen(true)} data-testid="batch-email-btn"><Mail className="w-4 h-4 mr-2" />Email {selectedDocs.size} as PDF</Button></div>}
               </div>
 
               {completedDocs.map(d => (
-                <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`completed-doc-${d.id}`}>
-                  <CardContent className="py-4 flex items-center gap-3">
-                    <Checkbox
-                      checked={selectedDocs.has(d.id)}
-                      onCheckedChange={() => toggleDocSelection(d.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      data-testid={`select-doc-${d.id}`}
-                    />
-                    <div className="flex-1 cursor-pointer flex items-center justify-between" onClick={() => navigate(`/documents/view/${d.id}`)}>
-                      <div className="flex items-center gap-3">
-                        <ClipboardCheck className="w-5 h-5 text-emerald-600" />
-                        <div>
-                          <p className="font-medium">{d.template_title}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {d.document_reference} | v{d.version} | {formatDate(d.completed_at)} | {d.admin_closed_out ? `closed out by ${d.closed_out_by_name}` : `by ${d.completed_by_name}`}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Eye className="w-4 h-4 text-muted-foreground" />
-                        <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`completed-doc-${d.id}`}><CardContent className="py-4 flex items-center gap-3"><Checkbox checked={selectedDocs.has(d.id)} onCheckedChange={() => toggleDocSelection(d.id)} onClick={(e) => e.stopPropagation()} data-testid={`select-doc-${d.id}`} /><div className="flex-1 cursor-pointer flex items-center justify-between" onClick={() => navigate(`/documents/view/${d.id}`)}><div className="flex items-center gap-3"><ClipboardCheck className="w-5 h-5 text-emerald-600" /><div><p className="font-medium">{d.template_title}</p><p className="text-xs text-muted-foreground">{d.document_reference} | v{d.version} | {formatDate(d.completed_at)} | {d.admin_closed_out ? `closed out by ${d.closed_out_by_name}` : `by ${d.completed_by_name}`}</p></div></div><div className="flex items-center gap-2"><Eye className="w-4 h-4 text-muted-foreground" /><ChevronRight className="w-4 h-4 text-muted-foreground" /></div></div></CardContent></Card>
               ))}
             </div>
           ) : (
-            <Card className="border-dashed">
-              <CardContent className="py-12 text-center">
-                <ClipboardCheck className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" />
-                <p className="text-muted-foreground">No completed documents yet</p>
-              </CardContent>
-            </Card>
+            <Card className="border-dashed"><CardContent className="py-12 text-center"><ClipboardCheck className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" /><p className="text-muted-foreground">No completed documents yet</p></CardContent></Card>
           )}
         </TabsContent>
 
-        {/* In Progress Tab */}
         {inProgressDocs.length > 0 && (
-          <TabsContent value="progress" className="mt-4">
-            <div className="space-y-3">
-              {inProgressDocs.map(d => (
-                <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`progress-doc-${d.id}`}>
-                  <CardContent className="py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => navigate(`/documents/fill/${d.id}`)}>
-                      <PenLine className="w-5 h-5 text-amber-500" />
-                      <div>
-                        <p className="font-medium">{d.template_title}</p>
-                        <p className="text-xs text-muted-foreground">{d.document_reference} | Started {formatDate(d.created_at)} | by {d.completed_by_name}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">In Progress</Badge>
-                      {isAdmin() && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setDocumentAction({ type: 'close', document: d })}
-                            data-testid={`close-out-document-${d.id}`}
-                          >
-                            <CircleCheck className="w-4 h-4 mr-1" />Close Out
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-muted-foreground hover:text-destructive"
-                            onClick={() => setDocumentAction({ type: 'delete', document: d })}
-                            data-testid={`delete-document-${d.id}`}
-                            aria-label={`Delete ${d.template_title}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </TabsContent>
+          <TabsContent value="progress" className="mt-4"><div className="space-y-3">{inProgressDocs.map(d => <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`progress-doc-${d.id}`}><CardContent className="py-4 flex items-center justify-between"><div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => navigate(`/documents/fill/${d.id}`)}><PenLine className="w-5 h-5 text-amber-500" /><div><p className="font-medium">{d.template_title}</p><p className="text-xs text-muted-foreground">{d.document_reference} | Started {formatDate(d.created_at)} | by {d.completed_by_name}</p></div></div><div className="flex items-center gap-2"><Badge variant="outline">In Progress</Badge>{isAdmin() && <><Button variant="outline" size="sm" onClick={() => setDocumentAction({ type: 'close', document: d })} data-testid={`close-out-document-${d.id}`}><CircleCheck className="w-4 h-4 mr-1" />Close Out</Button><Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => setDocumentAction({ type: 'delete', document: d })} data-testid={`delete-document-${d.id}`} aria-label={`Delete ${d.template_title}`}><Trash2 className="w-4 h-4" /></Button></>}</div></CardContent></Card>)}</div></TabsContent>
         )}
       </Tabs>
 
-      {/* Delete Dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-destructive" />Delete Template</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">Delete <strong>{deleteTarget?.title}</strong>? This cannot be undone.</p>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleting} data-testid="confirm-delete">{deleting ? 'Deleting...' : 'Delete'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-destructive" />Delete Template</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Delete <strong>{deleteTarget?.title}</strong>? This cannot be undone.</p><DialogFooter className="gap-2"><Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button><Button variant="destructive" onClick={handleDelete} disabled={deleting} data-testid="confirm-delete">{deleting ? 'Deleting...' : 'Delete'}</Button></DialogFooter></DialogContent></Dialog>
 
-      {/* Admin action dialog for in-progress documents */}
-      <Dialog open={!!documentAction} onOpenChange={(o) => !o && setDocumentAction(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className={`w-5 h-5 ${documentAction?.type === 'delete' ? 'text-destructive' : 'text-amber-500'}`} />
-              {documentAction?.type === 'delete' ? 'Delete In-Progress Document' : 'Close Out Document'}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <p>
-              {documentAction?.type === 'delete'
-                ? <>Permanently delete <strong>{documentAction?.document?.template_title}</strong>? This cannot be undone.</>
-                : <>Close out <strong>{documentAction?.document?.template_title}</strong> as completed?</>}
-            </p>
-            {documentAction?.type === 'close' && (
-              <p>This keeps the values currently recorded and logs you as the admin who closed it out.</p>
-            )}
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDocumentAction(null)} disabled={processingDocument}>Cancel</Button>
-            <Button
-              variant={documentAction?.type === 'delete' ? 'destructive' : 'default'}
-              onClick={handleDocumentAction}
-              disabled={processingDocument}
-              data-testid="confirm-document-action"
-            >
-              {processingDocument ? 'Processing...' : documentAction?.type === 'delete' ? 'Delete Document' : 'Close Out'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Dialog open={!!documentAction} onOpenChange={(o) => !o && setDocumentAction(null)}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className={`w-5 h-5 ${documentAction?.type === 'delete' ? 'text-destructive' : 'text-amber-500'}`} />{documentAction?.type === 'delete' ? 'Delete In-Progress Document' : 'Close Out Document'}</DialogTitle></DialogHeader><div className="space-y-2 text-sm text-muted-foreground"><p>{documentAction?.type === 'delete' ? <>Permanently delete <strong>{documentAction?.document?.template_title}</strong>? This cannot be undone.</> : <>Close out <strong>{documentAction?.document?.template_title}</strong> as completed?</>}</p>{documentAction?.type === 'close' && <p>This keeps the values currently recorded and logs you as the admin who closed it out.</p>}</div><DialogFooter className="gap-2"><Button variant="outline" onClick={() => setDocumentAction(null)} disabled={processingDocument}>Cancel</Button><Button variant={documentAction?.type === 'delete' ? 'destructive' : 'default'} onClick={handleDocumentAction} disabled={processingDocument} data-testid="confirm-document-action">{processingDocument ? 'Processing...' : documentAction?.type === 'delete' ? 'Delete Document' : 'Close Out'}</Button></DialogFooter></DialogContent></Dialog>
+
+      <EmailReportDialog
+        open={emailBatchOpen}
+        onOpenChange={setEmailBatchOpen}
+        endpoint="/reports/documents/batch/email"
+        title="Email selected documents"
+        description={`Send the ${selectedDocs.size} selected completed document(s) as one PDF attachment.`}
+        extraPayload={{ document_ids: Array.from(selectedDocs) }}
+      />
     </div>
   );
 };

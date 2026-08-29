@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -15,12 +14,11 @@ import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { Plus, Calendar as CalendarIcon, Trash2, Clock, MapPin, User, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Trash2, Clock, MapPin, User, AlertTriangle, CheckCircle, Mail } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const Schedule = () => {
-  const { isAdmin } = useAuth();
   const [schedules, setSchedules] = useState([]);
   const [audits, setAudits] = useState([]);
   const [users, setUsers] = useState([]);
@@ -41,10 +39,12 @@ const Schedule = () => {
 
   const fetchData = async () => {
     try {
+      // action-assignees is deliberately minimal and company-scoped, so audit
+      // creators can schedule work without receiving the full user-management payload.
       const [schedulesRes, auditsRes, usersRes] = await Promise.all([
         axios.get(`${API}/scheduled-audits`),
         axios.get(`${API}/audits`),
-        isAdmin() ? axios.get(`${API}/users`) : Promise.resolve({ data: [] })
+        axios.get(`${API}/action-assignees`)
       ]);
       setSchedules(schedulesRes.data);
       setAudits(auditsRes.data);
@@ -67,7 +67,9 @@ const Schedule = () => {
       await axios.post(`${API}/scheduled-audits`, {
         audit_id: auditId,
         assigned_to: assignedTo,
-        scheduled_date: scheduledDate.toISOString(),
+        // A schedule is a local calendar date, not an instant in time. Sending
+        // YYYY-MM-DD avoids UTC/BST conversion moving the audit onto another day.
+        scheduled_date: format(scheduledDate, 'yyyy-MM-dd'),
         location: location || null,
         notes: notes || null,
         reminder_days: parseInt(reminderDays)
@@ -114,7 +116,9 @@ const Schedule = () => {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '-';
-    const date = new Date(dateStr);
+    const raw = String(dateStr).slice(0, 10);
+    const [year, month, day] = raw.split('-').map(Number);
+    const date = year && month && day ? new Date(year, month - 1, day) : new Date(dateStr);
     return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
@@ -123,52 +127,32 @@ const Schedule = () => {
 
   return (
     <div className="space-y-6" data-testid="schedule-page">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Audit Schedule</h1>
-          <p className="text-muted-foreground mt-1">
-            Schedule and manage upcoming audits
-          </p>
+          <p className="text-muted-foreground mt-1">Schedule and manage upcoming audits</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
           <DialogTrigger asChild>
-            <Button data-testid="schedule-audit-btn">
-              <Plus className="w-4 h-4 mr-2" />
-              Schedule Audit
-            </Button>
+            <Button data-testid="schedule-audit-btn"><Plus className="w-4 h-4 mr-2" />Schedule Audit</Button>
           </DialogTrigger>
           <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Schedule an Audit</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Schedule an Audit</DialogTitle></DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label>Audit Template *</Label>
                 <Select value={auditId} onValueChange={setAuditId}>
-                  <SelectTrigger data-testid="schedule-audit-select">
-                    <SelectValue placeholder="Select an audit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {audits.map(audit => (
-                      <SelectItem key={audit.id} value={audit.id}>{audit.name}</SelectItem>
-                    ))}
-                  </SelectContent>
+                  <SelectTrigger data-testid="schedule-audit-select"><SelectValue placeholder="Select an audit" /></SelectTrigger>
+                  <SelectContent>{audits.map(audit => <SelectItem key={audit.id} value={audit.id}>{audit.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
                 <Label>Assign To *</Label>
                 <Select value={assignedTo} onValueChange={setAssignedTo}>
-                  <SelectTrigger data-testid="schedule-user-select">
-                    <SelectValue placeholder="Select a user" />
-                  </SelectTrigger>
+                  <SelectTrigger data-testid="schedule-user-select"><SelectValue placeholder="Select a user" /></SelectTrigger>
                   <SelectContent>
-                    {users.map(user => (
-                      <SelectItem key={user.id} value={user.id}>
-                        {user.name} ({user.email})
-                      </SelectItem>
-                    ))}
+                    {users.map(user => <SelectItem key={user.id} value={user.id}>{user.name} ({user.email})</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -187,7 +171,11 @@ const Schedule = () => {
                       mode="single"
                       selected={scheduledDate}
                       onSelect={setScheduledDate}
-                      disabled={(date) => date < new Date()}
+                      disabled={(date) => {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        return date < today;
+                      }}
                       initialFocus
                     />
                   </PopoverContent>
@@ -196,20 +184,13 @@ const Schedule = () => {
 
               <div className="space-y-2">
                 <Label>Location (Optional)</Label>
-                <Input
-                  placeholder="e.g., Main Kitchen, Site A"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  data-testid="schedule-location"
-                />
+                <Input placeholder="e.g., Main Kitchen, Site A" value={location} onChange={(e) => setLocation(e.target.value)} data-testid="schedule-location" />
               </div>
 
               <div className="space-y-2">
                 <Label>Reminder (days before)</Label>
                 <Select value={reminderDays} onValueChange={setReminderDays}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="0">On the day</SelectItem>
                     <SelectItem value="1">1 day before</SelectItem>
@@ -218,146 +199,51 @@ const Schedule = () => {
                     <SelectItem value="7">1 week before</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+                  <Mail className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                  The assigned auditor will be emailed at this point, unless they have disabled scheduled-audit emails in My Account.
+                </p>
               </div>
 
               <div className="space-y-2">
                 <Label>Notes (Optional)</Label>
-                <Textarea
-                  placeholder="Any special instructions..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={2}
-                  data-testid="schedule-notes"
-                />
+                <Textarea placeholder="Any special instructions..." value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} data-testid="schedule-notes" />
               </div>
 
               <div className="flex gap-3 pt-4">
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">
-                  Cancel
-                </Button>
-                <Button type="submit" className="flex-1" data-testid="schedule-submit-btn">
-                  Schedule
-                </Button>
+                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} className="flex-1">Cancel</Button>
+                <Button type="submit" className="flex-1" data-testid="schedule-submit-btn">Schedule</Button>
               </div>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center">
-                <Clock className="w-6 h-6 text-amber-600 dark:text-amber-400" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{pendingCount}</p>
-                <p className="text-sm text-muted-foreground">Pending Audits</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-red-100 dark:bg-red-900/20 flex items-center justify-center">
-                <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{overdueCount}</p>
-                <p className="text-sm text-muted-foreground">Overdue</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-lg bg-emerald-100 dark:bg-emerald-900/20 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{schedules.filter(s => s.status === 'completed').length}</p>
-                <p className="text-sm text-muted-foreground">Completed</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-4"><div className="w-12 h-12 rounded-lg bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center"><Clock className="w-6 h-6 text-amber-600 dark:text-amber-400" /></div><div><p className="text-2xl font-bold">{pendingCount}</p><p className="text-sm text-muted-foreground">Pending Audits</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-4"><div className="w-12 h-12 rounded-lg bg-red-100 dark:bg-red-900/20 flex items-center justify-center"><AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" /></div><div><p className="text-2xl font-bold">{overdueCount}</p><p className="text-sm text-muted-foreground">Overdue</p></div></div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="flex items-center gap-4"><div className="w-12 h-12 rounded-lg bg-emerald-100 dark:bg-emerald-900/20 flex items-center justify-center"><CheckCircle className="w-6 h-6 text-emerald-600 dark:text-emerald-400" /></div><div><p className="text-2xl font-bold">{schedules.filter(s => s.status === 'completed').length}</p><p className="text-sm text-muted-foreground">Completed</p></div></div></CardContent></Card>
       </div>
 
-      {/* Schedule Table */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Scheduled Audits</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-lg">Scheduled Audits</CardTitle></CardHeader>
         <CardContent>
           {loading ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="flex items-center gap-4">
-                  <Skeleton className="h-10 w-10 rounded-full" />
-                  <div className="flex-1 space-y-2">
-                    <Skeleton className="h-4 w-1/3" />
-                    <Skeleton className="h-3 w-1/4" />
-                  </div>
-                  <Skeleton className="h-6 w-20" />
-                </div>
-              ))}
-            </div>
+            <div className="space-y-4">{[1, 2, 3].map(i => <div key={i} className="flex items-center gap-4"><Skeleton className="h-10 w-10 rounded-full" /><div className="flex-1 space-y-2"><Skeleton className="h-4 w-1/3" /><Skeleton className="h-3 w-1/4" /></div><Skeleton className="h-6 w-20" /></div>)}</div>
           ) : schedules.length > 0 ? (
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Audit</TableHead>
-                    <TableHead>Assigned To</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
+                <TableHeader><TableRow><TableHead>Audit</TableHead><TableHead>Assigned To</TableHead><TableHead>Date</TableHead><TableHead>Location</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {schedules.map((schedule) => (
                     <TableRow key={schedule.id} data-testid={`schedule-row-${schedule.id}`}>
                       <TableCell className="font-medium">{schedule.audit_name}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <User className="w-4 h-4 text-muted-foreground" />
-                          {schedule.assigned_to_name}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <CalendarIcon className="w-4 h-4 text-muted-foreground" />
-                          {formatDate(schedule.scheduled_date)}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {schedule.location ? (
-                          <div className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4 text-muted-foreground" />
-                            {schedule.location}
-                          </div>
-                        ) : '-'}
-                      </TableCell>
+                      <TableCell><div className="flex items-center gap-2"><User className="w-4 h-4 text-muted-foreground" />{schedule.assigned_to_name}</div></TableCell>
+                      <TableCell><div className="flex items-center gap-2"><CalendarIcon className="w-4 h-4 text-muted-foreground" />{formatDate(schedule.scheduled_date)}</div></TableCell>
+                      <TableCell>{schedule.location ? <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-muted-foreground" />{schedule.location}</div> : '-'}</TableCell>
                       <TableCell>{getStatusBadge(schedule.status)}</TableCell>
                       <TableCell className="text-right">
-                        {schedule.status !== 'completed' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(schedule.id)}
-                            className="text-destructive hover:text-destructive"
-                            data-testid={`delete-schedule-${schedule.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        )}
+                        {schedule.status !== 'completed' && <Button variant="ghost" size="sm" onClick={() => handleDelete(schedule.id)} className="text-destructive hover:text-destructive" data-testid={`delete-schedule-${schedule.id}`}><Trash2 className="w-4 h-4" /></Button>}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -365,14 +251,7 @@ const Schedule = () => {
               </Table>
             </div>
           ) : (
-            <div className="text-center py-12">
-              <CalendarIcon className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" />
-              <p className="text-muted-foreground mb-4">No scheduled audits</p>
-              <Button onClick={() => setDialogOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Schedule Your First Audit
-              </Button>
-            </div>
+            <div className="text-center py-12"><CalendarIcon className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" /><p className="text-muted-foreground mb-4">No scheduled audits</p><Button onClick={() => setDialogOpen(true)}><Plus className="w-4 h-4 mr-2" />Schedule Your First Audit</Button></div>
           )}
         </CardContent>
       </Card>

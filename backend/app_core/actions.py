@@ -1,0 +1,441 @@
+from __future__ import annotations
+
+import html
+import uuid
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+import server as legacy
+from app_core.email_service import public_app_url, send_email
+from app_core.notifications import create_notification, mark_action_notifications_read
+from app_core.preferences import email_preference_enabled
+
+
+router = APIRouter(prefix="/api", tags=["actions"])
+
+
+class ActionReviewDecision(BaseModel):
+    approved: bool
+    comment: Optional[str] = None
+
+
+def action_display_status(action: Dict[str, Any]) -> str:
+    stored = action.get("status") or "open"
+    if stored in {"completed", "awaiting_review"}:
+        return stored
+    return legacy.corrective_action_status(action)
+
+
+def action_payload(action: Dict[str, Any]) -> Dict[str, Any]:
+    return {**action, "status": action_display_status(action)}
+
+
+async def _action_owner(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    owner_id = action.get("assigned_user_id")
+    if not owner_id:
+        return None
+    return await legacy.db.users.find_one({"id": owner_id}, {"_id": 0, "password": 0})
+
+
+async def _record_assignment_delivery(action: Dict[str, Any], status: str) -> None:
+    await legacy.db.corrective_actions.update_one(
+        {"id": action["id"]},
+        {"$set": {
+            "last_assignment_email_user_id": action.get("assigned_user_id"),
+            "last_assignment_email_status": status,
+            "last_assignment_email_at": legacy.get_uk_time_iso(),
+        }},
+    )
+
+
+async def send_action_assignment_email(action: Dict[str, Any], *, force: bool = False) -> None:
+    owner = await _action_owner(action)
+    if not owner:
+        return
+    if (
+        not force
+        and action.get("last_assignment_email_user_id") == owner.get("id")
+    ):
+        return
+    if not email_preference_enabled(owner, "email_action_assigned"):
+        await _record_assignment_delivery(action, "preference_disabled")
+        return
+
+    action_url = f"{public_app_url()}/actions"
+    result = await send_email(
+        to_email=owner.get("email") or action.get("assigned_user_email"),
+        subject=f"Corrective action assigned: {action.get('audit_name', 'Audit')}",
+        text_body=(
+            f"Hi {owner.get('name', '')},\n\n"
+            "A corrective action has been assigned to you in Infinit Audit.\n\n"
+            f"Audit: {action.get('audit_name', 'N/A')}\n"
+            f"Action required: {action.get('action_required', 'N/A')}\n"
+            f"Due date: {action.get('due_date', 'N/A')}\n\n"
+            f"Open Infinit Audit: {action_url}"
+        ),
+        html_body=(
+            f"<p>Hi {html.escape(owner.get('name') or '')},</p>"
+            "<p>A corrective action has been assigned to you in Infinit Audit.</p>"
+            f"<p><strong>Audit:</strong> {html.escape(str(action.get('audit_name') or 'N/A'))}<br>"
+            f"<strong>Action required:</strong> {html.escape(str(action.get('action_required') or 'N/A'))}<br>"
+            f"<strong>Due date:</strong> {html.escape(str(action.get('due_date') or 'N/A'))}</p>"
+            f"<p><a href=\"{html.escape(action_url, quote=True)}\">Open corrective actions</a></p>"
+        ),
+        template="action_assigned",
+    )
+    await _record_assignment_delivery(action, result.status)
+
+
+async def _send_review_ready_email(action: Dict[str, Any], owner: Dict[str, Any]) -> None:
+    if not email_preference_enabled(owner, "email_action_review"):
+        return
+    action_url = f"{public_app_url()}/actions"
+    await send_email(
+        to_email=owner.get("email") or action.get("assigned_user_email"),
+        subject=f"Corrective action ready for review: {action.get('audit_name', 'Audit')}",
+        text_body=(
+            f"Hi {owner.get('name', '')},\n\n"
+            "A corrective action you own has been completed and is waiting for your review and sign-off.\n\n"
+            f"Audit: {action.get('audit_name', 'N/A')}\n"
+            f"Action required: {action.get('action_required', 'N/A')}\n"
+            f"Action taken: {action.get('action_taken', 'N/A')}\n\n"
+            f"Review the action: {action_url}"
+        ),
+        template="action_review_ready",
+    )
+
+
+def _validate_action_owner_inputs(submit_data: legacy.RunAuditSubmit) -> None:
+    if not submit_data.completed:
+        return
+    for answer in submit_data.answers:
+        if not answer.is_negative:
+            continue
+        owner_id = (answer.assigned_user_id or "").strip()
+        if not owner_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Every corrective action must have a registered user as its action owner",
+            )
+        # Department ownership is retained only for historical records. New
+        # actions use one accountable registered user so review/sign-off and
+        # notifications always have a real destination.
+        answer.assigned_department = None
+        answer.action_assignee_type = "user"
+
+
+@router.put("/run-audits/{run_id}", response_model=legacy.RunAuditResponse)
+async def update_run_audit(
+    run_id: str,
+    submit_data: legacy.RunAuditSubmit,
+    user: dict = Depends(legacy.require_feature("audits")),
+):
+    _validate_action_owner_inputs(submit_data)
+    result = await legacy.update_run_audit(run_id, submit_data, user)
+
+    if submit_data.completed:
+        actions = await legacy.db.corrective_actions.find(
+            {"run_id": run_id}, {"_id": 0}
+        ).to_list(1000)
+        for action in actions:
+            await send_action_assignment_email(action)
+    return result
+
+
+@router.get("/actions")
+async def get_corrective_actions(
+    status: Optional[str] = None,
+    assigned_to_me: bool = True,
+    include_archived: bool = False,
+    user: dict = Depends(legacy.require_feature("actions")),
+) -> List[Dict[str, Any]]:
+    allowed_statuses = {"open", "overdue", "awaiting_review", "completed"}
+    if status and status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail="Unknown action status")
+
+    if legacy.is_system_admin(user):
+        query = {}
+    elif user["role"] in [
+        legacy.UserRole.COMPANY_ADMIN,
+        legacy.UserRole.ADMIN,
+        legacy.UserRole.AUDIT_CREATOR,
+    ]:
+        query = {"company_id": user.get("company_id")}
+    else:
+        query = {"assigned_user_id": user["id"]}
+
+    actions = await legacy.db.corrective_actions.find(
+        query, {"_id": 0}
+    ).sort("due_date", 1).to_list(5000)
+    results = []
+    for action in actions:
+        item = action_payload(action)
+        if item.get("archived", False) and not include_archived:
+            continue
+        if status and item["status"] != status:
+            continue
+        results.append(item)
+    return results
+
+
+@router.put("/actions/{action_id}/reassign")
+async def reassign_corrective_action(
+    action_id: str,
+    update: legacy.CorrectiveActionReassign,
+    user: dict = Depends(legacy.require_feature("actions")),
+):
+    action = await legacy.get_accessible_corrective_action(action_id, user)
+    if action.get("archived") or action.get("status") in {"completed", "awaiting_review"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Archived, completed or review-pending actions cannot be reassigned",
+        )
+    is_owner = action.get("assigned_user_id") == user.get("id")
+    if not is_owner and not legacy.is_action_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the current action owner or an administrator can reassign this action",
+        )
+    reason = update.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="A reason is required for reassignment")
+
+    new_owner = await legacy.db.users.find_one(
+        {"id": update.assigned_user_id}, {"_id": 0, "password": 0}
+    )
+    if not new_owner:
+        raise HTTPException(status_code=400, detail="Select a valid action owner")
+    if (
+        not legacy.is_system_admin(user)
+        and new_owner.get("company_id") != action.get("company_id")
+    ):
+        raise HTTPException(status_code=400, detail="Select a valid user from your company")
+
+    old_name = action.get("assigned_user_name") or action.get("assigned_department") or "Unassigned"
+    history = list(action.get("history") or [])
+    history.append(
+        legacy.action_history_entry(
+            "reassigned",
+            user,
+            f"Reassigned from {old_name} to {new_owner['name']}: {reason}",
+            from_user_id=action.get("assigned_user_id"),
+            from_user_name=old_name,
+            to_user_id=new_owner["id"],
+            to_user_name=new_owner["name"],
+            reason=reason,
+        )
+    )
+    now = legacy.get_uk_time_iso()
+    changes = {
+        "assigned_user_id": new_owner["id"],
+        "assigned_user_name": new_owner["name"],
+        "assigned_user_email": new_owner.get("email"),
+        "assigned_department": None,
+        "history": history,
+        "updated_at": now,
+        "last_assignment_email_user_id": None,
+        "last_assignment_email_status": None,
+        "last_assignment_email_at": None,
+    }
+    await legacy.db.corrective_actions.update_one(
+        {"id": action_id}, {"$set": changes}
+    )
+    await legacy.sync_action_to_audit(
+        action,
+        assigned_user_id=new_owner["id"],
+        assigned_user_name=new_owner["name"],
+        assigned_user_email=new_owner.get("email"),
+        assigned_department=None,
+    )
+    updated = await legacy.db.corrective_actions.find_one(
+        {"id": action_id}, {"_id": 0}
+    )
+    await send_action_assignment_email(updated, force=True)
+    updated = await legacy.db.corrective_actions.find_one(
+        {"id": action_id}, {"_id": 0}
+    )
+    return action_payload(updated)
+
+
+@router.put("/actions/{action_id}")
+async def submit_corrective_action_for_review(
+    action_id: str,
+    update: legacy.CorrectiveActionUpdate,
+    user: dict = Depends(legacy.require_feature("actions")),
+):
+    action = await legacy.get_accessible_corrective_action(action_id, user)
+    if action.get("archived"):
+        raise HTTPException(status_code=400, detail="Archived actions cannot be completed")
+    if action.get("status") == "completed":
+        raise HTTPException(status_code=409, detail="This action has already been signed off")
+    if action.get("status") == "awaiting_review":
+        raise HTTPException(status_code=409, detail="This action is already awaiting owner review")
+    owner = await _action_owner(action)
+    if not owner:
+        raise HTTPException(
+            status_code=409,
+            detail="This legacy action has no registered owner. Reassign it to a user before completion.",
+        )
+
+    action_taken = update.action_taken.strip()
+    if not action_taken:
+        raise HTTPException(status_code=400, detail="Action taken is required before completion")
+
+    now = legacy.get_uk_time_iso()
+    history = list(action.get("history") or [])
+    history.append(
+        legacy.action_history_entry(
+            "completion_submitted",
+            user,
+            f"Action completion submitted for review by {user['name']}",
+        )
+    )
+    changes = {
+        "action_taken": action_taken,
+        "status": "awaiting_review",
+        "review_status": "pending",
+        "reviewed_by_id": None,
+        "reviewed_by_name": None,
+        "reviewed_at": None,
+        "review_comment": None,
+        "completed_by_id": user["id"],
+        "completed_by_name": user["name"],
+        "completed_at": now,
+        "history": history,
+        "updated_at": now,
+    }
+    await legacy.db.corrective_actions.update_one(
+        {"id": action_id}, {"$set": changes}
+    )
+    await legacy.sync_action_to_audit(
+        action,
+        action_status="awaiting_review",
+        action_taken=action_taken,
+        action_completed_by=user["name"],
+        action_completed_at=now,
+    )
+
+    await create_notification(
+        user_id=owner["id"],
+        company_id=action.get("company_id"),
+        notification_type="action_review_required",
+        title="Corrective action ready for review",
+        message=f"{action.get('audit_name', 'Audit')}: review and sign off the completed action.",
+        link="/actions",
+        metadata={"action_id": action_id},
+    )
+    updated = await legacy.db.corrective_actions.find_one(
+        {"id": action_id}, {"_id": 0}
+    )
+    await _send_review_ready_email(updated, owner)
+    return action_payload(updated)
+
+
+@router.put("/actions/{action_id}/review")
+async def review_corrective_action(
+    action_id: str,
+    decision: ActionReviewDecision,
+    user: dict = Depends(legacy.require_feature("actions")),
+):
+    action = await legacy.db.corrective_actions.find_one(
+        {"id": action_id}, {"_id": 0}
+    )
+    if not action:
+        raise HTTPException(status_code=404, detail="Corrective action not found")
+    if action.get("assigned_user_id") != user.get("id"):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the action owner can review and sign off this action",
+        )
+    if action.get("archived"):
+        raise HTTPException(status_code=400, detail="Archived actions cannot be reviewed")
+    if action.get("status") != "awaiting_review":
+        raise HTTPException(status_code=409, detail="This action is not awaiting review")
+
+    comment = (decision.comment or "").strip() or None
+    if not decision.approved and not comment:
+        raise HTTPException(status_code=400, detail="A comment is required when rejecting an action")
+
+    now = legacy.get_uk_time_iso()
+    history = list(action.get("history") or [])
+    if decision.approved:
+        history.append(
+            legacy.action_history_entry(
+                "review_approved",
+                user,
+                "Action reviewed and signed off",
+                comment=comment,
+            )
+        )
+        changes = {
+            "status": "completed",
+            "review_status": "approved",
+            "reviewed_by_id": user["id"],
+            "reviewed_by_name": user["name"],
+            "reviewed_at": now,
+            "review_comment": comment,
+            "history": history,
+            "updated_at": now,
+        }
+        await legacy.db.corrective_actions.update_one(
+            {"id": action_id}, {"$set": changes}
+        )
+        await legacy.sync_action_to_audit(
+            action,
+            action_status="completed",
+            action_taken=action.get("action_taken"),
+            action_completed_by=action.get("completed_by_name"),
+            action_completed_at=action.get("completed_at"),
+        )
+    else:
+        history.append(
+            legacy.action_history_entry(
+                "review_rejected",
+                user,
+                f"Action completion rejected: {comment}",
+                comment=comment,
+            )
+        )
+        submitter_id = action.get("completed_by_id")
+        submitter_name = action.get("completed_by_name")
+        changes = {
+            "status": "open",
+            "review_status": "rejected",
+            "reviewed_by_id": user["id"],
+            "reviewed_by_name": user["name"],
+            "reviewed_at": now,
+            "review_comment": comment,
+            "completed_by_id": None,
+            "completed_by_name": None,
+            "completed_at": None,
+            "history": history,
+            "updated_at": now,
+        }
+        await legacy.db.corrective_actions.update_one(
+            {"id": action_id}, {"$set": changes}
+        )
+        await legacy.sync_action_to_audit(
+            action,
+            action_status="open",
+            action_taken=action.get("action_taken"),
+            action_completed_by=None,
+            action_completed_at=None,
+        )
+        if submitter_id and submitter_id != user.get("id"):
+            await create_notification(
+                user_id=submitter_id,
+                company_id=action.get("company_id"),
+                notification_type="action_review_rejected",
+                title="Corrective action needs more work",
+                message=f"{action.get('audit_name', 'Audit')}: {comment}",
+                link="/actions",
+                metadata={"action_id": action_id, "reviewer": user.get("name"), "submitter": submitter_name},
+            )
+
+    await mark_action_notifications_read(user["id"], action_id)
+    updated = await legacy.db.corrective_actions.find_one(
+        {"id": action_id}, {"_id": 0}
+    )
+    return action_payload(updated)

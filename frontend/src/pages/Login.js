@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { Button } from '../components/ui/button';
@@ -62,15 +62,11 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left Side - Branding Panel */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-teal-600 via-teal-700 to-slate-800 relative overflow-hidden">
-        {/* Decorative elements */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-20 w-72 h-72 bg-white rounded-full blur-3xl" />
           <div className="absolute bottom-20 right-20 w-96 h-96 bg-teal-300 rounded-full blur-3xl" />
         </div>
-        
-        {/* Content */}
         <div className="relative z-10 flex flex-col justify-center px-12 xl:px-20">
           <div className="mb-8">
             <img src={LOGO_URL} alt="Infinit-Audit" className="h-28 mb-6" />
@@ -81,8 +77,6 @@ const Login = () => {
           <p className="text-teal-100 text-lg mb-10 max-w-md">
             Streamline your food safety compliance with our comprehensive auditing platform. Create, run, and track audits with ease.
           </p>
-          
-          {/* Feature highlights */}
           <div className="space-y-4">
             <div className="flex items-center gap-4 text-white">
               <div className="w-10 h-10 rounded-lg bg-white/20 flex items-center justify-center">
@@ -100,22 +94,15 @@ const Login = () => {
         </div>
       </div>
 
-      {/* Right Side - Login Form */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 bg-background">
-        {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
           className="absolute top-4 right-4 p-3 rounded-full bg-muted hover:bg-muted/80 transition-colors"
           data-testid="theme-toggle-login"
         >
-          {theme === 'dark' ? (
-            <Sun className="w-5 h-5 text-foreground" />
-          ) : (
-            <Moon className="w-5 h-5 text-foreground" />
-          )}
+          {theme === 'dark' ? <Sun className="w-5 h-5 text-foreground" /> : <Moon className="w-5 h-5 text-foreground" />}
         </button>
 
-        {/* Mobile Logo */}
         <div className="lg:hidden absolute top-4 left-4">
           <img src={LOGO_URL} alt="Infinit-Audit" className="h-12" />
         </div>
@@ -126,27 +113,14 @@ const Login = () => {
               {activeTab === 'login' ? 'Welcome Back' : 'Create Account'}
             </CardTitle>
             <CardDescription className="text-muted-foreground">
-              {activeTab === 'login' 
-                ? 'Sign in to access your audits' 
-                : 'Register to start auditing'}
+              {activeTab === 'login' ? 'Sign in to access your audits' : 'Register to start auditing'}
             </CardDescription>
           </CardHeader>
-          
           <CardContent className="pt-4">
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="grid w-full grid-cols-2 mb-6">
-                <TabsTrigger 
-                  value="login"
-                  data-testid="login-tab"
-                >
-                  Sign In
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="register"
-                  data-testid="register-tab"
-                >
-                  Register
-                </TabsTrigger>
+                <TabsTrigger value="login" data-testid="login-tab">Sign In</TabsTrigger>
+                <TabsTrigger value="register" data-testid="register-tab">Register</TabsTrigger>
               </TabsList>
 
               <TabsContent value="login">
@@ -164,9 +138,13 @@ const Login = () => {
                       data-testid="login-email"
                     />
                   </div>
-                  
                   <div className="space-y-2">
-                    <Label htmlFor="login-password" className="text-foreground">Password</Label>
+                    <div className="flex items-center justify-between gap-3">
+                      <Label htmlFor="login-password" className="text-foreground">Password</Label>
+                      <Link to="/forgot-password" className="text-xs text-primary hover:underline" data-testid="forgot-password-link">
+                        Forgot password?
+                      </Link>
+                    </div>
                     <div className="relative">
                       <Input
                         id="login-password"
@@ -188,20 +166,13 @@ const Login = () => {
                     </div>
                   </div>
 
-                  <Button 
-                    type="submit" 
-                    className="w-full"
-                    disabled={loading}
-                    data-testid="login-submit"
-                  >
+                  <Button type="submit" className="w-full" disabled={loading} data-testid="login-submit">
                     {loading ? (
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                         Signing in...
                       </div>
-                    ) : (
-                      'Sign In'
-                    )}
+                    ) : 'Sign In'}
                   </Button>
                 </form>
               </TabsContent>
@@ -210,84 +181,39 @@ const Login = () => {
                 <form onSubmit={handleRegister} className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="reg-name" className="text-foreground">Full Name</Label>
-                    <Input
-                      id="reg-name"
-                      type="text"
-                      placeholder="John Doe"
-                      value={regName}
-                      onChange={(e) => setRegName(e.target.value)}
-                      required
-                      className="bg-background border-input text-foreground"
-                      data-testid="register-name"
-                    />
+                    <Input id="reg-name" type="text" placeholder="John Doe" value={regName} onChange={(e) => setRegName(e.target.value)} required className="bg-background border-input text-foreground" data-testid="register-name" />
                   </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="reg-email" className="text-foreground">Email</Label>
-                    <Input
-                      id="reg-email"
-                      type="email"
-                      placeholder="you@example.com"
-                      value={regEmail}
-                      onChange={(e) => setRegEmail(e.target.value)}
-                      required
-                      className="bg-background border-input text-foreground"
-                      data-testid="register-email"
-                    />
+                    <Input id="reg-email" type="email" placeholder="you@example.com" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} required className="bg-background border-input text-foreground" data-testid="register-email" />
                   </div>
-                  
                   <div className="space-y-2">
                     <Label htmlFor="reg-password" className="text-foreground">Password</Label>
-                    <Input
-                      id="reg-password"
-                      type="password"
-                      placeholder="Create a password"
-                      value={regPassword}
-                      onChange={(e) => setRegPassword(e.target.value)}
-                      required
-                      minLength={6}
-                      className="bg-background border-input text-foreground"
-                      data-testid="register-password"
-                    />
+                    <Input id="reg-password" type="password" placeholder="Create a password" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} required minLength={6} className="bg-background border-input text-foreground" data-testid="register-password" />
                     <p className="text-xs text-muted-foreground">Must be at least 6 characters</p>
                   </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="reg-role" className="text-foreground">Role</Label>
                     <Select value={regRole} onValueChange={setRegRole}>
-                      <SelectTrigger 
-                        className="bg-background border-input text-foreground"
-                        data-testid="register-role"
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
+                      <SelectTrigger className="bg-background border-input text-foreground" data-testid="register-role"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="user">User (Run Audits & View Reports)</SelectItem>
                         <SelectItem value="audit_creator">Audit Creator</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <Button 
-                    type="submit" 
-                    className="w-full"
-                    disabled={loading}
-                    data-testid="register-submit"
-                  >
+                  <Button type="submit" className="w-full" disabled={loading} data-testid="register-submit">
                     {loading ? (
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                         Creating account...
                       </div>
-                    ) : (
-                      'Create Account'
-                    )}
+                    ) : 'Create Account'}
                   </Button>
                 </form>
               </TabsContent>
             </Tabs>
 
-            {/* Footer text */}
             <p className="text-center text-xs text-muted-foreground mt-6">
               By continuing, you agree to our Terms of Service and Privacy Policy
             </p>
