@@ -85,6 +85,28 @@ async def _get_accessible_document(document_id: str, user: dict, *, completed: b
     return document
 
 
+def _audit_run_access_allowed(run: dict, user: dict) -> bool:
+    if legacy.is_system_admin(user):
+        return True
+    if run.get("auditor_id") == user.get("id"):
+        return True
+    if user.get("role") in [
+        legacy.UserRole.COMPANY_ADMIN,
+        legacy.UserRole.ADMIN,
+        legacy.UserRole.AUDIT_CREATOR,
+    ]:
+        return run.get("company_id") == user.get("company_id")
+    return False
+
+
+async def _get_accessible_audit_run(run_id: str, user: dict) -> dict:
+    run = await legacy.db.run_audits.find_one({"id": run_id}, {"_id": 0})
+    if not run or not _audit_run_access_allowed(run, user):
+        # Do not reveal whether a run ID belongs to another company.
+        raise HTTPException(status_code=404, detail="Audit run not found")
+    return run
+
+
 async def _deliver_attachment(
     *,
     request: ReportEmailRequest,
@@ -214,11 +236,11 @@ async def email_audit_report(
     request: ReportEmailRequest,
     user: dict = Depends(legacy.require_feature("audits")),
 ):
+    run = await _get_accessible_audit_run(run_id, user)
     response = await legacy.export_audit_pdf(run_id, user)
     content = await _streaming_response_bytes(response)
     filename = _response_filename(response, f"audit_report_{run_id[:8]}.pdf")
-    run = await legacy.db.run_audits.find_one({"id": run_id}, {"_id": 0})
-    audit_name = (run or {}).get("audit_name") or "Audit"
+    audit_name = run.get("audit_name") or "Audit"
     return await _deliver_attachment(
         request=request, user=user, subject=f"Infinit Audit report: {audit_name}",
         item_name=f"the audit report for {audit_name}",
