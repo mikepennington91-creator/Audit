@@ -6,6 +6,9 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { OfflineProvider } from "./context/OfflineContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import Account from "./pages/Account";
 import Dashboard from "./pages/Dashboard";
 import Configuration from "./pages/Configuration";
 import UserManagement from "./pages/UserManagement";
@@ -71,18 +74,13 @@ function AppRoutes() {
   return (
     <Routes>
       {/* Public Routes */}
-      <Route path="/login" element={
-        <PublicRoute>
-          <Login />
-        </PublicRoute>
-      } />
+      <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+      <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+      <Route path="/reset-password" element={<PublicRoute><ResetPassword /></PublicRoute>} />
       
       {/* Protected Routes */}
-      <Route path="/dashboard" element={
-        <ProtectedRoute>
-          <Dashboard />
-        </ProtectedRoute>
-      } />
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
       
       <Route path="/user-management" element={
         <ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}>
@@ -97,7 +95,6 @@ function AppRoutes() {
       } />
 
       <Route path="/admin" element={<Navigate to="/configuration" replace />} />
-      
       <Route path="/groups" element={<Navigate to="/configuration?tab=groups" replace />} />
       
       <Route path="/create-audit" element={
@@ -118,47 +115,13 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       
-      <Route path="/audits/:auditId" element={
-        <ProtectedRoute feature="audits">
-          <AuditOverview />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/run-audit" element={
-        <ProtectedRoute feature="audits">
-          <RunAudit />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/run-audit/:runId" element={
-        <ProtectedRoute feature="audits">
-          <RunAudit />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/reports" element={
-        <ProtectedRoute feature="audits">
-          <Reports />
-        </ProtectedRoute>
-      } />
-
-      <Route path="/actions" element={
-        <ProtectedRoute feature="actions">
-          <Actions />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/traceability" element={
-        <ProtectedRoute feature="traceability">
-          <Traceability />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/documents" element={
-        <ProtectedRoute feature="documents">
-          <DocumentList />
-        </ProtectedRoute>
-      } />
+      <Route path="/audits/:auditId" element={<ProtectedRoute feature="audits"><AuditOverview /></ProtectedRoute>} />
+      <Route path="/run-audit" element={<ProtectedRoute feature="audits"><RunAudit /></ProtectedRoute>} />
+      <Route path="/run-audit/:runId" element={<ProtectedRoute feature="audits"><RunAudit /></ProtectedRoute>} />
+      <Route path="/reports" element={<ProtectedRoute feature="audits"><Reports /></ProtectedRoute>} />
+      <Route path="/actions" element={<ProtectedRoute feature="actions"><Actions /></ProtectedRoute>} />
+      <Route path="/traceability" element={<ProtectedRoute feature="traceability"><Traceability /></ProtectedRoute>} />
+      <Route path="/documents" element={<ProtectedRoute feature="documents"><DocumentList /></ProtectedRoute>} />
       
       <Route path="/documents/design" element={
         <ProtectedRoute feature="documents_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}>
@@ -172,17 +135,8 @@ function AppRoutes() {
         </ProtectedRoute>
       } />
       
-      <Route path="/documents/fill/:documentId" element={
-        <ProtectedRoute feature="documents">
-          <DocumentFill />
-        </ProtectedRoute>
-      } />
-      
-      <Route path="/documents/view/:documentId" element={
-        <ProtectedRoute feature="documents">
-          <DocumentView />
-        </ProtectedRoute>
-      } />
+      <Route path="/documents/fill/:documentId" element={<ProtectedRoute feature="documents"><DocumentFill /></ProtectedRoute>} />
+      <Route path="/documents/view/:documentId" element={<ProtectedRoute feature="documents"><DocumentView /></ProtectedRoute>} />
       
       {/* Default redirect */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
