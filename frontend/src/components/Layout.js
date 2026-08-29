@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useOffline } from '../context/OfflineContext';
 import { Button } from './ui/button';
+import NotificationBell from './NotificationBell';
 import { 
   LayoutDashboard, 
   Users, 
@@ -77,13 +78,16 @@ const Layout = ({ children }) => {
               </span>
             )}
           </div>
-          <button 
-            onClick={toggleTheme}
-            className="p-2 hover:bg-muted rounded-lg transition-colors"
-            data-testid="theme-toggle-mobile"
-          >
-            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
+          <div className="flex items-center gap-1">
+            {isOnline && <NotificationBell />}
+            <button 
+              onClick={toggleTheme}
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
+              data-testid="theme-toggle-mobile"
+            >
+              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -184,15 +188,25 @@ const Layout = ({ children }) => {
 
           {/* User Section */}
           <div className="p-4 border-t">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <span className="text-primary font-semibold">
-                  {user?.name?.charAt(0)?.toUpperCase() || 'U'}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{user?.name}</p>
-                <p className="text-xs text-muted-foreground capitalize">{user?.role?.replace('_', ' ')}</p>
+            <div className="flex items-center gap-2 mb-4">
+              <Link
+                to="/account"
+                onClick={() => setSidebarOpen(false)}
+                className="flex items-center gap-3 flex-1 min-w-0 rounded-lg p-1 -m-1 hover:bg-muted transition-colors"
+                data-testid="account-link"
+              >
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <span className="text-primary font-semibold">
+                    {user?.name?.charAt(0)?.toUpperCase() || 'U'}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{user?.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize">{user?.role?.replace('_', ' ')}</p>
+                </div>
+              </Link>
+              <div className="hidden lg:block">
+                {isOnline && <NotificationBell />}
               </div>
             </div>
             
