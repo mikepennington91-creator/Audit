@@ -12,16 +12,24 @@ from server import (  # noqa: E402
     AnswerSubmit,
     corrective_action_status,
     get_uk_time,
+    has_feature,
     normalise_feature_access,
 )
 
 
-def test_actions_default_off_for_members_and_on_for_admins():
-    member_access = normalise_feature_access({"role": "user", "feature_access": {}})
-    admin_access = normalise_feature_access({"role": "company_admin", "feature_access": {}})
+def test_actions_are_universal_without_polluting_feature_toggle_map():
+    member = {"role": "user", "feature_access": {}}
+    admin = {"role": "company_admin", "feature_access": {}}
 
-    assert member_access["actions"] is False
-    assert admin_access["actions"] is True
+    # Actions are intentionally available to every signed-in user; row-level
+    # action queries determine which assigned work they may actually see.
+    assert has_feature(member, "actions") is True
+    assert has_feature(admin, "actions") is True
+
+    # Actions are not a configurable module toggle, so the normalised feature
+    # map should contain only the explicit audit/traceability/document keys.
+    assert "actions" not in normalise_feature_access(member)
+    assert "actions" not in normalise_feature_access(admin)
 
 
 def test_corrective_action_status_marks_overdue_and_completed():
@@ -33,7 +41,9 @@ def test_corrective_action_status_marks_overdue_and_completed():
     assert corrective_action_status({"status": "completed", "due_date": yesterday}) == "completed"
 
 
-def test_audit_answer_preserves_corrective_action_fields():
+def test_audit_answer_preserves_legacy_corrective_action_fields():
+    # Department ownership remains readable for historical audit records even
+    # though newly submitted corrective actions now require a registered user.
     answer = AnswerSubmit(
         question_id="question-1",
         response_value="fail",
