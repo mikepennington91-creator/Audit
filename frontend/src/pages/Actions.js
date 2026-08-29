@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { AlertTriangle, Archive, CheckCircle2, Clock3, Eye, FileDown, History, RotateCcw, Trash2, UserRoundCog } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, Clock3, Eye, FileDown, History, Mail, RotateCcw, Trash2, UserRoundCog } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { emailExport } from '../utils/emailExport';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -86,7 +87,7 @@ const Actions = () => {
     setSaving(true);
     try {
       const response = await axios.put(`${API}/actions/${selectedAction.id}`, { action_taken: actionTaken });
-      replaceAction(response.data); toast.success('Corrective action completed');
+      replaceAction(response.data); toast.success('Corrective action completed and sent for owner sign-off');
     } catch (error) { toast.error(error.response?.data?.detail || 'Failed to complete action'); }
     finally { setSaving(false); }
   };
@@ -148,6 +149,8 @@ const Actions = () => {
     finally { setDownloading(''); }
   };
 
+  const emailReport = (action) => emailExport({ kind: 'action_report', resourceId: action.id, defaultEmail: user?.email || '' });
+
   const filters = [
     { key: 'all', label: `All (${visibleActions.length})` },
     { key: 'open', label: `Open (${counts.open})` },
@@ -164,7 +167,7 @@ const Actions = () => {
         <Card><CardContent className="pt-6 flex items-center gap-4"><CheckCircle2 className="w-8 h-8 text-emerald-600" /><div><p className="text-2xl font-bold">{counts.completed}</p><p className="text-sm text-muted-foreground">Completed</p></div></CardContent></Card>
       </div>
       <Card><CardHeader className="space-y-4"><div className="flex items-center justify-between gap-3 flex-wrap"><CardTitle className="text-lg">Action Reports</CardTitle>{canAdmin && <Button variant={showArchived ? 'default' : 'outline'} size="sm" onClick={() => { setShowArchived(!showArchived); setStatusFilter('all'); }}>{showArchived ? 'Viewing Archived' : 'View Archived'}</Button>}</div><div className="flex flex-wrap gap-2">{filters.map((filter) => <Button key={filter.key} size="sm" variant={statusFilter === filter.key ? 'default' : 'outline'} onClick={() => setStatusFilter(filter.key)}>{filter.label}</Button>)}</div></CardHeader>
-        <CardContent>{loading ? <div className="space-y-3">{[1,2,3].map((item) => <Skeleton key={item} className="h-14 w-full" />)}</div> : filteredActions.length ? <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Non-Conformance</TableHead><TableHead>Action Required</TableHead><TableHead>Who</TableHead><TableHead>When</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Report</TableHead></TableRow></TableHeader><TableBody>{filteredActions.map((action) => <TableRow key={action.id}><TableCell className="max-w-xs"><p className="font-medium">{action.audit_name}</p><p className="text-sm text-muted-foreground line-clamp-2">{action.non_conformance}</p></TableCell><TableCell className="max-w-xs">{action.action_required}</TableCell><TableCell>{assignedTo(action)}</TableCell><TableCell>{formatDate(action.due_date)}{action.extension_request?.status === 'pending' && <Badge className="ml-2 bg-amber-100 text-amber-800">Extension Pending</Badge>}</TableCell><TableCell>{statusBadge(action.status)}</TableCell><TableCell className="text-right whitespace-nowrap"><Button variant="ghost" size="sm" onClick={() => openAction(action)}><Eye className="w-4 h-4" /></Button><Button variant="ghost" size="sm" disabled={downloading === action.id} onClick={() => downloadReport(action)}>{downloading === action.id ? '...' : <FileDown className="w-4 h-4" />}</Button></TableCell></TableRow>)}</TableBody></Table></div> : <div className="text-center py-12"><p className="text-muted-foreground">No corrective actions match this view.</p></div>}</CardContent>
+        <CardContent>{loading ? <div className="space-y-3">{[1,2,3].map((item) => <Skeleton key={item} className="h-14 w-full" />)}</div> : filteredActions.length ? <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Non-Conformance</TableHead><TableHead>Action Required</TableHead><TableHead>Who</TableHead><TableHead>When</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Report</TableHead></TableRow></TableHeader><TableBody>{filteredActions.map((action) => <TableRow key={action.id}><TableCell className="max-w-xs"><p className="font-medium">{action.audit_name}</p><p className="text-sm text-muted-foreground line-clamp-2">{action.non_conformance}</p></TableCell><TableCell className="max-w-xs">{action.action_required}</TableCell><TableCell>{assignedTo(action)}</TableCell><TableCell>{formatDate(action.due_date)}{action.extension_request?.status === 'pending' && <Badge className="ml-2 bg-amber-100 text-amber-800">Extension Pending</Badge>}</TableCell><TableCell>{statusBadge(action.status)}</TableCell><TableCell className="text-right whitespace-nowrap"><Button variant="ghost" size="sm" onClick={() => openAction(action)}><Eye className="w-4 h-4" /></Button><Button variant="ghost" size="sm" disabled={downloading === action.id} onClick={() => downloadReport(action)}>{downloading === action.id ? '...' : <FileDown className="w-4 h-4" />}</Button><Button variant="ghost" size="sm" onClick={() => emailReport(action)} title="Email report"><Mail className="w-4 h-4" /></Button></TableCell></TableRow>)}</TableBody></Table></div> : <div className="text-center py-12"><p className="text-muted-foreground">No corrective actions match this view.</p></div>}</CardContent>
       </Card>
 
       <Dialog open={!!selectedAction} onOpenChange={(open) => { if (!open) setSelectedAction(null); }}><DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto"><DialogHeader><DialogTitle>Corrective Action Report</DialogTitle></DialogHeader>{selectedAction && <div className="space-y-5">
@@ -179,7 +182,7 @@ const Actions = () => {
 
         <div><div className="flex items-center gap-2 mb-2"><History className="w-4 h-4" /><Label>Action History</Label></div><div className="space-y-2">{(selectedAction.history || []).length ? [...selectedAction.history].reverse().map((entry) => <div key={entry.id} className="rounded-md border p-3 text-sm"><p>{entry.message}</p><p className="text-xs text-muted-foreground mt-1">{entry.user_name} · {formatDateTime(entry.created_at)}</p></div>) : <p className="text-sm text-muted-foreground">No changes recorded yet.</p>}</div></div>
 
-        <div className="flex justify-between gap-2 flex-wrap border-t pt-4"><Button variant="outline" onClick={() => downloadReport(selectedAction)}><FileDown className="w-4 h-4 mr-2" />Download PDF</Button>{canAdmin && <div className="flex gap-2">{selectedAction.archived ? <Button variant="outline" onClick={restoreAction}><RotateCcw className="w-4 h-4 mr-2" />Restore</Button> : <Button variant="outline" onClick={archiveAction}><Archive className="w-4 h-4 mr-2" />Archive</Button>}<Button variant="destructive" onClick={deleteAction}><Trash2 className="w-4 h-4 mr-2" />Delete</Button></div>}</div>
+        <div className="flex justify-between gap-2 flex-wrap border-t pt-4"><div className="flex gap-2 flex-wrap"><Button variant="outline" onClick={() => downloadReport(selectedAction)}><FileDown className="w-4 h-4 mr-2" />Download PDF</Button><Button variant="outline" onClick={() => emailReport(selectedAction)}><Mail className="w-4 h-4 mr-2" />Email PDF</Button></div>{canAdmin && <div className="flex gap-2">{selectedAction.archived ? <Button variant="outline" onClick={restoreAction}><RotateCcw className="w-4 h-4 mr-2" />Restore</Button> : <Button variant="outline" onClick={archiveAction}><Archive className="w-4 h-4 mr-2" />Archive</Button>}<Button variant="destructive" onClick={deleteAction}><Trash2 className="w-4 h-4 mr-2" />Delete</Button></div>}</div>
       </div>}</DialogContent></Dialog>
     </div>
   );
