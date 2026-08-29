@@ -22,7 +22,6 @@ import {
   X,
   AlertCircle,
   ClipboardCheck,
-  MapPin,
   Clock,
   Save,
   Send,
@@ -35,10 +34,18 @@ import {
   CheckCircle2,
   XCircle,
   PenLine,
-  BarChart3
+  BarChart3,
+  UserCheck
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const localDateInputValue = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const RunAudit = () => {
   const navigate = useNavigate();
@@ -55,18 +62,15 @@ const RunAudit = () => {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   
-  // Active run state
   const [activeRun, setActiveRun] = useState(null);
   const [currentAudit, setCurrentAudit] = useState(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [notes, setNotes] = useState('');
-  const [location, setLocation] = useState('');
   const [selectedLineShift, setSelectedLineShift] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [currentPhotoQuestion, setCurrentPhotoQuestion] = useState(null);
   
-  // Signature state
   const [signature, setSignature] = useState(null);
   const signatureCanvasRef = useRef(null);
   const [isSignatureDrawing, setIsSignatureDrawing] = useState(false);
@@ -97,13 +101,11 @@ const RunAudit = () => {
         assigneesData = assigneesRes.data;
         setSavedRuns(savedRunsRes.data.filter(run => run.auditor_id === user?.id));
         
-        // Cache data for offline use
         await cacheData('audits', auditsData);
         await cacheData('responseGroups', groupsData);
         await cacheData('linesShifts', linesShiftsData);
         await cacheData('actionAssignees', assigneesData);
       } else {
-        // Load from cache when offline
         auditsData = await getCachedData('audits') || [];
         groupsData = await getCachedData('responseGroups') || [];
         linesShiftsData = await getCachedData('linesShifts') || [];
@@ -125,7 +127,6 @@ const RunAudit = () => {
         const audit = auditsData.find(a => a.id === runRes.data.audit_id);
         setCurrentAudit(audit);
         
-        // Restore answers
         const savedAnswers = {};
         runRes.data.answers?.forEach(a => {
           savedAnswers[a.question_id] = a;
@@ -136,7 +137,6 @@ const RunAudit = () => {
         setCurrentQuestionIndex(firstUnanswered >= 0 ? firstUnanswered : 0);
       }
     } catch (error) {
-      // Try to load from cache on any error
       const cachedAudits = await getCachedData('audits');
       const cachedGroups = await getCachedData('responseGroups');
       const cachedLinesShifts = await getCachedData('linesShifts');
@@ -173,7 +173,6 @@ const RunAudit = () => {
         toast.error('Failed to start audit');
       }
     } else {
-      // Start offline audit
       const selectedLine = linesShifts.find(l => l.id === selectedLineShift);
       const offlineRun = {
         id: `offline_${Date.now()}`,
@@ -194,8 +193,6 @@ const RunAudit = () => {
   };
 
   const getResponseOptions = (question) => {
-    // When a saved response set is selected it must take precedence over any
-    // stale custom rows retained by older versions of the audit builder.
     if (question.response_group_id) {
       const group = responseGroups.find(g => g.id === question.response_group_id);
       return group?.options || [];
@@ -207,10 +204,7 @@ const RunAudit = () => {
   };
 
   const isNegativeResponse = (option) => {
-    // Check if option is explicitly marked as negative
     if (option.is_negative) return true;
-    
-    // Check common negative keywords
     const negativeKeywords = ['fail', 'no', 'reject', 'non-compliant', 'non compliant', 'unsatisfactory', 'poor', 'bad', 'n/a'];
     const label = option.label.toLowerCase();
     return negativeKeywords.some(keyword => label.includes(keyword));
@@ -274,7 +268,6 @@ const RunAudit = () => {
     });
   };
 
-  // Signature drawing methods
   const startSignatureDrawing = (e) => {
     e.preventDefault();
     const canvas = signatureCanvasRef.current;
@@ -312,9 +305,7 @@ const RunAudit = () => {
     if (isSignatureDrawing) {
       setIsSignatureDrawing(false);
       const canvas = signatureCanvasRef.current;
-      if (canvas) {
-        setSignature(canvas.toDataURL('image/png'));
-      }
+      if (canvas) setSignature(canvas.toDataURL('image/png'));
     }
   };
 
@@ -360,22 +351,16 @@ const RunAudit = () => {
     if (!file || !currentPhotoQuestion) return;
     const questionId = currentPhotoQuestion.id;
     e.target.value = '';
-    
     setUploadingPhoto(true);
     try {
       const compressedFile = await compressAuditPhoto(file);
       const formData = new FormData();
       formData.append('file', compressedFile);
-      
-      const response = await axios.post(`${API}/upload-photo`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      
+      const response = await axios.post(`${API}/upload-photo`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
       setAnswers(prev => {
         const currentAnswer = prev[questionId] || { question_id: questionId, response_value: '', response_label: '', score: null, notes: '', photos: [] };
         return { ...prev, [questionId]: { ...currentAnswer, photos: [...(currentAnswer.photos || []), response.data.url] } };
       });
-      
       toast.success('Photo uploaded');
     } catch (error) {
       toast.error('Failed to upload photo');
@@ -388,13 +373,9 @@ const RunAudit = () => {
   const removePhoto = (questionId, photoIndex) => {
     const currentAnswer = answers[questionId];
     if (!currentAnswer) return;
-    
     setAnswers({
       ...answers,
-      [questionId]: {
-        ...currentAnswer,
-        photos: currentAnswer.photos.filter((_, i) => i !== photoIndex)
-      }
+      [questionId]: { ...currentAnswer, photos: currentAnswer.photos.filter((_, i) => i !== photoIndex) }
     });
   };
 
@@ -407,32 +388,28 @@ const RunAudit = () => {
       notes: '',
       photos: []
     };
-    
-    setAnswers({
-      ...answers,
-      [questionId]: { ...currentAnswer, notes: note }
-    });
+    setAnswers({ ...answers, [questionId]: { ...currentAnswer, notes: note } });
   };
 
   const updateActionField = (questionId, field, value) => {
     const currentAnswer = answers[questionId];
     if (!currentAnswer) return;
-    setAnswers({
-      ...answers,
-      [questionId]: { ...currentAnswer, [field]: value }
-    });
+    setAnswers({ ...answers, [questionId]: { ...currentAnswer, [field]: value } });
   };
 
-  const setActionAssigneeType = (questionId, type) => {
+  const setActionOwner = (questionId, userId) => {
     const currentAnswer = answers[questionId];
     if (!currentAnswer) return;
+    const selectedOwner = actionAssignees.find(assignee => assignee.id === userId);
     setAnswers({
       ...answers,
       [questionId]: {
         ...currentAnswer,
-        action_assignee_type: type,
-        assigned_user_id: type === 'user' ? (currentAnswer.assigned_user_id || '') : '',
-        assigned_department: type === 'department' ? (currentAnswer.assigned_department || '') : ''
+        action_assignee_type: 'user',
+        assigned_user_id: userId,
+        assigned_user_name: selectedOwner?.name || null,
+        assigned_user_email: selectedOwner?.email || null,
+        assigned_department: null,
       }
     });
   };
@@ -454,63 +431,41 @@ const RunAudit = () => {
 
   const submitAudit = async () => {
     if (!activeRun || !currentAudit) return;
-    
-    // Check required questions
-    const unanswered = currentAudit.questions.filter(q => 
-      q.required && !answers[q.id]?.response_value
-    );
-    
+    const unanswered = currentAudit.questions.filter(q => q.required && !answers[q.id]?.response_value);
     if (unanswered.length > 0) {
       toast.error(`Please answer all required questions (${unanswered.length} remaining)`);
-      const firstUnanswered = currentAudit.questions.findIndex(q => 
-        q.required && !answers[q.id]?.response_value
-      );
+      const firstUnanswered = currentAudit.questions.findIndex(q => q.required && !answers[q.id]?.response_value);
       setCurrentQuestionIndex(firstUnanswered);
       return;
     }
 
-    // Check for negative responses without comments
-    const negativeWithoutComments = Object.values(answers).filter(
-      a => a.is_negative && !a.notes?.trim()
-    );
-    
+    const negativeWithoutComments = Object.values(answers).filter(a => a.is_negative && !a.notes?.trim());
     if (negativeWithoutComments.length > 0) {
       toast.error(`Comments are required for all fail/negative responses. ${negativeWithoutComments.length} missing.`);
-      // Find and navigate to the first negative response without comment
       const firstNegativeIdx = currentAudit.questions.findIndex(q => {
         const answer = answers[q.id];
         return answer?.is_negative && !answer?.notes?.trim();
       });
-      if (firstNegativeIdx !== -1) {
-        setCurrentQuestionIndex(firstNegativeIdx);
-      }
+      if (firstNegativeIdx !== -1) setCurrentQuestionIndex(firstNegativeIdx);
       return;
     }
 
     const incompleteActions = Object.values(answers).filter(a =>
-      a.is_negative && (
-        !a.action_required?.trim() ||
-        !a.action_due_date ||
-        (!a.assigned_user_id && !a.assigned_department?.trim())
-      )
+      a.is_negative && (!a.action_required?.trim() || !a.action_due_date || !a.assigned_user_id)
     );
-
     if (incompleteActions.length > 0) {
-      toast.error(`Action required, owner and due date must be completed for every non-conformance. ${incompleteActions.length} incomplete.`);
+      toast.error(`Action required, registered action owner and due date must be completed for every non-conformance. ${incompleteActions.length} incomplete.`);
       const firstIncompleteIdx = currentAudit.questions.findIndex(q => incompleteActions.some(a => a.question_id === q.id));
       if (firstIncompleteIdx !== -1) setCurrentQuestionIndex(firstIncompleteIdx);
       return;
     }
 
-    // Check signature
     if (!signature) {
       toast.error('Please sign off the audit before submitting');
       return;
     }
-    
     setSubmitting(true);
     
-    // Handle offline submission
     if (!isOnline || activeRun.offline) {
       try {
         const offlineAuditData = {
@@ -523,28 +478,13 @@ const RunAudit = () => {
           started_at: activeRun.started_at,
           completed_at: new Date().toISOString(),
           data: {
-            start: {
-              audit_id: currentAudit.id,
-              location: activeRun.location,
-              line_shift_id: activeRun.line_shift_id || null
-            },
-            submission: {
-              answers: Object.values(answers),
-              notes,
-              completed: true,
-              signature,
-              signoff_name: user?.name,
-              signoff_email: user?.email
-            }
+            start: { audit_id: currentAudit.id, location: activeRun.location, line_shift_id: activeRun.line_shift_id || null },
+            submission: { answers: Object.values(answers), notes, completed: true, signature, signoff_name: user?.name, signoff_email: user?.email }
           }
         };
-        
         await saveOfflineAudit(offlineAuditData);
         await updatePendingCount();
-        
-        toast.success('Audit saved offline! It will sync when you\'re back online.', {
-          icon: <WifiOff className="w-4 h-4" />
-        });
+        toast.success('Audit saved offline! It will sync when you\'re back online.', { icon: <WifiOff className="w-4 h-4" /> });
         navigate('/reports');
       } catch (error) {
         toast.error('Failed to save offline audit');
@@ -554,7 +494,6 @@ const RunAudit = () => {
       return;
     }
     
-    // Online submission
     try {
       await axios.put(`${API}/run-audits/${activeRun.id}`, {
         answers: Object.values(answers),
@@ -567,7 +506,6 @@ const RunAudit = () => {
       toast.success('Audit submitted successfully!');
       navigate('/reports');
     } catch (error) {
-      // If online submission fails, save offline
       if (error.message === 'Network Error' || !navigator.onLine) {
         try {
           const offlineAuditData = {
@@ -577,25 +515,12 @@ const RunAudit = () => {
             answers: Object.values(answers),
             notes,
             data: {
-              start: {
-                audit_id: currentAudit.id,
-                location: activeRun.location,
-                line_shift_id: activeRun.line_shift_id || null
-              },
-              submission: {
-                answers: Object.values(answers),
-                notes,
-                completed: true,
-                signature,
-                signoff_name: user?.name,
-                signoff_email: user?.email
-              }
+              start: { audit_id: currentAudit.id, location: activeRun.location, line_shift_id: activeRun.line_shift_id || null },
+              submission: { answers: Object.values(answers), notes, completed: true, signature, signoff_name: user?.name, signoff_email: user?.email }
             }
           };
-          
           await saveOfflineAudit(offlineAuditData);
           await updatePendingCount();
-          
           toast.success('Audit saved offline! It will sync when you\'re back online.');
           navigate('/reports');
         } catch (offlineError) {
@@ -613,158 +538,54 @@ const RunAudit = () => {
     ? (Object.keys(answers).filter(k => answers[k]?.response_value).length / currentAudit.questions.length) * 100
     : 0;
 
-  // Audit Selection View
   if (!activeRun) {
     return (
       <div className="space-y-6" data-testid="run-audit-page">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Run Audit</h1>
-          <p className="text-muted-foreground mt-1">
-            Select an audit to begin
-          </p>
-        </div>
+        <div><h1 className="text-3xl font-bold tracking-tight">Run Audit</h1><p className="text-muted-foreground mt-1">Select an audit to begin</p></div>
 
-        {/* Offline Banner */}
         {!isOnline && (
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
-            <div className="flex items-center gap-3">
-              <WifiOff className="w-5 h-5 text-amber-500" />
-              <div>
-                <p className="font-medium text-amber-500">Offline Mode</p>
-                <p className="text-sm text-muted-foreground">
-                  You can still run audits. They will sync automatically when you&apos;re back online.
-                </p>
-              </div>
-            </div>
+            <div className="flex items-center gap-3"><WifiOff className="w-5 h-5 text-amber-500" /><div><p className="font-medium text-amber-500">Offline Mode</p><p className="text-sm text-muted-foreground">You can still run audits. They will sync automatically when you&apos;re back online.</p></div></div>
           </div>
         )}
 
         {isOnline && savedRuns.length > 0 && (
           <Card className="border-primary/30">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2"><Save className="w-5 h-5" />Saved Audits</CardTitle>
-              <CardDescription>Continue an audit you saved earlier.</CardDescription>
-            </CardHeader>
+            <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Save className="w-5 h-5" />Saved Audits</CardTitle><CardDescription>Continue an audit you saved earlier.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
               {savedRuns.map(run => (
-                <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-3">
-                  <div>
-                    <p className="font-medium">{run.audit_name}</p>
-                    <p className="text-xs text-muted-foreground">Started {new Date(run.started_at).toLocaleString('en-GB')}</p>
-                  </div>
-                  <Button onClick={() => navigate(`/run-audit/${run.id}`)} data-testid={`continue-audit-${run.id}`}><Play className="w-4 h-4 mr-2" />Continue Audit</Button>
-                </div>
+                <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-3"><div><p className="font-medium">{run.audit_name}</p><p className="text-xs text-muted-foreground">Started {new Date(run.started_at).toLocaleString('en-GB')}</p></div><Button onClick={() => navigate(`/run-audit/${run.id}`)} data-testid={`continue-audit-${run.id}`}><Play className="w-4 h-4 mr-2" />Continue Audit</Button></div>
               ))}
             </CardContent>
           </Card>
         )}
 
-        {/* Location and Line/Shift Input */}
         <Card>
           <CardContent className="pt-6 space-y-4">
-            
             {linesShifts.length > 0 && (
-              <div className="flex items-center gap-4">
-                <Layers className="w-5 h-5 text-muted-foreground" />
-                <div className="flex-1">
-                  <Select
-                    value={selectedLineShift || "none"}
-                    onValueChange={(value) => setSelectedLineShift(value === "none" ? "" : value)}
-                  >
-                    <SelectTrigger data-testid="line-shift-select">
-                      <SelectValue placeholder="Select line/shift (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">No Line/Shift</SelectItem>
-                      {linesShifts.map(line => (
-                        <SelectItem key={line.id} value={line.id}>
-                          {line.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              <div className="flex items-center gap-4"><Layers className="w-5 h-5 text-muted-foreground" /><div className="flex-1"><Select value={selectedLineShift || "none"} onValueChange={(value) => setSelectedLineShift(value === "none" ? "" : value)}><SelectTrigger data-testid="line-shift-select"><SelectValue placeholder="Select line/shift (optional)" /></SelectTrigger><SelectContent><SelectItem value="none">No Line/Shift</SelectItem>{linesShifts.map(line => <SelectItem key={line.id} value={line.id}>{line.title}</SelectItem>)}</SelectContent></Select></div></div>
             )}
           </CardContent>
         </Card>
 
-        {/* Audit List */}
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1, 2, 3].map(i => (
-              <Card key={i}>
-                <CardContent className="p-6">
-                  <Skeleton className="h-6 w-3/4 mb-2" />
-                  <Skeleton className="h-4 w-1/2 mb-4" />
-                  <Skeleton className="h-10 w-full" />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{[1, 2, 3].map(i => <Card key={i}><CardContent className="p-6"><Skeleton className="h-6 w-3/4 mb-2" /><Skeleton className="h-4 w-1/2 mb-4" /><Skeleton className="h-10 w-full" /></CardContent></Card>)}</div>
         ) : audits.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {audits.map((audit) => (
               <Card key={audit.id} className="hover:border-primary transition-colors" data-testid={`audit-card-${audit.id}`}>
-                <CardHeader className="cursor-pointer" onClick={() => navigate(`/audits/${audit.id}`)}>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{audit.name}</CardTitle>
-                    <BarChart3 className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                  {audit.audit_type_name && (
-                    <Badge variant="secondary">{audit.audit_type_name}</Badge>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-                    {audit.description || 'No description'}
-                  </p>
-                  <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
-                    <span>{audit.questions.length} questions</span>
-                    {audit.pass_rate && (
-                      <span>Pass rate: {audit.pass_rate}%</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button 
-                      className="flex-1" 
-                      onClick={() => startAudit(audit)}
-                      data-testid={`start-audit-${audit.id}`}
-                    >
-                      <Play className="w-4 h-4 mr-2" />
-                      Start Audit
-                    </Button>
-                    {isAuditCreator() && (
-                      <Button 
-                        variant="outline"
-                        size="icon"
-                        onClick={() => navigate(`/create-audit/${audit.id}`)}
-                        data-testid={`edit-audit-${audit.id}`}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
+                <CardHeader className="cursor-pointer" onClick={() => navigate(`/audits/${audit.id}`)}><div className="flex items-center justify-between"><CardTitle className="text-lg">{audit.name}</CardTitle><BarChart3 className="w-4 h-4 text-muted-foreground" /></div>{audit.audit_type_name && <Badge variant="secondary">{audit.audit_type_name}</Badge>}</CardHeader>
+                <CardContent><p className="text-sm text-muted-foreground mb-4 line-clamp-2">{audit.description || 'No description'}</p><div className="flex items-center justify-between text-sm text-muted-foreground mb-4"><span>{audit.questions.length} questions</span>{audit.pass_rate && <span>Pass rate: {audit.pass_rate}%</span>}</div><div className="flex items-center gap-2"><Button className="flex-1" onClick={() => startAudit(audit)} data-testid={`start-audit-${audit.id}`}><Play className="w-4 h-4 mr-2" />Start Audit</Button>{isAuditCreator() && <Button variant="outline" size="icon" onClick={() => navigate(`/create-audit/${audit.id}`)} data-testid={`edit-audit-${audit.id}`}><Pencil className="w-4 h-4" /></Button>}</div></CardContent>
               </Card>
             ))}
           </div>
         ) : (
-          <Card className="border-dashed">
-            <CardContent className="py-12 text-center">
-              <ClipboardCheck className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-              <p className="text-muted-foreground mb-4">No audits available</p>
-              <Button variant="outline" onClick={() => navigate('/create-audit')}>
-                Create Your First Audit
-              </Button>
-            </CardContent>
-          </Card>
+          <Card className="border-dashed"><CardContent className="py-12 text-center"><ClipboardCheck className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" /><p className="text-muted-foreground mb-4">No audits available</p><Button variant="outline" onClick={() => navigate('/create-audit')}>Create Your First Audit</Button></CardContent></Card>
         )}
       </div>
     );
   }
 
-  // Active Audit View
   const currentQuestion = currentAudit?.questions[currentQuestionIndex];
   const options = currentQuestion ? getResponseOptions(currentQuestion) : [];
   const currentAnswer = currentQuestion ? answers[currentQuestion.id] : null;
@@ -772,500 +593,89 @@ const RunAudit = () => {
 
   return (
     <div className="space-y-4" data-testid="active-audit">
-      {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/run-audit')}>
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-          <div>
-            <h1 className="text-xl font-bold">{currentAudit?.name}</h1>
-            <p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
-              <Clock className="w-3 h-3" />
-              Started {new Date(activeRun.started_at).toLocaleTimeString()}
-              {activeRun.line_shift_title && (
-                <>
-                  <span>•</span>
-                  <Layers className="w-3 h-3" />
-                  {activeRun.line_shift_title}
-                </>
-              )}
-            </p>
-          </div>
-        </div>
-        <Button variant="outline" onClick={() => saveProgress(true)} data-testid="save-progress-btn">
-          <Save className="w-4 h-4 mr-2" />
-          Save & Exit
-        </Button>
+        <div className="flex items-center gap-4"><Button variant="ghost" size="sm" onClick={() => navigate('/run-audit')}><ArrowLeft className="w-4 h-4" /></Button><div><h1 className="text-xl font-bold">{currentAudit?.name}</h1><p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap"><Clock className="w-3 h-3" />Started {new Date(activeRun.started_at).toLocaleTimeString()}{activeRun.line_shift_title && <><span>•</span><Layers className="w-3 h-3" />{activeRun.line_shift_title}</>}</p></div></div>
+        <Button variant="outline" onClick={() => saveProgress(true)} data-testid="save-progress-btn"><Save className="w-4 h-4 mr-2" />Save & Exit</Button>
       </div>
 
-      {/* Progress */}
-      <Card>
-        <CardContent className="py-4">
-          <div className="flex items-center justify-between text-sm mb-2">
-            <span>Question {currentQuestionIndex + 1} of {currentAudit?.questions.length}</span>
-            <span>{Math.round(progress)}% complete</span>
-          </div>
-          <Progress value={progress} className="h-2" />
-        </CardContent>
-      </Card>
+      <Card><CardContent className="py-4"><div className="flex items-center justify-between text-sm mb-2"><span>Question {currentQuestionIndex + 1} of {currentAudit?.questions.length}</span><span>{Math.round(progress)}% complete</span></div><Progress value={progress} className="h-2" /></CardContent></Card>
 
-      {/* Current Question */}
       {currentQuestion && (
         <Card className="animate-fadeIn">
           <CardHeader>
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <Badge variant={currentQuestion.required ? 'default' : 'secondary'}>
-                    {currentQuestion.required ? 'Required' : 'Optional'}
-                  </Badge>
-                  {questionType === 'text' && (
-                    <Badge variant="outline" className="gap-1">
-                      <Type className="w-3 h-3" />
-                      Text
-                    </Badge>
-                  )}
-                  {questionType === 'number' && (
-                    <Badge variant="outline" className="gap-1">
-                      <Hash className="w-3 h-3" />
-                      Number
-                    </Badge>
-                  )}
-                  {questionType === 'alphanumeric' && (
-                    <Badge variant="outline" className="gap-1">
-                      <TextCursorInput className="w-3 h-3" />
-                      Alphanumeric
-                    </Badge>
-                  )}
-                </div>
-                <CardTitle className="text-xl">{currentQuestion.text}</CardTitle>
-              </div>
-              <span className="text-sm text-muted-foreground">#{currentQuestionIndex + 1}</span>
-            </div>
+            <div className="flex items-start justify-between"><div><div className="flex items-center gap-2 mb-2"><Badge variant={currentQuestion.required ? 'default' : 'secondary'}>{currentQuestion.required ? 'Required' : 'Optional'}</Badge>{questionType === 'text' && <Badge variant="outline" className="gap-1"><Type className="w-3 h-3" />Text</Badge>}{questionType === 'number' && <Badge variant="outline" className="gap-1"><Hash className="w-3 h-3" />Number</Badge>}{questionType === 'alphanumeric' && <Badge variant="outline" className="gap-1"><TextCursorInput className="w-3 h-3" />Alphanumeric</Badge>}</div><CardTitle className="text-xl">{currentQuestion.text}</CardTitle></div><span className="text-sm text-muted-foreground">#{currentQuestionIndex + 1}</span></div>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Response Options - For response_group type only */}
             {questionType === 'response_group' && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {options.map((option, i) => (
-                  <Button
-                    key={i}
-                    variant={currentAnswer?.response_value === option.value ? 'default' : 'outline'}
-                    className={`h-auto py-4 px-3 flex flex-col items-center gap-1 ${
-                      currentAnswer?.response_value === option.value 
-                        ? option.label.toLowerCase().includes('pass') || option.label.toLowerCase().includes('yes') || option.label.toLowerCase().includes('accept')
-                          ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-600'
-                          : option.label.toLowerCase().includes('fail') || option.label.toLowerCase().includes('no') || option.label.toLowerCase().includes('reject')
-                          ? 'bg-red-600 hover:bg-red-700 border-red-600'
-                          : ''
-                        : ''
-                    }`}
-                    onClick={() => handleAnswer(currentQuestion, option)}
-                    data-testid={`option-${option.value}`}
-                  >
-                    <span className="font-medium">{option.label}</span>
-                    {option.score !== null && (
-                      <span className="text-xs opacity-70">Score: {option.score}</span>
-                    )}
-                  </Button>
+                  <Button key={i} variant={currentAnswer?.response_value === option.value ? 'default' : 'outline'} className={`h-auto py-4 px-3 flex flex-col items-center gap-1 ${currentAnswer?.response_value === option.value ? option.label.toLowerCase().includes('pass') || option.label.toLowerCase().includes('yes') || option.label.toLowerCase().includes('accept') ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-600' : option.label.toLowerCase().includes('fail') || option.label.toLowerCase().includes('no') || option.label.toLowerCase().includes('reject') ? 'bg-red-600 hover:bg-red-700 border-red-600' : '' : ''}`} onClick={() => handleAnswer(currentQuestion, option)} data-testid={`option-${option.value}`}><span className="font-medium">{option.label}</span>{option.score !== null && <span className="text-xs opacity-70">Score: {option.score}</span>}</Button>
                 ))}
               </div>
             )}
 
-            {/* Text Input */}
-            {questionType === 'text' && (
-              <div className="space-y-2">
-                <Label>Your Answer</Label>
-                <Textarea
-                  placeholder="Enter your response..."
-                  value={currentAnswer?.response_value || ''}
-                  onChange={(e) => handleTextAnswer(currentQuestion, e.target.value)}
-                  rows={4}
-                  data-testid="text-answer-input"
-                />
-              </div>
-            )}
+            {questionType === 'text' && <div className="space-y-2"><Label>Your Answer</Label><Textarea placeholder="Enter your response..." value={currentAnswer?.response_value || ''} onChange={(e) => handleTextAnswer(currentQuestion, e.target.value)} rows={4} data-testid="text-answer-input" /></div>}
+            {questionType === 'number' && <div className="space-y-2"><Label>Your Answer (Numbers only)</Label><Input type="number" placeholder="Enter a number..." value={currentAnswer?.response_value || ''} onChange={(e) => handleTextAnswer(currentQuestion, e.target.value)} data-testid="number-answer-input" className="text-lg" /></div>}
+            {questionType === 'alphanumeric' && <div className="space-y-2"><Label>Your Answer (Letters & Numbers)</Label><Input placeholder="Enter value (e.g., batch code, serial number)..." value={currentAnswer?.response_value || ''} onChange={(e) => handleTextAnswer(currentQuestion, e.target.value.replace(/[^a-zA-Z0-9\s-]/g, ''))} data-testid="alphanumeric-answer-input" className="text-lg" /><p className="text-xs text-muted-foreground">Only letters, numbers, spaces, and hyphens are allowed</p></div>}
 
-            {/* Number Input */}
-            {questionType === 'number' && (
-              <div className="space-y-2">
-                <Label>Your Answer (Numbers only)</Label>
-                <Input
-                  type="number"
-                  placeholder="Enter a number..."
-                  value={currentAnswer?.response_value || ''}
-                  onChange={(e) => handleTextAnswer(currentQuestion, e.target.value)}
-                  data-testid="number-answer-input"
-                  className="text-lg"
-                />
-              </div>
-            )}
-
-            {/* Alphanumeric Input */}
-            {questionType === 'alphanumeric' && (
-              <div className="space-y-2">
-                <Label>Your Answer (Letters & Numbers)</Label>
-                <Input
-                  placeholder="Enter value (e.g., batch code, serial number)..."
-                  value={currentAnswer?.response_value || ''}
-                  onChange={(e) => {
-                    // Only allow alphanumeric characters
-                    const value = e.target.value.replace(/[^a-zA-Z0-9\s-]/g, '');
-                    handleTextAnswer(currentQuestion, value);
-                  }}
-                  data-testid="alphanumeric-answer-input"
-                  className="text-lg"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Only letters, numbers, spaces, and hyphens are allowed
-                </p>
-              </div>
-            )}
-
-            {/* Pass/Fail Toggle for text-based questions */}
             {questionType !== 'response_group' && (
-              <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg" data-testid="pass-fail-toggle">
-                <Label className="text-sm font-medium">Assessment:</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant={currentAnswer?.pass_fail === 'pass' ? 'default' : 'outline'}
-                    size="sm"
-                    className={currentAnswer?.pass_fail === 'pass' ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white' : ''}
-                    onClick={() => handlePassFail(currentQuestion.id, 'pass')}
-                    data-testid="pass-btn"
-                  >
-                    <CheckCircle2 className="w-4 h-4 mr-1" />
-                    Pass
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={currentAnswer?.pass_fail === 'fail' ? 'default' : 'outline'}
-                    size="sm"
-                    className={currentAnswer?.pass_fail === 'fail' ? 'bg-red-600 hover:bg-red-700 border-red-600 text-white' : ''}
-                    onClick={() => handlePassFail(currentQuestion.id, 'fail')}
-                    data-testid="fail-btn"
-                  >
-                    <XCircle className="w-4 h-4 mr-1" />
-                    Fail
-                  </Button>
-                </div>
-              </div>
+              <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg" data-testid="pass-fail-toggle"><Label className="text-sm font-medium">Assessment:</Label><div className="flex gap-2"><Button type="button" variant={currentAnswer?.pass_fail === 'pass' ? 'default' : 'outline'} size="sm" className={currentAnswer?.pass_fail === 'pass' ? 'bg-emerald-600 hover:bg-emerald-700 border-emerald-600 text-white' : ''} onClick={() => handlePassFail(currentQuestion.id, 'pass')} data-testid="pass-btn"><CheckCircle2 className="w-4 h-4 mr-1" />Pass</Button><Button type="button" variant={currentAnswer?.pass_fail === 'fail' ? 'default' : 'outline'} size="sm" className={currentAnswer?.pass_fail === 'fail' ? 'bg-red-600 hover:bg-red-700 border-red-600 text-white' : ''} onClick={() => handlePassFail(currentQuestion.id, 'fail')} data-testid="fail-btn"><XCircle className="w-4 h-4 mr-1" />Fail</Button></div></div>
             )}
 
             {currentAnswer?.is_negative && (
-              <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50/70 p-3 dark:border-amber-900 dark:bg-amber-950/20" data-testid="repeat-nc-toggle">
-                <div>
-                  <Label htmlFor={`repeat-nc-${currentQuestion.id}`}>Repeat Non-Conformance</Label>
-                  <p className="text-xs text-muted-foreground">Counts this failure as 2 non-conformances.</p>
-                </div>
-                <input id={`repeat-nc-${currentQuestion.id}`} type="checkbox" className="h-5 w-5 accent-red-600" checked={!!currentAnswer.repeat_non_conformance} onChange={(e) => updateActionField(currentQuestion.id, 'repeat_non_conformance', e.target.checked)} />
-              </div>
+              <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50/70 p-3 dark:border-amber-900 dark:bg-amber-950/20" data-testid="repeat-nc-toggle"><div><Label htmlFor={`repeat-nc-${currentQuestion.id}`}>Repeat Non-Conformance</Label><p className="text-xs text-muted-foreground">Counts this failure as 2 non-conformances.</p></div><input id={`repeat-nc-${currentQuestion.id}`} type="checkbox" className="h-5 w-5 accent-red-600" checked={!!currentAnswer.repeat_non_conformance} onChange={(e) => updateActionField(currentQuestion.id, 'repeat_non_conformance', e.target.checked)} /></div>
             )}
 
-            {/* Photo Upload */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label>Photos</Label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  ref={fileInputRef}
-                  onChange={handlePhotoUpload}
-                  className="hidden"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setCurrentPhotoQuestion(currentQuestion);
-                    fileInputRef.current?.click();
-                  }}
-                  disabled={uploadingPhoto}
-                  data-testid="add-photo-btn"
-                >
-                  <Camera className="w-4 h-4 mr-2" />
-                  {uploadingPhoto ? 'Uploading...' : 'Add Photo'}
-                </Button>
-              </div>
-              
-              {currentAnswer?.photos?.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {currentAnswer.photos.map((photo, i) => (
-                    <div key={i} className="relative group">
-                      <img 
-                        src={photo} 
-                        alt={`Evidence ${i + 1}`}
-                        className="w-20 h-20 object-cover rounded-lg"
-                      />
-                      <button
-                        onClick={() => removePhoto(currentQuestion.id, i)}
-                        className="absolute -top-2 -right-2 w-6 h-6 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <div className="flex items-center justify-between"><Label>Photos</Label><input type="file" accept="image/*" ref={fileInputRef} onChange={handlePhotoUpload} className="hidden" /><Button variant="outline" size="sm" onClick={() => { setCurrentPhotoQuestion(currentQuestion); fileInputRef.current?.click(); }} disabled={uploadingPhoto} data-testid="add-photo-btn"><Camera className="w-4 h-4 mr-2" />{uploadingPhoto ? 'Uploading...' : 'Add Photo'}</Button></div>
+              {currentAnswer?.photos?.length > 0 && <div className="flex flex-wrap gap-2">{currentAnswer.photos.map((photo, i) => <div key={i} className="relative group"><img src={photo} alt={`Evidence ${i + 1}`} className="w-20 h-20 object-cover rounded-lg" /><button onClick={() => removePhoto(currentQuestion.id, i)} className="absolute -top-2 -right-2 w-6 h-6 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-3 h-3" /></button></div>)}</div>}
             </div>
 
-            {/* Notes */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className={currentAnswer?.is_negative && !currentAnswer?.notes?.trim() ? 'text-destructive' : ''}>
-                  {currentAnswer?.is_negative ? 'Comment (Required for negative response)' : 'Notes (Optional)'}
-                  {currentAnswer?.is_negative && !currentAnswer?.notes?.trim() && (
-                    <span className="ml-2 text-destructive">*</span>
-                  )}
-                </Label>
-                {currentAnswer?.is_negative && (
-                  <Badge variant="destructive" className="text-xs">
-                    <AlertCircle className="w-3 h-3 mr-1" />
-                    Comment Required
-                  </Badge>
-                )}
-              </div>
-              <Textarea
-                placeholder={currentAnswer?.is_negative 
-                  ? "Please explain why this item failed or did not pass..." 
-                  : "Add any notes or observations..."}
-                value={currentAnswer?.notes || ''}
-                onChange={(e) => addNoteToAnswer(currentQuestion.id, e.target.value)}
-                rows={currentAnswer?.is_negative ? 3 : 2}
-                className={currentAnswer?.is_negative && !currentAnswer?.notes?.trim() 
-                  ? 'border-destructive focus:ring-destructive' 
-                  : ''}
-                data-testid="question-notes"
-              />
+              <div className="flex items-center justify-between"><Label className={currentAnswer?.is_negative && !currentAnswer?.notes?.trim() ? 'text-destructive' : ''}>{currentAnswer?.is_negative ? 'Comment (Required for negative response)' : 'Notes (Optional)'}{currentAnswer?.is_negative && !currentAnswer?.notes?.trim() && <span className="ml-2 text-destructive">*</span>}</Label>{currentAnswer?.is_negative && <Badge variant="destructive" className="text-xs"><AlertCircle className="w-3 h-3 mr-1" />Comment Required</Badge>}</div>
+              <Textarea placeholder={currentAnswer?.is_negative ? "Please explain why this item failed or did not pass..." : "Add any notes or observations..."} value={currentAnswer?.notes || ''} onChange={(e) => addNoteToAnswer(currentQuestion.id, e.target.value)} rows={currentAnswer?.is_negative ? 3 : 2} className={currentAnswer?.is_negative && !currentAnswer?.notes?.trim() ? 'border-destructive focus:ring-destructive' : ''} data-testid="question-notes" />
             </div>
 
             {currentAnswer?.is_negative && (
               <div className="space-y-4 rounded-lg border border-red-200 bg-red-50/60 p-4 dark:border-red-900 dark:bg-red-950/20" data-testid="corrective-action-fields">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-600" />
-                    <h3 className="font-semibold">Corrective Action</h3>
-                    <Badge variant="destructive" className="text-xs">Required</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground mt-1">Create the action report for this non-conformance.</p>
-                </div>
+                <div><div className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-red-600" /><h3 className="font-semibold">Corrective Action</h3><Badge variant="destructive" className="text-xs">Required</Badge></div><p className="text-sm text-muted-foreground mt-1">Create the action and give it one accountable registered owner.</p></div>
+
+                <div className="space-y-2"><Label htmlFor={`action-required-${currentQuestion.id}`}>Action Required *</Label><Textarea id={`action-required-${currentQuestion.id}`} placeholder="What needs to be done to correct or prevent this issue?" value={currentAnswer.action_required || ''} onChange={(e) => updateActionField(currentQuestion.id, 'action_required', e.target.value)} rows={3} data-testid="action-required" /></div>
 
                 <div className="space-y-2">
-                  <Label htmlFor={`action-required-${currentQuestion.id}`}>Action Required *</Label>
-                  <Textarea
-                    id={`action-required-${currentQuestion.id}`}
-                    placeholder="What needs to be done to correct or prevent this issue?"
-                    value={currentAnswer.action_required || ''}
-                    onChange={(e) => updateActionField(currentQuestion.id, 'action_required', e.target.value)}
-                    rows={3}
-                    data-testid="action-required"
-                  />
+                  <Label>Action Owner *</Label>
+                  <Select value={currentAnswer.assigned_user_id || undefined} onValueChange={(value) => setActionOwner(currentQuestion.id, value)}>
+                    <SelectTrigger data-testid="action-assigned-user"><SelectValue placeholder="Choose a registered user..." /></SelectTrigger>
+                    <SelectContent>{actionAssignees.map((assignee) => <SelectItem key={assignee.id} value={assignee.id}>{assignee.name} ({assignee.email})</SelectItem>)}</SelectContent>
+                  </Select>
+                  {actionAssignees.length > 0 ? (
+                    <p className="text-xs text-muted-foreground flex items-start gap-1.5"><UserCheck className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />The owner will receive the assignment email and will be responsible for reviewing and signing off the action after completion.</p>
+                  ) : (
+                    <p className="text-xs text-destructive">No registered users are available from the cached/company user list. Connect to the internet or ask an administrator to add the required user before submitting this non-conformance.</p>
+                  )}
                 </div>
 
-                <div className="space-y-2">
-                  <Label>Assign To *</Label>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={(currentAnswer.action_assignee_type || 'user') === 'user' ? 'default' : 'outline'}
-                      onClick={() => setActionAssigneeType(currentQuestion.id, 'user')}
-                    >
-                      Registered User
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={currentAnswer.action_assignee_type === 'department' ? 'default' : 'outline'}
-                      onClick={() => setActionAssigneeType(currentQuestion.id, 'department')}
-                    >
-                      Department / Team
-                    </Button>
-                  </div>
-                </div>
-
-                {(currentAnswer.action_assignee_type || 'user') === 'user' ? (
-                  <div className="space-y-2">
-                    <Label>Select User</Label>
-                    <Select
-                      value={currentAnswer.assigned_user_id || undefined}
-                      onValueChange={(value) => updateActionField(currentQuestion.id, 'assigned_user_id', value)}
-                    >
-                      <SelectTrigger data-testid="action-assigned-user"><SelectValue placeholder="Choose a user..." /></SelectTrigger>
-                      <SelectContent>
-                        {actionAssignees.map((assignee) => (
-                          <SelectItem key={assignee.id} value={assignee.id}>{assignee.name} ({assignee.email})</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {!actionAssignees.length && <p className="text-xs text-muted-foreground">No registered users are available. Assign this to a department instead.</p>}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Label htmlFor={`action-department-${currentQuestion.id}`}>Department / Team</Label>
-                    <Input
-                      id={`action-department-${currentQuestion.id}`}
-                      placeholder="e.g. Engineering, Production or Hygiene"
-                      value={currentAnswer.assigned_department || ''}
-                      onChange={(e) => updateActionField(currentQuestion.id, 'assigned_department', e.target.value)}
-                      data-testid="action-assigned-department"
-                    />
-                  </div>
-                )}
-
-                <div className="space-y-2 sm:max-w-xs">
-                  <Label htmlFor={`action-due-${currentQuestion.id}`}>Due Date *</Label>
-                  <Input
-                    id={`action-due-${currentQuestion.id}`}
-                    type="date"
-                    min={new Date().toISOString().split('T')[0]}
-                    value={currentAnswer.action_due_date || ''}
-                    onChange={(e) => updateActionField(currentQuestion.id, 'action_due_date', e.target.value)}
-                    data-testid="action-due-date"
-                  />
-                </div>
+                <div className="space-y-2 sm:max-w-xs"><Label htmlFor={`action-due-${currentQuestion.id}`}>Due Date *</Label><Input id={`action-due-${currentQuestion.id}`} type="date" min={localDateInputValue()} value={currentAnswer.action_due_date || ''} onChange={(e) => updateActionField(currentQuestion.id, 'action_due_date', e.target.value)} data-testid="action-due-date" /></div>
               </div>
             )}
           </CardContent>
         </Card>
       )}
 
-      {/* Navigation */}
       <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))}
-          disabled={currentQuestionIndex === 0}
-          data-testid="prev-question-btn"
-        >
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Previous
-        </Button>
-
-        {currentQuestionIndex === (currentAudit?.questions.length || 0) - 1 ? (
-          <Button onClick={submitAudit} disabled={submitting} data-testid="submit-audit-btn">
-            <Send className="w-4 h-4 mr-2" />
-            {submitting ? 'Submitting...' : 'Submit Audit'}
-          </Button>
-        ) : (
-          <Button
-            onClick={() => setCurrentQuestionIndex(prev => Math.min((currentAudit?.questions.length || 1) - 1, prev + 1))}
-            data-testid="next-question-btn"
-          >
-            Next
-            <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
-        )}
+        <Button variant="outline" onClick={() => setCurrentQuestionIndex(prev => Math.max(0, prev - 1))} disabled={currentQuestionIndex === 0} data-testid="prev-question-btn"><ArrowLeft className="w-4 h-4 mr-2" />Previous</Button>
+        {currentQuestionIndex === (currentAudit?.questions.length || 0) - 1 ? <Button onClick={submitAudit} disabled={submitting} data-testid="submit-audit-btn"><Send className="w-4 h-4 mr-2" />{submitting ? 'Submitting...' : 'Submit Audit'}</Button> : <Button onClick={() => setCurrentQuestionIndex(prev => Math.min((currentAudit?.questions.length || 1) - 1, prev + 1))} data-testid="next-question-btn">Next<ArrowRight className="w-4 h-4 ml-2" /></Button>}
       </div>
 
-      {/* Question Overview */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Questions Overview</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {currentAudit?.questions.map((q, i) => {
-              const answer = answers[q.id];
-              const answered = answer?.response_value;
-              const failed = answer?.is_negative || answer?.pass_fail === 'fail';
-              return (
-                <button
-                  key={q.id}
-                  onClick={() => setCurrentQuestionIndex(i)}
-                  className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${
-                    failed
-                      ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                      : i === currentQuestionIndex
-                      ? 'bg-primary text-primary-foreground'
-                      : answered
-                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-                  data-testid={`question-nav-${i}`}
-                >
-                  {i + 1}
-                </button>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+      <Card><CardHeader className="pb-2"><CardTitle className="text-sm">Questions Overview</CardTitle></CardHeader><CardContent><div className="flex flex-wrap gap-2">{currentAudit?.questions.map((q, i) => { const answer = answers[q.id]; const answered = answer?.response_value; const failed = answer?.is_negative || answer?.pass_fail === 'fail'; return <button key={q.id} onClick={() => setCurrentQuestionIndex(i)} className={`w-8 h-8 rounded-md text-sm font-medium transition-colors ${failed ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' : i === currentQuestionIndex ? 'bg-primary text-primary-foreground' : answered ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`} data-testid={`question-nav-${i}`}>{i + 1}</button>; })}</div></CardContent></Card>
 
-      {/* Audit Notes */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">General Notes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Textarea
-            placeholder="Add overall audit notes..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={3}
-            data-testid="general-notes"
-          />
-        </CardContent>
-      </Card>
+      <Card><CardHeader className="pb-2"><CardTitle className="text-sm">General Notes</CardTitle></CardHeader><CardContent><Textarea placeholder="Add overall audit notes..." value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} data-testid="general-notes" /></CardContent></Card>
 
-      {/* Sign Off */}
       <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center gap-2">
-            <PenLine className="w-4 h-4 text-primary" />
-            <CardTitle className="text-sm">Sign Off</CardTitle>
-          </div>
-        </CardHeader>
+        <CardHeader className="pb-2"><div className="flex items-center gap-2"><PenLine className="w-4 h-4 text-primary" /><CardTitle className="text-sm">Sign Off</CardTitle></div></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="text-xs text-muted-foreground">Name</Label>
-              <p className="text-sm font-medium" data-testid="signoff-name">{user?.name}</p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Email</Label>
-              <p className="text-sm font-medium" data-testid="signoff-email">{user?.email}</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Signature *</Label>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={clearSignature}
-                data-testid="clear-signature-btn"
-              >
-                Clear
-              </Button>
-            </div>
-            <canvas
-              ref={signatureCanvasRef}
-              width={600}
-              height={200}
-              className="w-full border rounded-lg bg-white cursor-crosshair touch-none"
-              style={{ maxHeight: '150px' }}
-              onMouseDown={startSignatureDrawing}
-              onMouseMove={drawSignature}
-              onMouseUp={stopSignatureDrawing}
-              onMouseLeave={stopSignatureDrawing}
-              onTouchStart={startSignatureDrawing}
-              onTouchMove={drawSignature}
-              onTouchEnd={stopSignatureDrawing}
-              data-testid="signature-canvas"
-            />
-            {!signature && (
-              <p className="text-xs text-muted-foreground">
-                Draw your signature above to sign off the audit
-              </p>
-            )}
-            {signature && (
-              <p className="text-xs text-emerald-600">Signature captured</p>
-            )}
-          </div>
+          <div className="grid grid-cols-2 gap-4"><div><Label className="text-xs text-muted-foreground">Name</Label><p className="text-sm font-medium" data-testid="signoff-name">{user?.name}</p></div><div><Label className="text-xs text-muted-foreground">Email</Label><p className="text-sm font-medium" data-testid="signoff-email">{user?.email}</p></div></div>
+          <div className="space-y-2"><div className="flex items-center justify-between"><Label>Signature *</Label><Button type="button" variant="ghost" size="sm" onClick={clearSignature} data-testid="clear-signature-btn">Clear</Button></div><canvas ref={signatureCanvasRef} width={600} height={200} className="w-full border rounded-lg bg-white cursor-crosshair touch-none" style={{ maxHeight: '150px' }} onMouseDown={startSignatureDrawing} onMouseMove={drawSignature} onMouseUp={stopSignatureDrawing} onMouseLeave={stopSignatureDrawing} onTouchStart={startSignatureDrawing} onTouchMove={drawSignature} onTouchEnd={stopSignatureDrawing} data-testid="signature-canvas" />{!signature && <p className="text-xs text-muted-foreground">Draw your signature above to sign off the audit</p>}{signature && <p className="text-xs text-emerald-600">Signature captured</p>}</div>
         </CardContent>
       </Card>
     </div>
