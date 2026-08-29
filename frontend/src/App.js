@@ -6,7 +6,9 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { OfflineProvider } from "./context/OfflineContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
+import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
+import Account from "./pages/Account";
 import Configuration from "./pages/Configuration";
 import UserManagement from "./pages/UserManagement";
 import CreateAudit from "./pages/CreateAudit";
@@ -76,11 +78,18 @@ function AppRoutes() {
           <Login />
         </PublicRoute>
       } />
+      <Route path="/reset-password" element={<ResetPassword />} />
       
       {/* Protected Routes */}
       <Route path="/dashboard" element={
         <ProtectedRoute>
           <Dashboard />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/account" element={
+        <ProtectedRoute>
+          <Account />
         </ProtectedRoute>
       } />
       
