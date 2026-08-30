@@ -37,6 +37,7 @@ _REPLACED_ROUTES = {
     ("POST", "/api/auth/login"),
     ("GET", "/api/auth/me"),
     ("POST", "/api/users"),
+    ("GET", "/api/users"),
     ("POST", "/api/users/bulk-import"),
     ("GET", "/api/users/export-template"),
     ("DELETE", "/api/run-audits/{run_id}"),
