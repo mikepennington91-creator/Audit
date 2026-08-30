@@ -1,8 +1,7 @@
-const CACHE_NAME = 'infinit-audit-v2';
+const CACHE_NAME = 'infinit-audit-v3';
 const OFFLINE_QUEUE_KEY = 'offline-queue';
 
 const STATIC_ASSETS = [
-  '/',
   '/index.html',
   '/manifest.json'
 ];
@@ -14,25 +13,25 @@ const CACHEABLE_API_ROUTES = [
   '/api/traceability/templates'
 ];
 
-// Force immediate activation - skip waiting for old tabs to close
+// Force immediate activation - skip waiting for old tabs to close.
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[SW] Caching static assets');
-      return cache.addAll(STATIC_ASSETS).catch(err => {
+      console.log('[SW] Caching offline shell');
+      return cache.addAll(STATIC_ASSETS).catch((err) => {
         console.log('[SW] Some assets failed to cache:', err);
       });
     })
   );
 });
 
-// Activate event - clean old caches and take control immediately
+// Activate immediately and remove stale application caches.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames.filter(name => name !== CACHE_NAME).map(name => {
+        cacheNames.filter((name) => name !== CACHE_NAME).map((name) => {
           console.log('[SW] Deleting old cache:', name);
           return caches.delete(name);
         })
@@ -41,113 +40,140 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Handle API requests
+  // Never allow the service-worker script itself to become a cached stale copy.
+  if (url.pathname === '/service-worker.js') {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
+  // API requests keep their existing network-first/offline-queue behaviour.
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(handleApiRequest(request));
     return;
   }
 
-  // Handle static assets with cache-first strategy
-  event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(request).then((response) => {
-        // Cache successful responses
-        if (response.status === 200) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseClone);
-          });
-        }
-        return response;
-      }).catch(() => {
-        // Return offline page for navigation requests
-        if (request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-        return new Response('Offline', { status: 503 });
-      });
-    })
-  );
+  // HTML/navigation requests must be network-first. This prevents an old
+  // cached index.html from pinning users to a previous frontend deployment.
+  if (request.mode === 'navigate' || request.destination === 'document') {
+    event.respondWith(handleNavigationRequest(request));
+    return;
+  }
+
+  // Versioned JS/CSS/images can remain cache-first for fast repeat loads.
+  event.respondWith(handleStaticRequest(request));
 });
 
-// Handle API requests with network-first, cache fallback
+async function handleNavigationRequest(request) {
+  try {
+    const response = await fetch(request, { cache: 'no-store' });
+
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put('/index.html', response.clone());
+    }
+
+    return response;
+  } catch (error) {
+    const cachedShell = await caches.match('/index.html');
+    if (cachedShell) {
+      return cachedShell;
+    }
+
+    return new Response('Offline', { status: 503 });
+  }
+}
+
+async function handleStaticRequest(request) {
+  const cachedResponse = await caches.match(request);
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+
+  try {
+    const response = await fetch(request);
+
+    if (request.method === 'GET' && response.status === 200) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(request, response.clone());
+    }
+
+    return response;
+  } catch (error) {
+    return new Response('Offline', { status: 503 });
+  }
+}
+
+// Handle API requests with network-first, cache fallback.
 async function handleApiRequest(request) {
   const url = new URL(request.url);
-  
-  // For GET requests, try network first, then cache
+
+  // For GET requests, try network first, then cache.
   if (request.method === 'GET') {
     try {
       const response = await fetch(request);
-      
-      // Cache successful GET responses for cacheable routes
+
+      // Cache successful GET responses for cacheable routes.
       if (response.status === 200 && isCacheableRoute(url.pathname)) {
         const cache = await caches.open(CACHE_NAME);
-        cache.put(request, response.clone());
+        await cache.put(request, response.clone());
       }
-      
+
       return response;
     } catch (error) {
-      // Network failed, try cache
+      // Network failed, try cache.
       const cachedResponse = await caches.match(request);
       if (cachedResponse) {
         return cachedResponse;
       }
-      
-      // Return offline indicator
+
       return new Response(
         JSON.stringify({ offline: true, message: 'You are offline' }),
-        { 
+        {
           status: 503,
           headers: { 'Content-Type': 'application/json' }
         }
       );
     }
   }
-  
-  // For POST/PUT/DELETE requests, queue if offline
+
+  // For POST/PUT/DELETE requests, queue if offline.
   if (['POST', 'PUT', 'DELETE'].includes(request.method)) {
     try {
-      const response = await fetch(request);
-      return response;
+      return await fetch(request);
     } catch (error) {
-      // Queue the request for later sync
       await queueOfflineRequest(request);
-      
+
       return new Response(
-        JSON.stringify({ 
-          offline: true, 
+        JSON.stringify({
+          offline: true,
           queued: true,
-          message: 'Request queued for sync when online' 
+          message: 'Request queued for sync when online'
         }),
-        { 
+        {
           status: 202,
           headers: { 'Content-Type': 'application/json' }
         }
       );
     }
   }
-  
+
   return fetch(request);
 }
 
 function isCacheableRoute(pathname) {
-  return CACHEABLE_API_ROUTES.some(route => pathname.startsWith(route));
+  return CACHEABLE_API_ROUTES.some((route) => pathname.startsWith(route));
 }
 
-// Queue offline requests in IndexedDB
+// Queue offline requests in IndexedDB.
 async function queueOfflineRequest(request) {
   const db = await openDB();
-  const tx = db.transaction('offline-queue', 'readwrite');
-  const store = tx.objectStore('offline-queue');
-  
+  const tx = db.transaction(OFFLINE_QUEUE_KEY, 'readwrite');
+  const store = tx.objectStore(OFFLINE_QUEUE_KEY);
+
   const requestData = {
     id: Date.now(),
     url: request.url,
@@ -156,12 +182,11 @@ async function queueOfflineRequest(request) {
     body: await request.clone().text(),
     timestamp: new Date().toISOString()
   };
-  
+
   await store.add(requestData);
-  
-  // Notify clients about queued request
-  self.clients.matchAll().then(clients => {
-    clients.forEach(client => {
+
+  self.clients.matchAll().then((clients) => {
+    clients.forEach((client) => {
       client.postMessage({
         type: 'OFFLINE_REQUEST_QUEUED',
         data: requestData
@@ -170,21 +195,20 @@ async function queueOfflineRequest(request) {
   });
 }
 
-// Open IndexedDB
 function openDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('infinit-audit-offline', 1);
-    
+
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
-    
+
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      
-      if (!db.objectStoreNames.contains('offline-queue')) {
-        db.createObjectStore('offline-queue', { keyPath: 'id' });
+
+      if (!db.objectStoreNames.contains(OFFLINE_QUEUE_KEY)) {
+        db.createObjectStore(OFFLINE_QUEUE_KEY, { keyPath: 'id' });
       }
-      
+
       if (!db.objectStoreNames.contains('offline-audits')) {
         db.createObjectStore('offline-audits', { keyPath: 'id' });
       }
@@ -192,7 +216,7 @@ function openDB() {
   });
 }
 
-// Sync event - process queued requests when back online
+// Sync event - process queued requests when back online.
 self.addEventListener('sync', (event) => {
   if (event.tag === 'sync-offline-requests') {
     event.waitUntil(syncOfflineRequests());
@@ -201,10 +225,10 @@ self.addEventListener('sync', (event) => {
 
 async function syncOfflineRequests() {
   const db = await openDB();
-  const tx = db.transaction('offline-queue', 'readwrite');
-  const store = tx.objectStore('offline-queue');
+  const tx = db.transaction(OFFLINE_QUEUE_KEY, 'readwrite');
+  const store = tx.objectStore(OFFLINE_QUEUE_KEY);
   const requests = await store.getAll();
-  
+
   for (const requestData of requests) {
     try {
       const response = await fetch(requestData.url, {
@@ -212,14 +236,12 @@ async function syncOfflineRequests() {
         headers: requestData.headers,
         body: requestData.body
       });
-      
+
       if (response.ok) {
-        // Remove from queue on success
         await store.delete(requestData.id);
-        
-        // Notify clients
-        self.clients.matchAll().then(clients => {
-          clients.forEach(client => {
+
+        self.clients.matchAll().then((clients) => {
+          clients.forEach((client) => {
             client.postMessage({
               type: 'OFFLINE_REQUEST_SYNCED',
               data: requestData
@@ -233,13 +255,12 @@ async function syncOfflineRequests() {
   }
 }
 
-// Listen for messages from clients
 self.addEventListener('message', (event) => {
-  if (event.data.type === 'SKIP_WAITING') {
+  if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
-  
-  if (event.data.type === 'SYNC_NOW') {
+
+  if (event.data?.type === 'SYNC_NOW') {
     syncOfflineRequests();
   }
 });
