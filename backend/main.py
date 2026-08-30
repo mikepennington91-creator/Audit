@@ -4,7 +4,7 @@ import asyncio
 import os
 from contextlib import suppress
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 import server as legacy
@@ -33,8 +33,18 @@ app.include_router(reminders_router)
 app.include_router(report_email_router)
 app.include_router(schedules_router)
 
+
+@app.post("/api/auth/register")
+async def public_registration_disabled():
+    raise HTTPException(
+        status_code=403,
+        detail="Public registration is disabled. Ask your Infinit Audit administrator to create your account.",
+    )
+
+
 _REPLACED_ROUTES = {
     ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/register"),
     ("GET", "/api/auth/me"),
     ("POST", "/api/users"),
     ("GET", "/api/users"),
