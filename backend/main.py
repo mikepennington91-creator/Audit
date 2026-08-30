@@ -4,8 +4,9 @@ import asyncio
 import os
 from contextlib import suppress
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 
 import server as legacy
 from app_core.account_auth import router as account_router
@@ -40,6 +41,57 @@ async def public_registration_disabled():
         status_code=403,
         detail="Public registration is disabled. Ask your Infinit Audit administrator to create your account.",
     )
+
+
+_TEMP_PASSWORD_EXEMPT_PATHS = {
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/me",
+    "/api/auth/change-temporary-password",
+    "/api/auth/password-reset/request",
+    "/api/auth/password-reset/confirm",
+}
+
+
+@app.middleware("http")
+async def enforce_temporary_password_change(request: Request, call_next):
+    """Keep first-login sessions restricted to the password-change flow.
+
+    The frontend redirects these users too, but this API boundary prevents a
+    temporary-password session from bypassing that requirement with direct API
+    calls.
+    """
+    if request.method == "OPTIONS" or request.url.path in _TEMP_PASSWORD_EXEMPT_PATHS:
+        return await call_next(request)
+
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        try:
+            payload = legacy.jwt.decode(
+                token,
+                legacy.JWT_SECRET,
+                algorithms=[legacy.JWT_ALGORITHM],
+            )
+            user_id = payload.get("sub")
+            if user_id:
+                user = await legacy.db.users.find_one(
+                    {"id": user_id}, {"_id": 0, "password": 0}
+                )
+                if user and user.get("must_change_password"):
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "detail": "You must change your temporary password before using Infinit Audit.",
+                            "code": "temporary_password_change_required",
+                        },
+                    )
+        except (legacy.jwt.ExpiredSignatureError, legacy.jwt.InvalidTokenError):
+            # Existing endpoint dependencies remain responsible for returning
+            # the normal authentication error for invalid/expired sessions.
+            pass
+
+    return await call_next(request)
 
 
 _REPLACED_ROUTES = {
