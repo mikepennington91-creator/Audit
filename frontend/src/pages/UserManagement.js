@@ -13,7 +13,7 @@ import { Skeleton } from '../components/ui/skeleton';
 import { Checkbox } from '../components/ui/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
 import { toast } from 'sonner';
-import { Building2, Crown, Download, Info, Pencil, Plus, Shield, Trash2, Upload, UserCircle, Users } from 'lucide-react';
+import { Building2, Crown, Download, Info, KeyRound, Mail, Pencil, Plus, Shield, Trash2, Upload, UserCircle, Users } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const DEFAULT_ACCESS = {
@@ -111,14 +111,14 @@ const UserManagement = () => {
         company_id: selectedCompanyId,
         feature_access: form.is_admin ? { ...FULL_ACCESS } : form.feature_access,
       };
-      if (form.password) payload.password = form.password;
 
       if (editingUser) {
+        if (form.password) payload.password = form.password;
         await axios.put(`${API}/users/${editingUser.id}`, payload);
         toast.success('User updated successfully');
       } else {
-        await axios.post(`${API}/users`, { ...payload, email: form.email, password: form.password });
-        toast.success('User created successfully');
+        const response = await axios.post(`${API}/users`, { ...payload, email: form.email });
+        toast.success(response.data?.message || 'User created and temporary password emailed successfully');
       }
       setDialogOpen(false);
       resetForm();
@@ -169,7 +169,7 @@ const UserManagement = () => {
       const response = await axios.post(`${API}/users/bulk-import`, body, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      toast.success(`${response.data.success} users imported successfully`);
+      toast.success(`${response.data.success} users imported and welcome emails sent`);
       if (response.data.failed) toast.error(`${response.data.failed} users failed to import`);
       await fetchData();
     } catch (error) {
@@ -254,28 +254,48 @@ const UserManagement = () => {
                       </div>
                     )}
                   </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="user-password">{editingUser ? 'New Password (optional)' : 'Password'}</Label>
-                      <Input id="user-password" type="password" minLength={6} required={!editingUser} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+
+                  {!editingUser ? (
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+                      <div className="flex items-start gap-3">
+                        <Mail className="h-5 w-5 text-primary mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium">Temporary password will be generated automatically</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            The user will receive their temporary sign-in details by email and must create a new password before they can use Infinit Audit.
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="space-y-2 rounded-lg border p-3">
-                      <label htmlFor="user-admin" className="flex items-center gap-3 cursor-pointer">
-                        <Checkbox
-                          id="user-admin"
-                          checked={form.is_admin}
-                          disabled={form.is_admin && lastAdminLocked}
-                          onCheckedChange={(checked) => setForm({ ...form, is_admin: checked === true })}
-                        />
-                        <span className="text-sm font-medium">Administrator</span>
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        {form.is_admin && lastAdminLocked
-                          ? 'Assign another administrator before downgrading this account.'
-                          : 'Administrators have full access to every feature.'}
-                      </p>
+                  ) : (
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="user-password">New Password (optional)</Label>
+                        <Input id="user-password" type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                      </div>
+                      <div className="space-y-2 rounded-lg border p-3">
+                        <div className="flex items-start gap-2 text-sm"><KeyRound className="h-4 w-4 mt-0.5" /><span>Use this only when an administrator needs to reset an existing account password.</span></div>
+                      </div>
                     </div>
+                  )}
+
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <label htmlFor="user-admin" className="flex items-center gap-3 cursor-pointer">
+                      <Checkbox
+                        id="user-admin"
+                        checked={form.is_admin}
+                        disabled={form.is_admin && lastAdminLocked}
+                        onCheckedChange={(checked) => setForm({ ...form, is_admin: checked === true })}
+                      />
+                      <span className="text-sm font-medium">Administrator</span>
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      {form.is_admin && lastAdminLocked
+                        ? 'Assign another administrator before downgrading this account.'
+                        : 'Administrators have full access to every feature.'}
+                    </p>
                   </div>
+
                   {isSystemAdmin && (
                     <div className="space-y-2">
                       <Label>Company</Label>
@@ -331,7 +351,7 @@ const UserManagement = () => {
                   </div>
                   <div className="flex gap-3 pt-2">
                     <Button type="button" variant="outline" className="flex-1" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                    <Button type="submit" className="flex-1">{editingUser ? 'Update User' : 'Create User'}</Button>
+                    <Button type="submit" className="flex-1">{editingUser ? 'Update User' : 'Create & Email User'}</Button>
                   </div>
                 </form>
               </DialogContent>
@@ -362,6 +382,7 @@ const UserManagement = () => {
                           <div className="font-medium">{user.name}</div>
                           <div className="text-sm text-muted-foreground">{user.email}</div>
                           {user.company_name && <div className="text-xs text-muted-foreground flex items-center gap-1 mt-1"><Building2 className="w-3 h-3" />{user.company_name}</div>}
+                          {user.must_change_password && <Badge variant="outline" className="mt-2 gap-1"><KeyRound className="w-3 h-3" />Password change required</Badge>}
                         </TableCell>
                         <TableCell><Badge variant={fullAccess ? 'default' : 'outline'} className="gap-1">{roleIcon(user.role)}{roleName(user.role)}</Badge></TableCell>
                         <TableCell>

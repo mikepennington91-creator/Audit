@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import os
 import smtplib
@@ -15,6 +16,12 @@ import server as legacy
 
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_EMAIL_LOGO_URL = (
+    "https://customer-assets.emergentagent.com/"
+    "job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/"
+    "pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png"
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +58,54 @@ def public_app_url() -> str:
     return os.environ.get("APP_PUBLIC_URL", "https://www.infinit-audit.co.uk").rstrip("/")
 
 
+def _branded_html(subject: str, body: str) -> str:
+    """Wrap application email content in one consistent, email-client-safe shell."""
+    app_url = public_app_url()
+    privacy_url = f"{app_url}/privacy"
+    logo_url = os.environ.get("EMAIL_LOGO_URL", DEFAULT_EMAIL_LOGO_URL)
+    safe_subject = html.escape(subject)
+    safe_logo_url = html.escape(logo_url, quote=True)
+    safe_app_url = html.escape(app_url, quote=True)
+    safe_privacy_url = html.escape(privacy_url, quote=True)
+
+    return f"""<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f3f6f6;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f3f6f6;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #e1e7e6;box-shadow:0 4px 16px rgba(20,45,50,.06);">
+            <tr>
+              <td style="padding:24px 30px 18px;border-bottom:4px solid #17877d;text-align:center;">
+                <a href="{safe_app_url}" style="text-decoration:none;display:inline-block;">
+                  <img src="{safe_logo_url}" alt="Infinit Audit" style="display:block;max-width:220px;max-height:72px;width:auto;height:auto;margin:0 auto;border:0;" />
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:30px;line-height:1.55;font-size:15px;">
+                <div style="font-size:20px;font-weight:700;margin:0 0 20px;color:#172033;">{safe_subject}</div>
+                {body}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 30px;background:#f7faf9;border-top:1px solid #e1e7e6;text-align:center;font-size:12px;line-height:1.6;color:#667085;">
+                <div>This is an automated service email from Infinit Audit.</div>
+                <div style="margin-top:6px;">
+                  <a href="{safe_privacy_url}" style="color:#17877d;text-decoration:underline;">Privacy Policy</a>
+                  &nbsp;&middot;&nbsp;
+                  <a href="{safe_app_url}" style="color:#17877d;text-decoration:underline;">Infinit Audit</a>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>"""
+
+
 def _build_message(
     *,
     to_email: str,
@@ -62,14 +117,15 @@ def _build_message(
     username = os.environ.get("SMTP_USERNAME", "")
     from_email = os.environ.get("SMTP_FROM_EMAIL") or username or "info@infinit-audit.co.uk"
     from_name = os.environ.get("SMTP_FROM_NAME", "Infinit Audit")
+    privacy_url = f"{public_app_url()}/privacy"
 
     message = EmailMessage()
     message["From"] = formataddr((from_name, from_email))
     message["To"] = to_email
     message["Subject"] = subject
-    message.set_content(text_body)
+    message.set_content(f"{text_body.rstrip()}\n\nPrivacy Policy: {privacy_url}\n")
     if html_body:
-        message.add_alternative(html_body, subtype="html")
+        message.add_alternative(_branded_html(subject, html_body), subtype="html")
 
     for attachment in attachments:
         message.add_attachment(

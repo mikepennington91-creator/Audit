@@ -11,8 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server as legacy  # noqa: E402
 from app_core.account_auth import _hash_reset_token  # noqa: E402
 from app_core.actions import action_display_status  # noqa: E402
+from app_core.email_service import _branded_html  # noqa: E402
 from app_core.report_email import _audit_run_access_allowed  # noqa: E402
 from app_core.schedules import schedule_access_allowed, scheduled_date  # noqa: E402
+from app_core.user_lifecycle import _temporary_password  # noqa: E402
 from main import app  # noqa: E402
 
 
@@ -99,6 +101,25 @@ def test_password_reset_tokens_are_stored_as_hashes_not_raw_values():
     assert digest == _hash_reset_token(raw)
 
 
+def test_temporary_password_has_required_character_mix():
+    password = _temporary_password()
+
+    assert len(password) >= 14
+    assert any(character.isupper() for character in password)
+    assert any(character.islower() for character in password)
+    assert any(character.isdigit() for character in password)
+    assert any(character in "!@#$%" for character in password)
+
+
+def test_branded_email_shell_contains_logo_and_privacy_link():
+    markup = _branded_html("Test message", "<p>Hello</p>")
+
+    assert "Infinit Audit" in markup
+    assert "<img" in markup
+    assert "/privacy" in markup
+    assert "Test message" in markup
+
+
 def test_modular_entrypoint_has_single_replacement_route_for_critical_endpoints():
     def route_count(method, path):
         return sum(
@@ -108,6 +129,12 @@ def test_modular_entrypoint_has_single_replacement_route_for_critical_endpoints(
             and method in (getattr(route, "methods", None) or set())
         )
 
+    assert route_count("POST", "/api/auth/login") == 1
+    assert route_count("GET", "/api/auth/me") == 1
+    assert route_count("POST", "/api/users") == 1
+    assert route_count("GET", "/api/users") == 1
+    assert route_count("POST", "/api/users/bulk-import") == 1
+    assert route_count("DELETE", "/api/run-audits/{run_id}") == 1
     assert route_count("PUT", "/api/run-audits/{run_id}") == 1
     assert route_count("GET", "/api/actions") == 1
     assert route_count("POST", "/api/scheduled-audits") == 1
@@ -125,6 +152,7 @@ def test_new_account_notification_and_email_routes_are_registered():
 
     assert ("POST", "/api/auth/password-reset/request") in routes
     assert ("POST", "/api/auth/password-reset/confirm") in routes
+    assert ("POST", "/api/auth/change-temporary-password") in routes
     assert ("GET", "/api/notifications/unread-count") in routes
     assert ("POST", "/api/reports/audit-runs/{run_id}/email") in routes
     assert ("GET", "/api/schedule-assignees") in routes
