@@ -61,6 +61,7 @@ const RunAudit = () => {
   const [savedRuns, setSavedRuns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [exiting, setExiting] = useState(false);
   
   const [activeRun, setActiveRun] = useState(null);
   const [currentAudit, setCurrentAudit] = useState(null);
@@ -414,18 +415,55 @@ const RunAudit = () => {
     });
   };
 
+  const leaveActiveRun = () => {
+    setActiveRun(null);
+    setCurrentAudit(null);
+    setCurrentQuestionIndex(0);
+    setAnswers({});
+    setNotes('');
+    setSignature(null);
+    setSelectedLineShift('');
+    navigate('/run-audit', { replace: true });
+  };
+
+  const cancelAudit = async () => {
+    if (!activeRun || exiting) return;
+    const confirmed = window.confirm(
+      'Cancel this audit? Any unsaved answers will be discarded. Use Save & Exit if you want to continue it later.'
+    );
+    if (!confirmed) return;
+
+    setExiting(true);
+    try {
+      if (!activeRun.offline) {
+        await axios.delete(`${API}/run-audits/${activeRun.id}`, {
+          data: { reason: 'Cancelled by auditor' }
+        });
+      }
+      toast.success('Audit cancelled');
+      leaveActiveRun();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to cancel audit');
+    } finally {
+      setExiting(false);
+    }
+  };
+
   const saveProgress = async (exitAfterSave = false) => {
-    if (!activeRun) return;
+    if (!activeRun || exiting) return;
     if (!isOnline || activeRun.offline) {
       toast.info('Connect to the internet to save this audit as a resumable draft.');
       return;
     }
+    setExiting(exitAfterSave);
     try {
       await axios.put(`${API}/run-audits/${activeRun.id}`, { answers: Object.values(answers), notes, completed: false });
       toast.success(exitAfterSave ? 'Audit saved. You can continue it later.' : 'Progress saved');
-      if (exitAfterSave) navigate('/run-audit');
+      if (exitAfterSave) leaveActiveRun();
     } catch (error) {
       toast.error('Failed to save progress');
+    } finally {
+      setExiting(false);
     }
   };
 
@@ -593,9 +631,22 @@ const RunAudit = () => {
 
   return (
     <div className="space-y-4" data-testid="active-audit">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4"><Button variant="ghost" size="sm" onClick={() => navigate('/run-audit')}><ArrowLeft className="w-4 h-4" /></Button><div><h1 className="text-xl font-bold">{currentAudit?.name}</h1><p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap"><Clock className="w-3 h-3" />Started {new Date(activeRun.started_at).toLocaleTimeString()}{activeRun.line_shift_title && <><span>•</span><Layers className="w-3 h-3" />{activeRun.line_shift_title}</>}</p></div></div>
-        <Button variant="outline" onClick={() => saveProgress(true)} data-testid="save-progress-btn"><Save className="w-4 h-4 mr-2" />Save & Exit</Button>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-4 min-w-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={cancelAudit}
+            disabled={exiting || submitting}
+            aria-label="Cancel audit and go back"
+            title="Cancel audit"
+            data-testid="cancel-audit-btn"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+          <div className="min-w-0"><h1 className="text-xl font-bold">{currentAudit?.name}</h1><p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap"><Clock className="w-3 h-3" />Started {new Date(activeRun.started_at).toLocaleTimeString()}{activeRun.line_shift_title && <><span>•</span><Layers className="w-3 h-3" />{activeRun.line_shift_title}</>}</p></div>
+        </div>
+        <Button variant="outline" onClick={() => saveProgress(true)} disabled={exiting || submitting} data-testid="save-progress-btn"><Save className="w-4 h-4 mr-2" />{exiting ? 'Exiting...' : 'Save & Exit'}</Button>
       </div>
 
       <Card><CardContent className="py-4"><div className="flex items-center justify-between text-sm mb-2"><span>Question {currentQuestionIndex + 1} of {currentAudit?.questions.length}</span><span>{Math.round(progress)}% complete</span></div><Progress value={progress} className="h-2" /></CardContent></Card>
