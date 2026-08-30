@@ -4,7 +4,6 @@ import csv
 import html
 import io
 import secrets
-import string
 import uuid
 from typing import Dict, Optional
 
@@ -182,6 +181,32 @@ async def create_managed_user(data: ManagedUserCreate, user: dict = Depends(lega
         "welcome_email_sent": True,
         "message": "User created and temporary sign-in details emailed successfully.",
     }
+
+
+@router.get("/users")
+async def get_managed_users(user: dict = Depends(legacy.get_current_user)):
+    """List users in the administrator's scope, including first-login state."""
+    if legacy.is_system_admin(user):
+        query = {}
+    elif legacy.is_admin(user) and user.get("company_id"):
+        query = {"company_id": user["company_id"]}
+    else:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    users = await legacy.db.users.find(query, {"_id": 0, "password": 0}).to_list(1000)
+    results = []
+    company_names: dict[str, str] = {}
+    for item in users:
+        result = _public_user(item)
+        company_id = item.get("company_id")
+        if company_id:
+            if company_id not in company_names:
+                company = await legacy.db.companies.find_one({"id": company_id}, {"_id": 0})
+                company_names[company_id] = (company or {}).get("name") or ""
+            if company_names[company_id]:
+                result["company_name"] = company_names[company_id]
+        results.append(result)
+    return results
 
 
 @router.post("/auth/login")
