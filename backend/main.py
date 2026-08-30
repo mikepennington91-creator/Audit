@@ -10,19 +10,23 @@ from starlette.middleware.cors import CORSMiddleware
 import server as legacy
 from app_core.account_auth import router as account_router
 from app_core.actions import router as actions_router
+from app_core.audit_runs import router as audit_runs_router
 from app_core.documents import router as documents_router
 from app_core.notifications import router as notifications_router
 from app_core.reminders import reminder_loop, router as reminders_router
 from app_core.report_email import router as report_email_router
 from app_core.schedules import router as schedules_router
+from app_core.user_lifecycle import router as user_lifecycle_router
 
 
 app = FastAPI(title="Infinit-Audit API")
 
 # New modular routes are registered first. Selected legacy endpoints are replaced
 # below when they need the new workflow or tighter multi-tenant access checks.
+app.include_router(user_lifecycle_router)
 app.include_router(account_router)
 app.include_router(actions_router)
+app.include_router(audit_runs_router)
 app.include_router(documents_router)
 app.include_router(notifications_router)
 app.include_router(reminders_router)
@@ -30,6 +34,12 @@ app.include_router(report_email_router)
 app.include_router(schedules_router)
 
 _REPLACED_ROUTES = {
+    ("POST", "/api/auth/login"),
+    ("GET", "/api/auth/me"),
+    ("POST", "/api/users"),
+    ("POST", "/api/users/bulk-import"),
+    ("GET", "/api/users/export-template"),
+    ("DELETE", "/api/run-audits/{run_id}"),
     ("PUT", "/api/run-audits/{run_id}"),
     ("GET", "/api/actions"),
     ("PUT", "/api/actions/{action_id}"),
@@ -75,6 +85,7 @@ async def startup_event():
     await legacy.db.notifications.create_index("id", unique=True)
     await legacy.db.password_reset_tokens.create_index("id", unique=True)
     await legacy.db.email_delivery_events.create_index("id", unique=True)
+    await legacy.db.audit_cancellations.create_index("id", unique=True)
 
     enabled = os.environ.get("REMINDER_LOOP_ENABLED", "true").strip().lower() in {
         "1", "true", "yes", "on"
