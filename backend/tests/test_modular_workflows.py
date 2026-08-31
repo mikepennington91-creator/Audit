@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server as legacy  # noqa: E402
 from app_core.account_auth import _hash_reset_token  # noqa: E402
 from app_core.actions import action_display_status  # noqa: E402
+from app_core.audit_reports import _run_visible_to_user  # noqa: E402
 from app_core.email_service import _branded_html  # noqa: E402
 from app_core.report_email import _audit_run_access_allowed  # noqa: E402
 from app_core.schedules import schedule_access_allowed, scheduled_date  # noqa: E402
@@ -84,6 +85,29 @@ def test_audit_report_email_access_does_not_cross_company_boundaries():
     ) is True
 
 
+def test_audits_view_allows_same_company_runs_without_cross_tenant_leakage():
+    current = _user("viewer-1", legacy.UserRole.USER, "company-1")
+    company_user_ids = {"viewer-1", "auditor-1"}
+
+    assert _run_visible_to_user(
+        {"auditor_id": "auditor-1", "company_id": "company-1"},
+        current,
+        company_user_ids,
+    ) is True
+    assert _run_visible_to_user(
+        {"auditor_id": "auditor-2", "company_id": "company-2"},
+        current,
+        company_user_ids,
+    ) is False
+    # Migration-safe handling for old runs which did not store company_id.
+    assert _run_visible_to_user(
+        {"auditor_id": "auditor-1"}, current, company_user_ids
+    ) is True
+    assert _run_visible_to_user(
+        {"auditor_id": "auditor-2"}, current, company_user_ids
+    ) is False
+
+
 def test_action_display_status_preserves_review_and_completed_states():
     yesterday = (legacy.get_uk_time().date() - timedelta(days=1)).isoformat()
 
@@ -134,8 +158,11 @@ def test_modular_entrypoint_has_single_replacement_route_for_critical_endpoints(
     assert route_count("POST", "/api/users") == 1
     assert route_count("GET", "/api/users") == 1
     assert route_count("POST", "/api/users/bulk-import") == 1
+    assert route_count("GET", "/api/audits/{audit_id}/runs") == 1
     assert route_count("DELETE", "/api/run-audits/{run_id}") == 1
     assert route_count("PUT", "/api/run-audits/{run_id}") == 1
+    assert route_count("GET", "/api/run-audits/{run_id}/details") == 1
+    assert route_count("GET", "/api/run-audits/{run_id}/pdf") == 1
     assert route_count("GET", "/api/actions") == 1
     assert route_count("POST", "/api/scheduled-audits") == 1
     assert route_count("GET", "/api/scheduled-audits") == 1
