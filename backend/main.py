@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse
 import server as legacy
 from app_core.account_auth import router as account_router
 from app_core.actions import router as actions_router
+from app_core.audit_reports import router as audit_reports_router
 from app_core.audit_runs import router as audit_runs_router
 from app_core.documents import router as documents_router
 from app_core.notifications import router as notifications_router
@@ -28,6 +29,7 @@ app.include_router(user_lifecycle_router)
 app.include_router(account_router)
 app.include_router(actions_router)
 app.include_router(audit_runs_router)
+app.include_router(audit_reports_router)
 app.include_router(documents_router)
 app.include_router(notifications_router)
 app.include_router(reminders_router)
@@ -102,8 +104,11 @@ _REPLACED_ROUTES = {
     ("GET", "/api/users"),
     ("POST", "/api/users/bulk-import"),
     ("GET", "/api/users/export-template"),
+    ("GET", "/api/audits/{audit_id}/runs"),
     ("DELETE", "/api/run-audits/{run_id}"),
     ("PUT", "/api/run-audits/{run_id}"),
+    ("GET", "/api/run-audits/{run_id}/details"),
+    ("GET", "/api/run-audits/{run_id}/pdf"),
     ("GET", "/api/actions"),
     ("PUT", "/api/actions/{action_id}"),
     ("PUT", "/api/actions/{action_id}/reassign"),
