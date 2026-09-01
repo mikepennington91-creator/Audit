@@ -56,13 +56,8 @@ _TEMP_PASSWORD_EXEMPT_PATHS = {
 
 
 @app.middleware("http")
-async def enforce_temporary_password_change(request: Request, call_next):
-    """Keep first-login sessions restricted to the password-change flow.
-
-    The frontend redirects these users too, but this API boundary prevents a
-    temporary-password session from bypassing that requirement with direct API
-    calls.
-    """
+async def enforce_session_restrictions(request: Request, call_next):
+    """Enforce first-login restrictions and module access at the API boundary."""
     if request.method == "OPTIONS" or request.url.path in _TEMP_PASSWORD_EXEMPT_PATHS:
         return await call_next(request)
 
@@ -87,6 +82,15 @@ async def enforce_temporary_password_change(request: Request, call_next):
                             "detail": "You must change your temporary password before using Infinit Audit.",
                             "code": "temporary_password_change_required",
                         },
+                    )
+                if (
+                    user
+                    and request.url.path.startswith("/api/hold-disposal")
+                    and not legacy.has_feature(user, "traceability")
+                ):
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Traceability access is required for Hold & Disposal."},
                     )
         except (legacy.jwt.ExpiredSignatureError, legacy.jwt.InvalidTokenError):
             # Existing endpoint dependencies remain responsible for returning
