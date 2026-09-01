@@ -227,3 +227,24 @@ def test_job_auth_accepts_only_signed_main_branch_workflow(monkeypatch):
                     {'workflow_ref': 'other.yml'}, {'aud': 'wrong'}, {'exp': now - 10}]:
         with pytest.raises(jwt.InvalidTokenError):
             job_auth.verify_job_token(jwt.encode({**claims, **changed}, key, algorithm='RS256'))
+
+
+@pytest.mark.parametrize('count,expected', [(5, 'pass'), (6, 'fail')])
+def test_non_conformance_threshold_is_inclusive_and_ignores_stale_percentage(database, count, expected):
+    database.audits.rows['a1'].update(scoring_mode='non_conformances', max_non_conformances=5, pass_rate=85)
+    answers = [server.AnswerSubmit(question_id=f'q{i}', response_value='fail', response_label='Fail',
+                                  is_negative=True, notes='Finding', action_required='Resolve finding',
+                                  assigned_user_id='starter', action_due_date='2026-09-04') for i in range(count)]
+    result = asyncio.run(server.update_run_audit('r1', server.RunAuditSubmit(answers=answers, completed=True, expected_version=0), user()))
+    assert result.non_conformance_count == count
+    assert result.total_score is None
+    assert result.pass_status == expected
+
+
+def test_switching_to_non_conformances_removes_percentage_target(database):
+    database.audits.rows['a1'].update(description=None, audit_type_id=None, audit_type_name=None,
+        is_private=False, created_by='starter', created_by_name='Starter', created_at='2026-09-01', updated_at='2026-09-01')
+    result = asyncio.run(server.update_audit('a1', server.AuditUpdate(scoring_mode='non_conformances', max_non_conformances=5), user('company_admin')))
+    assert result.pass_rate is None
+    assert result.max_non_conformances == 5
+    assert database.audits.rows['a1']['pass_rate'] is None

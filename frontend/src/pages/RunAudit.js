@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
+import AuditPassRule from '../components/AuditPassRule';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -624,7 +625,7 @@ const RunAudit = () => {
             {audits.map((audit) => (
               <Card key={audit.id} className="hover:border-primary transition-colors" data-testid={`audit-card-${audit.id}`}>
                 <CardHeader className="cursor-pointer" onClick={() => navigate(`/audits/${audit.id}`)}><div className="flex items-center justify-between"><CardTitle className="text-lg">{audit.name}</CardTitle><BarChart3 className="w-4 h-4 text-muted-foreground" /></div>{audit.audit_type_name && <Badge variant="secondary">{audit.audit_type_name}</Badge>}</CardHeader>
-                <CardContent><p className="text-sm text-muted-foreground mb-4 line-clamp-2">{audit.description || 'No description'}</p><div className="flex items-center justify-between text-sm text-muted-foreground mb-4"><span>{audit.questions.length} questions</span>{audit.pass_rate && <span>Pass rate: {audit.pass_rate}%</span>}</div><div className="flex items-center gap-2"><Button className="flex-1" onClick={() => startAudit(audit)} data-testid={`start-audit-${audit.id}`}><Play className="w-4 h-4 mr-2" />Start Audit</Button>{isAuditCreator() && <Button variant="outline" size="icon" onClick={() => navigate(`/create-audit/${audit.id}`)} data-testid={`edit-audit-${audit.id}`}><Pencil className="w-4 h-4" /></Button>}</div></CardContent>
+                <CardContent><p className="text-sm text-muted-foreground mb-4 line-clamp-2">{audit.description || 'No description'}</p><div className="flex items-center justify-between gap-3 text-sm text-muted-foreground mb-4"><span>{audit.questions.length} questions</span><AuditPassRule audit={audit} /></div><div className="flex items-center gap-2"><Button className="flex-1" onClick={() => startAudit(audit)} data-testid={`start-audit-${audit.id}`}><Play className="w-4 h-4 mr-2" />Start Audit</Button>{isAuditCreator() && <Button variant="outline" size="icon" onClick={() => navigate(`/create-audit/${audit.id}`)} data-testid={`edit-audit-${audit.id}`}><Pencil className="w-4 h-4" /></Button>}</div></CardContent>
               </Card>
             ))}
           </div>
