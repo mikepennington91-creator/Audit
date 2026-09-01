@@ -39,7 +39,6 @@ def audit_run_access_allowed(run: dict, user: dict, audit: Optional[dict] = None
 async def _get_accessible_audit(audit_id: str, user: dict) -> dict:
     audit = await legacy.db.audits.find_one({"id": audit_id}, {"_id": 0})
     if not audit or not audit_access_allowed(audit, user):
-        # Do not reveal the existence of another company's audit.
         raise HTTPException(status_code=404, detail="Audit not found")
     return audit
 
@@ -80,8 +79,6 @@ async def get_audit_runs(
         query, {"_id": 0, "signature": 0}
     ).sort("completed_at", -1).to_list(1000)
 
-    # Historical data can include runs whose company_id was not populated. Since
-    # the parent audit has already been tenant-checked, those runs remain valid.
     visible_runs = [
         run for run in runs
         if audit_run_access_allowed(run, user, audit)
@@ -160,9 +157,5 @@ async def export_audit_pdf(
             detail="The original audit template is no longer available, so this legacy report cannot be rendered as PDF.",
         )
 
-    # The legacy PDF builder is still the canonical renderer. Access has already
-    # been checked above using the modular tenant rule, so pass an elevated copy
-    # only to prevent the legacy function from applying its older, conflicting
-    # role check a second time.
     pdf_user = {**user, "role": legacy.UserRole.SYSTEM_ADMIN}
     return await legacy.export_audit_pdf(run_id, pdf_user)

@@ -14,6 +14,7 @@ from app_core.actions import router as actions_router
 from app_core.audit_reports import router as audit_reports_router
 from app_core.audit_runs import router as audit_runs_router
 from app_core.documents import router as documents_router
+from app_core.hold_disposal import router as hold_disposal_router
 from app_core.notifications import router as notifications_router
 from app_core.reminders import reminder_loop, router as reminders_router
 from app_core.report_email import router as report_email_router
@@ -31,6 +32,7 @@ app.include_router(actions_router)
 app.include_router(audit_reports_router)
 app.include_router(audit_runs_router)
 app.include_router(documents_router)
+app.include_router(hold_disposal_router)
 app.include_router(notifications_router)
 app.include_router(reminders_router)
 app.include_router(report_email_router)
@@ -56,13 +58,8 @@ _TEMP_PASSWORD_EXEMPT_PATHS = {
 
 
 @app.middleware("http")
-async def enforce_temporary_password_change(request: Request, call_next):
-    """Keep first-login sessions restricted to the password-change flow.
-
-    The frontend redirects these users too, but this API boundary prevents a
-    temporary-password session from bypassing that requirement with direct API
-    calls.
-    """
+async def enforce_session_restrictions(request: Request, call_next):
+    """Enforce first-login restrictions and module access at the API boundary."""
     if request.method == "OPTIONS" or request.url.path in _TEMP_PASSWORD_EXEMPT_PATHS:
         return await call_next(request)
 
@@ -87,6 +84,15 @@ async def enforce_temporary_password_change(request: Request, call_next):
                             "detail": "You must change your temporary password before using Infinit Audit.",
                             "code": "temporary_password_change_required",
                         },
+                    )
+                if (
+                    user
+                    and request.url.path.startswith("/api/hold-disposal")
+                    and not legacy.has_feature(user, "traceability")
+                ):
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Traceability access is required for Hold & Disposal."},
                     )
         except (legacy.jwt.ExpiredSignatureError, legacy.jwt.InvalidTokenError):
             # Existing endpoint dependencies remain responsible for returning
@@ -154,6 +160,9 @@ async def startup_event():
     await legacy.db.password_reset_tokens.create_index("id", unique=True)
     await legacy.db.email_delivery_events.create_index("id", unique=True)
     await legacy.db.audit_cancellations.create_index("id", unique=True)
+    await legacy.db.distribution_lists.create_index("id", unique=True)
+    await legacy.db.hold_notices.create_index("id", unique=True)
+    await legacy.db.disposal_notices.create_index("id", unique=True)
 
     enabled = os.environ.get("REMINDER_LOOP_ENABLED", "true").strip().lower() in {
         "1", "true", "yes", "on"
