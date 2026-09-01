@@ -1,3 +1,4 @@
+import { formatUKDate } from '../utils/dates';
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
@@ -221,7 +222,7 @@ const Dashboard = () => {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{run.audit_name}</p>
                       <p className="text-sm text-muted-foreground">
-                        {run.auditor_name} • {new Date(run.completed_at).toLocaleDateString()}
+                        {run.auditor_name} • {formatUKDate(run.completed_at)}
                       </p>
                     </div>
                     {run.total_score !== null && (

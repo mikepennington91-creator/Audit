@@ -25,6 +25,7 @@ from reportlab.lib.colors import HexColor, black, white, grey
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from database import PostgresDatabase
+from date_formats import format_uk_date, format_uk_datetime
 from traceability_excel import (
     DEFAULT_CONFIG as TRACEABILITY_DEFAULT_CONFIG,
     TRACEABILITY_SCHEMAS,
@@ -1627,7 +1628,7 @@ async def request_action_extension(
         "requested_by_id": user["id"], "requested_by_name": user["name"], "requested_at": now,
     }
     history = list(action.get("history") or [])
-    history.append(action_history_entry("extension_requested", user, f"Requested due date extension from {action.get('due_date')} to {request.requested_due_date}: {reason}", requested_due_date=request.requested_due_date, reason=reason))
+    history.append(action_history_entry("extension_requested", user, f"Requested due date extension from {format_uk_date(action.get('due_date'))} to {format_uk_date(request.requested_due_date)}: {reason}", requested_due_date=request.requested_due_date, reason=reason))
     await db.corrective_actions.update_one({"id": action_id}, {"$set": {"extension_request": extension_request, "history": history, "updated_at": now}})
     updated = await db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
     return CorrectiveActionResponse(**updated)
@@ -1652,7 +1653,7 @@ async def decide_action_extension(
     })
     history = list(action.get("history") or [])
     decision_word = "Approved" if decision.approved else "Rejected"
-    message = f"{decision_word} due date extension request to {request.get('requested_due_date')}"
+    message = f"{decision_word} due date extension request to {format_uk_date(request.get('requested_due_date'))}"
     if request.get("decision_comment"):
         message += f": {request['decision_comment']}"
     history.append(action_history_entry("extension_approved" if decision.approved else "extension_rejected", user, message, requested_due_date=request.get("requested_due_date"), comment=request.get("decision_comment")))
@@ -1756,7 +1757,7 @@ async def export_corrective_action_pdf(action_id: str, user: dict = Depends(requ
         ["Audit:", action.get("audit_name", "N/A")],
         ["Status:", display_status.title()],
         ["Assigned to:", assigned_to],
-        ["Due date:", action.get("due_date", "N/A")],
+        ["Due date:", format_uk_date(action.get("due_date"))],
         ["Raised by:", action.get("created_by_name", "N/A")],
         ["Raised:", format_uk_datetime(action.get("created_at"))],
     ]
@@ -1792,7 +1793,7 @@ async def export_corrective_action_pdf(action_id: str, user: dict = Depends(requ
     doc.build(story)
     buffer.seek(0)
 
-    filename = f"action_report_{action_id[:8]}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    filename = f"action_report_{action_id[:8]}_{get_uk_time().strftime('%d%m%y')}.pdf"
     return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 # ==================== PHOTO UPLOAD ====================
@@ -1882,16 +1883,6 @@ def build_company_pdf_header(company: Optional[dict], report_title: str, styles)
     ]))
     return [header, Spacer(1, 0.16 * inch), Paragraph(escape(report_title), report_style)]
 
-def format_uk_datetime(iso_string: str) -> str:
-    """Format ISO datetime to UK readable format"""
-    if not iso_string:
-        return "N/A"
-    try:
-        dt = datetime.fromisoformat(iso_string.replace('Z', '+00:00'))
-        return dt.strftime("%d/%m/%Y %H:%M")
-    except:
-        return iso_string
-
 @api_router.get("/run-audits/{run_id}/pdf")
 async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("audits"))):
     """Generate PDF report for a completed audit"""
@@ -1977,7 +1968,7 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
             q_data.extend([
                 [Paragraph(f"<b>Action Required:</b> {escape(str(answer.get('action_required')))}", normal_style)],
                 [Paragraph(f"<b>Assigned To:</b> {escape(str(assigned_to))}", normal_style)],
-                [Paragraph(f"<b>Due Date:</b> {escape(str(answer.get('action_due_date', 'N/A')))}", normal_style)],
+                [Paragraph(f"<b>Due Date:</b> {escape(format_uk_date(answer.get('action_due_date')))}", normal_style)],
             ])
             if answer.get("action_taken"):
                 q_data.append([Paragraph(f"<b>Action Taken:</b> {escape(str(answer.get('action_taken')))}", normal_style)])
@@ -2066,7 +2057,7 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
     buffer.seek(0)
     
     safe_audit_name = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in str(run_audit.get("audit_name", "audit")).encode("ascii", "ignore").decode("ascii").replace(" ", "_")) or "audit"
-    filename = f"audit_report_{safe_audit_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    filename = f"audit_report_{safe_audit_name}_{get_uk_time().strftime('%d%m%y')}.pdf"
     
     return StreamingResponse(
         buffer,
@@ -3146,6 +3137,8 @@ async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(req
         val = fv.get("value", "")
         if field.get("field_type") == "checkbox":
             val = "Yes" if val else "No"
+        elif field.get("field_type") == "date":
+            val = format_uk_date(val, "-")
         story.append(Paragraph(f"<b>{label}</b>", heading_style))
         story.append(Paragraph(str(val) if val else "-", value_style))
 
@@ -3163,6 +3156,8 @@ async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(req
                 val = row.get(f["id"], "")
                 if f["field_type"] == "checkbox":
                     val = "Yes" if val else "No"
+                elif f["field_type"] == "date":
+                    val = format_uk_date(val, "-")
                 row_vals.append(str(val) if val else "-")
             tbl_data.append(row_vals)
         tbl = Table(tbl_data, colWidths=[0.4*inch] + [col_width]*col_count)
@@ -3255,6 +3250,8 @@ async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require
             val = fv.get("value", "")
             if field.get("field_type") == "checkbox":
                 val = "Yes" if val else "No"
+            elif field.get("field_type") == "date":
+                val = format_uk_date(val, "-")
             story.append(Paragraph(f"<b>{label}</b>", heading_style))
             story.append(Paragraph(str(val) if val else "-", value_style))
 
@@ -3285,7 +3282,7 @@ async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require
 
     pdf_doc.build(story)
     buffer.seek(0)
-    filename = f"batch_documents_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    filename = f"batch_documents_{get_uk_time().strftime('%d%m%y_%H%M')}.pdf"
     return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 @api_router.post("/traceability/templates/{template_id}/duplicate")

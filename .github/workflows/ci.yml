@@ -35,6 +35,8 @@ jobs:
           tests/test_corrective_actions.py
           tests/test_document_admin_actions.py
           tests/test_modular_workflows.py
+          tests/test_hold_disposal_regressions.py
+          tests/test_notice_workflow.py
           tests/test_traceability_excel.py
 
   frontend-build:
@@ -53,3 +55,5 @@ jobs:
         run: yarn install --non-interactive
       - name: Build frontend
         run: yarn build
+      - name: Test UK date inputs
+        run: CI=true yarn test --watchAll=false --runInBand

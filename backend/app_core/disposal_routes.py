@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from typing import Optional
@@ -105,14 +106,20 @@ async def ensure_default_disposal_routes(company_id: Optional[str]) -> list[dict
     if not company_id:
         return []
     existing = await legacy.db.disposal_routes.find({"company_id": company_id}, {"_id": 0}).to_list(1000)
-    if existing:
-        return existing
+    existing_keys = {record["key"] for record in existing}
 
     now = legacy.get_uk_time_iso()
-    records = []
     for route in DEFAULT_DISPOSAL_ROUTE_CONFIG:
+        # Preserve routes created with random IDs by earlier releases, including
+        # admin edits. Complete partial initialisation instead of stopping as
+        # soon as any route is present.
+        if route["key"] in existing_keys:
+            continue
         record = {
-            "id": str(uuid.uuid4()),
+            "id": str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                json.dumps(["infinit-audit/disposal-route", company_id, route["key"]]),
+            )),
             "company_id": company_id,
             "key": route["key"],
             "name": route["name"],
@@ -122,9 +129,11 @@ async def ensure_default_disposal_routes(company_id: Optional[str]) -> list[dict
             "created_at": now,
             "updated_at": now,
         }
-        await legacy.db.disposal_routes.insert_one(record)
-        records.append({k: v for k, v in record.items() if k != "_id"})
-    return records
+        # Every worker derives the same company/key ID. The database primary
+        # key and ON CONFLICT DO NOTHING make this insert atomic without ever
+        # resetting another request's saved route name or colour.
+        await legacy.db.disposal_routes.insert_one_if_absent(record)
+    return await legacy.db.disposal_routes.find({"company_id": company_id}, {"_id": 0}).to_list(1000)
 
 
 async def resolve_disposal_route(company_id: Optional[str], key: str) -> Optional[dict]:
