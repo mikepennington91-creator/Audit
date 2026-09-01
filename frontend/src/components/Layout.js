@@ -25,7 +25,8 @@ import {
   ClipboardList,
   FileText,
   Settings,
-  ListChecks
+  ListChecks,
+  AlertTriangle
 } from 'lucide-react';
 
 const LOGO_URL = "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png";
@@ -53,6 +54,7 @@ const Layout = ({ children }) => {
     { path: '/reports', label: 'Reports', icon: BarChart3, show: hasFeature('audits') },
     { path: '/actions', label: 'Actions', icon: ListChecks, show: hasFeature('actions') },
     { path: '/traceability', label: 'Traceability', icon: ClipboardList, show: hasFeature('traceability') },
+    { path: '/hold-disposal', label: 'Hold & Disposal', icon: AlertTriangle, show: true },
     { path: '/documents', label: 'Documents', icon: FileText, show: hasFeature('documents') },
   ];
 
