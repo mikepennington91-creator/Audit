@@ -1082,7 +1082,7 @@ async def create_audit(
         "description": audit_data.description,
         "audit_type_id": audit_data.audit_type_id,
         "audit_type_name": audit_type_name,
-        "pass_rate": audit_data.pass_rate,
+        "pass_rate": None if audit_data.scoring_mode == "non_conformances" else audit_data.pass_rate,
         "scoring_mode": audit_data.scoring_mode if audit_data.scoring_mode in {"percentage", "non_conformances"} else "percentage",
         "max_non_conformances": max(0, audit_data.max_non_conformances or 0),
         "is_private": audit_data.is_private,
@@ -1143,12 +1143,14 @@ async def update_audit(
         update_dict["audit_type_id"] = update_data.audit_type_id
         audit_type = await db.audit_types.find_one({"id": update_data.audit_type_id}, {"_id": 0})
         update_dict["audit_type_name"] = audit_type["name"] if audit_type else None
-    if update_data.pass_rate is not None:
+    if "pass_rate" in update_data.model_fields_set:
         update_dict["pass_rate"] = update_data.pass_rate
     if update_data.scoring_mode is not None:
         if update_data.scoring_mode not in {"percentage", "non_conformances"}:
             raise HTTPException(status_code=400, detail="Unknown audit scoring mode")
         update_dict["scoring_mode"] = update_data.scoring_mode
+        if update_data.scoring_mode == "non_conformances":
+            update_dict["pass_rate"] = None
     if update_data.max_non_conformances is not None:
         update_dict["max_non_conformances"] = max(0, update_data.max_non_conformances)
     if update_data.is_private is not None:
