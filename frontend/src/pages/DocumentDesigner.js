@@ -12,7 +12,7 @@ import { Separator } from '../components/ui/separator';
 import { toast } from 'sonner';
 import {
   Plus, Trash2, ChevronUp, ChevronDown, Save, ArrowLeft,
-  Type, Hash, Clock, CheckSquare, FileText, Settings,
+  Type, Hash, Clock, FileText, Settings,
   Calendar, ChevronDown as DropdownIcon, Table2, LayoutList
 } from 'lucide-react';
 
