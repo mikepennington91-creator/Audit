@@ -1,3 +1,4 @@
+import { pdfErrorMessage } from '../utils/pdfErrors';
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
@@ -86,7 +87,7 @@ const AuditOverview = () => {
     setDownloadingPdf(runId);
     try {
       const response = await axios.get(`${API}/run-audits/${runId}/pdf`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `audit_report_${auditName?.replace(/\s+/g, '_')}.pdf`);
@@ -96,7 +97,7 @@ const AuditOverview = () => {
       window.URL.revokeObjectURL(url);
       toast.success('PDF downloaded');
     } catch (error) {
-      toast.error('Failed to download PDF');
+      toast.error(await pdfErrorMessage(error));
     } finally {
       setDownloadingPdf(null);
     }

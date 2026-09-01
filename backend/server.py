@@ -26,6 +26,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from database import PostgresDatabase
 from date_formats import format_uk_date, format_uk_datetime
+from app_core.pdf_support import document_fields_story, pdf_content_disposition, plain_text
 from traceability_excel import (
     DEFAULT_CONFIG as TRACEABILITY_DEFAULT_CONFIG,
     TRACEABILITY_SCHEMAS,
@@ -1830,7 +1831,7 @@ async def export_corrective_action_pdf(action_id: str, user: dict = Depends(requ
     buffer.seek(0)
 
     filename = f"action_report_{action_id[:8]}_{get_uk_time().strftime('%d%m%y')}.pdf"
-    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
+    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": pdf_content_disposition(filename)})
 
 # ==================== PHOTO UPLOAD ====================
 
@@ -1995,7 +1996,7 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
             q_data.append([Paragraph(f"<b>Score:</b> {answer.get('score')}", normal_style)])
         
         if answer.get("notes"):
-            q_data.append([Paragraph(f"<b>Comment:</b> {escape(str(answer.get('notes')))}", normal_style)])
+            q_data.append([Paragraph(f"<b>Comment:</b> {plain_text(answer.get('notes'))}", normal_style)])
 
         if answer.get("is_negative") and answer.get("repeat_non_conformance"):
             q_data.append([Paragraph("<b>Repeat Non-Conformance:</b> Yes (counts as 2)", normal_style)])
@@ -2003,17 +2004,17 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
         if answer.get("is_negative") and answer.get("action_required"):
             assigned_to = answer.get("assigned_user_name") or answer.get("assigned_department") or "Unassigned"
             q_data.extend([
-                [Paragraph(f"<b>Action Required:</b> {escape(str(answer.get('action_required')))}", normal_style)],
+                [Paragraph(f"<b>Action Required:</b> {plain_text(answer.get('action_required'))}", normal_style)],
                 [Paragraph(f"<b>Assigned To:</b> {escape(str(assigned_to))}", normal_style)],
                 [Paragraph(f"<b>Due Date:</b> {escape(format_uk_date(answer.get('action_due_date')))}", normal_style)],
             ])
             if answer.get("action_taken"):
-                q_data.append([Paragraph(f"<b>Action Taken:</b> {escape(str(answer.get('action_taken')))}", normal_style)])
+                q_data.append([Paragraph(f"<b>Action Taken:</b> {plain_text(answer.get('action_taken'))}", normal_style)])
         
         # Color based on negative response
         bg_color = HexColor('#ffebee') if answer.get("is_negative") else HexColor('#e8f5e9')
         
-        q_table = Table(q_data, colWidths=[6*inch])
+        q_table = Table(q_data, colWidths=[6*inch], splitByRow=1, splitInRow=1)
         q_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, -1), bg_color),
             ('BOX', (0, 0), (-1, -1), 1, HexColor('#cccccc')),
@@ -2099,7 +2100,7 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": pdf_content_disposition(filename)}
     )
 
 # ==================== BULK USER IMPORT ====================
@@ -3160,55 +3161,7 @@ async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(req
     story.extend(build_company_pdf_header(company, doc["template_title"], styles))
     story.append(Spacer(1, 0.12*inch))
 
-    # Build field map
-    field_map = {f["id"]: f for f in doc.get("fields", [])}
-    header_fields = [f for f in doc.get("fields", []) if f.get("section") != "table"]
-    table_fields = sorted([f for f in doc.get("fields", []) if f.get("section") == "table"], key=lambda x: x.get("order", 0))
-
-    # Header fields
-    for fv in doc.get("field_values", []):
-        field = field_map.get(fv.get("field_id"), {})
-        if field.get("section") == "table":
-            continue
-        label = field.get("label", fv.get("field_id", ""))
-        val = fv.get("value", "")
-        if field.get("field_type") == "checkbox":
-            val = "Yes" if val else "No"
-        elif field.get("field_type") == "date":
-            val = format_uk_date(val, "-")
-        story.append(Paragraph(f"<b>{label}</b>", heading_style))
-        story.append(Paragraph(str(val) if val else "-", value_style))
-
-    # Table section
-    if table_fields and doc.get("table_rows"):
-        story.append(Spacer(1, 0.3*inch))
-        story.append(Paragraph("<b>Production Data</b>", heading_style))
-        story.append(Spacer(1, 0.1*inch))
-        col_count = len(table_fields)
-        col_width = (6*inch) / max(col_count, 1)
-        tbl_data = [["#"] + [f["label"] for f in table_fields]]
-        for ri, row in enumerate(doc["table_rows"]):
-            row_vals = [str(ri + 1)]
-            for f in table_fields:
-                val = row.get(f["id"], "")
-                if f["field_type"] == "checkbox":
-                    val = "Yes" if val else "No"
-                elif f["field_type"] == "date":
-                    val = format_uk_date(val, "-")
-                row_vals.append(str(val) if val else "-")
-            tbl_data.append(row_vals)
-        tbl = Table(tbl_data, colWidths=[0.4*inch] + [col_width]*col_count)
-        tbl.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1a7a6e')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), white),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 0.5, HexColor('#cccccc')),
-            ('PADDING', (0, 0), (-1, -1), 4),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [white, HexColor('#f8f8f8')]),
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ]))
-        story.append(tbl)
+    story.extend(document_fields_story(doc, heading_style, value_style))
 
     # Footer info
     story.append(Spacer(1, 0.5*inch))
@@ -3243,7 +3196,7 @@ async def export_traceability_document_pdf(doc_id: str, user: dict = Depends(req
     pdf_doc.build(story)
     buffer.seek(0)
     filename = f"{doc['document_reference']}_{doc['template_title'].replace(' ', '_')}.pdf"
-    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
+    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": pdf_content_disposition(filename)})
 
 @api_router.post("/traceability/documents/batch-pdf")
 async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require_feature("documents"))):
@@ -3280,17 +3233,7 @@ async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require
         story.extend(build_company_pdf_header(company, doc["template_title"], styles))
         story.append(Spacer(1, 0.12*inch))
 
-        field_map = {f["id"]: f for f in doc.get("fields", [])}
-        for fv in doc.get("field_values", []):
-            field = field_map.get(fv.get("field_id"), {})
-            label = field.get("label", fv.get("field_id", ""))
-            val = fv.get("value", "")
-            if field.get("field_type") == "checkbox":
-                val = "Yes" if val else "No"
-            elif field.get("field_type") == "date":
-                val = format_uk_date(val, "-")
-            story.append(Paragraph(f"<b>{label}</b>", heading_style))
-            story.append(Paragraph(str(val) if val else "-", value_style))
+        story.extend(document_fields_story(doc, heading_style, value_style))
 
         story.append(Spacer(1, 0.5*inch))
         footer_data = [
@@ -3320,7 +3263,7 @@ async def batch_export_traceability_pdf(data: dict, user: dict = Depends(require
     pdf_doc.build(story)
     buffer.seek(0)
     filename = f"batch_documents_{get_uk_time().strftime('%d%m%y_%H%M')}.pdf"
-    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
+    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": pdf_content_disposition(filename)})
 
 @api_router.post("/traceability/templates/{template_id}/duplicate")
 async def duplicate_traceability_template(

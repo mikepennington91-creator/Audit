@@ -1,3 +1,4 @@
+import { pdfErrorMessage } from '../utils/pdfErrors';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -131,7 +132,7 @@ const DocumentList = () => {
     setDownloadingBatch(true);
     try {
       const res = await axios.post(`${API}/traceability/documents/batch-pdf`, { document_ids: Array.from(selectedDocs) }, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', 'batch_documents.pdf');
@@ -141,7 +142,7 @@ const DocumentList = () => {
       window.URL.revokeObjectURL(url);
       toast.success(`Downloaded ${selectedDocs.size} document(s) as PDF`);
     } catch (error) {
-      toast.error('Failed to download batch PDF');
+      toast.error(await pdfErrorMessage(error, 'Failed to download batch PDF'));
     } finally {
       setDownloadingBatch(false);
     }

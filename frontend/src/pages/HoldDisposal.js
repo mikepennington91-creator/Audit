@@ -1,3 +1,4 @@
+import { pdfErrorMessage } from '../utils/pdfErrors';
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -596,7 +597,7 @@ const HoldDisposal = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to download notice PDF');
+      toast.error(await pdfErrorMessage(error, 'Failed to download notice PDF'));
     }
   };
 
