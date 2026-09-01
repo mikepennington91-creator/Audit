@@ -54,7 +54,7 @@ const Layout = ({ children }) => {
     { path: '/reports', label: 'Reports', icon: BarChart3, show: hasFeature('audits') },
     { path: '/actions', label: 'Actions', icon: ListChecks, show: hasFeature('actions') },
     { path: '/traceability', label: 'Traceability', icon: ClipboardList, show: hasFeature('traceability') },
-    { path: '/hold-disposal', label: 'Hold & Disposal', icon: AlertTriangle, show: true },
+    { path: '/hold-disposal', label: 'Hold & Disposal', icon: AlertTriangle, show: hasFeature('traceability') },
     { path: '/documents', label: 'Documents', icon: FileText, show: hasFeature('documents') },
   ];
 
