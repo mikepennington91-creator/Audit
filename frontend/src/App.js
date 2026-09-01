@@ -82,7 +82,7 @@ function AppRoutes() {
       <Route path="/reports" element={<ProtectedRoute feature="audits"><Reports /></ProtectedRoute>} />
       <Route path="/actions" element={<ProtectedRoute feature="actions"><Actions /></ProtectedRoute>} />
       <Route path="/traceability" element={<ProtectedRoute feature="traceability"><Traceability /></ProtectedRoute>} />
-      <Route path="/hold-disposal" element={<ProtectedRoute><HoldDisposal /></ProtectedRoute>} />
+      <Route path="/hold-disposal" element={<ProtectedRoute feature="traceability"><HoldDisposal /></ProtectedRoute>} />
       <Route path="/documents" element={<ProtectedRoute feature="documents"><DocumentList /></ProtectedRoute>} />
       <Route path="/documents/design" element={<ProtectedRoute feature="documents_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}><DocumentDesigner /></ProtectedRoute>} />
       <Route path="/documents/design/:templateId" element={<ProtectedRoute feature="documents_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}><DocumentDesigner /></ProtectedRoute>} />
