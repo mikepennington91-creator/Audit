@@ -38,3 +38,83 @@ create index if not exists app_documents_status_idx
     on public.app_documents (collection, (data ->> 'status'));
 
 revoke all on table public.app_documents from anon, authenticated;
+
+-- Activity entries are generated in the same transaction as the change. No
+-- application endpoint can alter history, including a system administrator.
+create or replace function public.protect_company_activity() returns trigger
+language plpgsql as $$
+begin
+    if old.collection = 'company_activity' then
+        raise exception 'Company activity is append-only';
+    end if;
+    return old;
+end;
+$$;
+drop trigger if exists protect_company_activity on public.app_documents;
+create trigger protect_company_activity before update or delete on public.app_documents
+for each row when (old.collection = 'company_activity')
+execute function public.protect_company_activity();
+
+create or replace function public.log_company_change() returns trigger
+language plpgsql as $$
+declare
+    resource jsonb;
+    actor jsonb;
+    kind text;
+    verb text;
+    event_id text;
+    company text;
+begin
+    if tg_op = 'DELETE' then resource := old.data; else resource := new.data; end if;
+    kind := case coalesce(new.collection, old.collection)
+        when 'users' then 'account'
+        when 'audits' then 'audit_template'
+        when 'traceability_templates' then 'document_template'
+        when 'traceability_documents' then 'document'
+        when 'hold_notices' then 'hold_notice'
+        when 'disposal_notices' then 'disposal_notice'
+        when 'run_audits' then 'audit'
+        when 'companies' then 'company'
+        when 'distribution_lists' then 'distribution_list'
+        when 'disposal_routes' then 'disposal_route'
+        when 'response_groups' then 'response_group'
+        when 'audit_types' then 'audit_type'
+        when 'lines_shifts' then 'line_shift'
+        else null end;
+    if kind is null then return null; end if;
+    -- Record structural/company changes, never audit starts, progress or completions.
+    if kind = 'audit' and tg_op <> 'DELETE' then return null; end if;
+    if kind in ('document', 'hold_notice', 'disposal_notice') and tg_op = 'UPDATE' then return null; end if;
+    if tg_op = 'UPDATE' then
+        if old.data = new.data then return null; end if;
+        -- Login, password and personal-preference changes are not company events.
+        if kind = 'account' and
+            (old.data->'name', old.data->'email', old.data->'role', old.data->'company_id', old.data->'feature_access')
+            is not distinct from
+            (new.data->'name', new.data->'email', new.data->'role', new.data->'company_id', new.data->'feature_access')
+        then return null; end if;
+    end if;
+    actor := coalesce(nullif(current_setting('app.activity_actor', true), '')::jsonb, '{}'::jsonb);
+    company := case when kind = 'company' then resource->>'id' else resource->>'company_id' end;
+    verb := case tg_op when 'INSERT' then 'created' when 'UPDATE' then 'updated' else 'deleted' end;
+    event_id := gen_random_uuid()::text;
+    insert into public.app_documents(collection, id, data)
+    values ('company_activity', event_id, jsonb_build_object(
+        'id', event_id, 'company_id', company,
+        'event_type', kind || '_' || verb, 'resource_type', kind,
+        'resource_id', resource->>'id',
+        'resource_name', coalesce(resource->>'name', resource->>'title', resource->>'template_title', resource->>'audit_name', resource->>'reference', resource->>'id'),
+        'actor_id', actor->>'id', 'actor_name', coalesce(actor->>'name', 'System'),
+        'reason', nullif(current_setting('app.activity_reason', true), ''),
+        'occurred_at', to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+    ));
+    return null;
+end;
+$$;
+drop trigger if exists log_company_change on public.app_documents;
+create trigger log_company_change after insert or update or delete on public.app_documents
+for each row execute function public.log_company_change();
+
+create index if not exists app_documents_activity_time_idx
+on public.app_documents ((data->>'company_id'), (data->>'occurred_at') desc)
+where collection = 'company_activity';

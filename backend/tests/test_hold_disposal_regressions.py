@@ -53,7 +53,7 @@ class PrimaryKeyPool:
 
 def setup_routes(monkeypatch):
     pool = PrimaryKeyPool()
-    collection = PostgresCollection(SimpleNamespace(pool=pool), "disposal_routes")
+    collection = PostgresCollection(SimpleNamespace(pool=pool, connection=pool, write=lambda method, *args: getattr(pool, method)(*args)), "disposal_routes")
     monkeypatch.setattr(legacy, "db", SimpleNamespace(disposal_routes=collection))
     return pool
 
@@ -92,7 +92,7 @@ def test_partial_seed_recovers_and_preserves_legacy_edits(monkeypatch):
 
 def test_conflicting_seed_does_not_overwrite_saved_configuration():
     pool = PrimaryKeyPool()
-    collection = PostgresCollection(SimpleNamespace(pool=pool), "disposal_routes")
+    collection = PostgresCollection(SimpleNamespace(pool=pool, connection=pool, write=lambda method, *args: getattr(pool, method)(*args)), "disposal_routes")
     saved = {"id": "stable-id", "key": "sugarich", "name": "Custom name"}
     assert asyncio.run(collection.insert_one_if_absent(saved)) is True
     assert asyncio.run(collection.insert_one_if_absent({**saved, "name": "Default"})) is False

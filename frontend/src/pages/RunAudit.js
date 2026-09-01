@@ -52,7 +52,7 @@ const RunAudit = () => {
   const { runId } = useParams();
   const fileInputRef = useRef(null);
   const { isOnline, updatePendingCount } = useOffline();
-  const { isAuditCreator, user } = useAuth();
+  const { isAuditCreator, isAdmin, user } = useAuth();
   
   const [audits, setAudits] = useState([]);
   const [responseGroups, setResponseGroups] = useState([]);
@@ -100,7 +100,7 @@ const RunAudit = () => {
         groupsData = groupsRes.data;
         linesShiftsData = linesShiftsRes.data;
         assigneesData = assigneesRes.data;
-        setSavedRuns(savedRunsRes.data.filter(run => run.auditor_id === user?.id));
+        setSavedRuns(savedRunsRes.data);
         
         await cacheData('audits', auditsData);
         await cacheData('responseGroups', groupsData);
@@ -124,6 +124,11 @@ const RunAudit = () => {
       
       if (runId && isOnline) {
         const runRes = await axios.get(`${API}/run-audits/${runId}`);
+        if (runRes.data.completed || runRes.data.closed_at) {
+          toast.error(runRes.data.closed_at ? 'This audit was closed because it was not completed in time.' : 'This audit is already completed.');
+          navigate(`/audits/${runRes.data.audit_id}`);
+          return;
+        }
         setActiveRun(runRes.data);
         const audit = auditsData.find(a => a.id === runRes.data.audit_id);
         setCurrentAudit(audit);
@@ -428,6 +433,10 @@ const RunAudit = () => {
 
   const cancelAudit = async () => {
     if (!activeRun || exiting) return;
+    if (!activeRun.offline && activeRun.auditor_id !== user?.id && !isAdmin()) {
+      await saveProgress(true);
+      return;
+    }
     const confirmed = window.confirm(
       'Cancel this audit? Any unsaved answers will be discarded. Use Save & Exit if you want to continue it later.'
     );
@@ -457,11 +466,12 @@ const RunAudit = () => {
     }
     setExiting(exitAfterSave);
     try {
-      await axios.put(`${API}/run-audits/${activeRun.id}`, { answers: Object.values(answers), notes, completed: false });
+      const saved = await axios.put(`${API}/run-audits/${activeRun.id}`, { expected_version: activeRun.version || 0, answers: Object.values(answers), notes, completed: false });
+      setActiveRun(saved.data);
       toast.success(exitAfterSave ? 'Audit saved. You can continue it later.' : 'Progress saved');
       if (exitAfterSave) leaveActiveRun();
     } catch (error) {
-      toast.error('Failed to save progress');
+      toast.error(error.response?.data?.detail || 'Failed to save progress');
     } finally {
       setExiting(false);
     }
@@ -517,7 +527,7 @@ const RunAudit = () => {
           completed_at: new Date().toISOString(),
           data: {
             start: { audit_id: currentAudit.id, location: activeRun.location, line_shift_id: activeRun.line_shift_id || null },
-            submission: { answers: Object.values(answers), notes, completed: true, signature, signoff_name: user?.name, signoff_email: user?.email }
+            submission: { expected_version: activeRun.version || 0, answers: Object.values(answers), notes, completed: true, signature, signoff_name: user?.name, signoff_email: user?.email }
           }
         };
         await saveOfflineAudit(offlineAuditData);
@@ -534,6 +544,7 @@ const RunAudit = () => {
     
     try {
       await axios.put(`${API}/run-audits/${activeRun.id}`, {
+        expected_version: activeRun.version || 0,
         answers: Object.values(answers),
         notes,
         completed: true,
@@ -554,7 +565,7 @@ const RunAudit = () => {
             notes,
             data: {
               start: { audit_id: currentAudit.id, location: activeRun.location, line_shift_id: activeRun.line_shift_id || null },
-              submission: { answers: Object.values(answers), notes, completed: true, signature, signoff_name: user?.name, signoff_email: user?.email }
+              submission: { expected_version: activeRun.version || 0, answers: Object.values(answers), notes, completed: true, signature, signoff_name: user?.name, signoff_email: user?.email }
             }
           };
           await saveOfflineAudit(offlineAuditData);
@@ -589,10 +600,10 @@ const RunAudit = () => {
 
         {isOnline && savedRuns.length > 0 && (
           <Card className="border-primary/30">
-            <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Save className="w-5 h-5" />Saved Audits</CardTitle><CardDescription>Continue an audit you saved earlier.</CardDescription></CardHeader>
+            <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Save className="w-5 h-5" />Open Audits</CardTitle><CardDescription>Continue any open audit in your company. Due Friday; unfinished audits close at the start of Monday.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
               {savedRuns.map(run => (
-                <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-3"><div><p className="font-medium">{run.audit_name}</p><p className="text-xs text-muted-foreground">Started {new Date(run.started_at).toLocaleString('en-GB', { timeZone: 'Europe/London' })}</p></div><Button onClick={() => navigate(`/run-audit/${run.id}`)} data-testid={`continue-audit-${run.id}`}><Play className="w-4 h-4 mr-2" />Continue Audit</Button></div>
+                <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-3"><div><p className="font-medium">{run.audit_name}</p><p className="text-xs text-muted-foreground">Started by {run.auditor_name} • {new Date(run.started_at).toLocaleString('en-GB', { timeZone: 'Europe/London' })} • Due {run.due_date?.split('-').reverse().join('/')}</p></div><Button onClick={() => navigate(`/run-audit/${run.id}`)} data-testid={`continue-audit-${run.id}`}><Play className="w-4 h-4 mr-2" />Continue Audit</Button></div>
               ))}
             </CardContent>
           </Card>
@@ -638,17 +649,18 @@ const RunAudit = () => {
             size="sm"
             onClick={cancelAudit}
             disabled={exiting || submitting}
-            aria-label="Cancel audit and go back"
-            title="Cancel audit"
+            aria-label={activeRun.auditor_id === user?.id || isAdmin() ? 'Cancel audit and go back' : 'Save audit and go back'}
+            title="Go back"
             data-testid="cancel-audit-btn"
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <div className="min-w-0"><h1 className="text-xl font-bold">{currentAudit?.name}</h1><p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap"><Clock className="w-3 h-3" />Started {new Date(activeRun.started_at).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hour12: false })}{activeRun.line_shift_title && <><span>•</span><Layers className="w-3 h-3" />{activeRun.line_shift_title}</>}</p></div>
+          <div className="min-w-0"><h1 className="text-xl font-bold">{currentAudit?.name}</h1><p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap"><Clock className="w-3 h-3" />Started by {activeRun.auditor_name} at {new Date(activeRun.started_at).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hour12: false })}{activeRun.line_shift_title && <><span>•</span><Layers className="w-3 h-3" />{activeRun.line_shift_title}</>}</p></div>
         </div>
         <Button variant="outline" onClick={() => saveProgress(true)} disabled={exiting || submitting} data-testid="save-progress-btn"><Save className="w-4 h-4 mr-2" />{exiting ? 'Exiting...' : 'Save & Exit'}</Button>
       </div>
 
+      <p className="text-sm text-muted-foreground">{activeRun.offline ? 'This offline audit will become available to colleagues once synced.' : <>Due Friday {activeRun.due_date?.split('-').reverse().join('/')}. Unfinished audits automatically close at the start of Monday.</>}</p>
       <Card><CardContent className="py-4"><div className="flex items-center justify-between text-sm mb-2"><span>Question {currentQuestionIndex + 1} of {currentAudit?.questions.length}</span><span>{Math.round(progress)}% complete</span></div><Progress value={progress} className="h-2" /></CardContent></Card>
 
       {currentQuestion && (

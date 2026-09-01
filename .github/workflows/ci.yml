@@ -38,6 +38,8 @@ jobs:
           tests/test_hold_disposal_regressions.py
           tests/test_notice_workflow.py
           tests/test_traceability_excel.py
+          tests/test_database.py
+          tests/test_audit_deadlines_activity.py
 
   frontend-build:
     runs-on: ubuntu-latest
@@ -57,3 +59,18 @@ jobs:
         run: yarn build
       - name: Test UK date inputs
         run: CI=true yarn test --watchAll=false --runInBand
+
+  activity-sql:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/tests/sql
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: backend/tests/sql/package-lock.json
+      - run: npm ci
+      - run: npm test

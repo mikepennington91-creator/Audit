@@ -46,6 +46,7 @@ const Layout = ({ children }) => {
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, show: true },
+    { path: '/company-activity', label: 'Company Activity', icon: ClipboardList, show: isAdmin() },
     { path: '/user-management', label: 'User Management', icon: Users, show: isAdmin() },
     { path: '/configuration', label: 'Configuration', icon: Settings, show: isAdmin() || hasFeature('audits_edit') },
     { path: '/create-audit', label: 'Create Audit', icon: FilePlus, show: isAuditCreator() },

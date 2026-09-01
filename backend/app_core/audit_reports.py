@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 import server as legacy
+from date_formats import parse_date
 
 
 router = APIRouter(prefix="/api", tags=["audit-reports"])
@@ -30,9 +31,9 @@ def audit_access_allowed(audit: dict, user: dict) -> bool:
 def audit_run_access_allowed(run: dict, user: dict, audit: Optional[dict] = None) -> bool:
     if legacy.is_system_admin(user):
         return True
-    if run.get("auditor_id") == user.get("id"):
-        return True
     run_company_id = run.get("company_id") or (audit or {}).get("company_id")
+    if not run_company_id:
+        return run.get("auditor_id") == user.get("id")
     return _same_company(run_company_id, user)
 
 
@@ -51,6 +52,11 @@ async def _get_accessible_run(run_id: str, user: dict) -> tuple[dict, Optional[d
     audit = await legacy.db.audits.find_one({"id": run.get("audit_id")}, {"_id": 0})
     if not audit_run_access_allowed(run, user, audit):
         raise HTTPException(status_code=404, detail="Audit run not found")
+    if not run.get("company_id") and (audit or {}).get("company_id"):
+        run["company_id"] = audit["company_id"]
+        await legacy.db.run_audits.update_one(
+            {"id": run_id, "company_id": None}, {"$set": {"company_id": run["company_id"]}}
+        )
     return run, audit
 
 
@@ -65,25 +71,31 @@ async def get_audit_runs(
     """Return completed runs using the same tenant rule as View and PDF."""
     audit = await _get_accessible_audit(audit_id, user)
 
-    query: dict = {"audit_id": audit_id, "completed": True}
-    if date_from:
-        query.setdefault("completed_at", {})["$gte"] = date_from
-    if date_to:
-        query.setdefault("completed_at", {})["$lte"] = date_to
+    query: dict = {"audit_id": audit_id, "$or": [{"completed": True}, {"status": "closed_incomplete"}]}
+    try:
+        from_day = parse_date(date_from) if date_from else None
+        to_day = parse_date(date_to) if date_to else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date filter")
     if pass_status and pass_status != "all":
-        if pass_status not in {"pass", "fail"}:
+        if pass_status not in {"pass", "fail", "closed_incomplete"}:
             raise HTTPException(status_code=400, detail="Unknown audit status")
-        query["pass_status"] = pass_status
+        query["status" if pass_status == "closed_incomplete" else "pass_status"] = pass_status
 
     runs = await legacy.db.run_audits.find(
         query, {"_id": 0, "signature": 0}
-    ).sort("completed_at", -1).to_list(1000)
+    ).sort("started_at", -1).to_list(5000)
 
     visible_runs = [
         run for run in runs
         if audit_run_access_allowed(run, user, audit)
         or (not run.get("company_id") and audit_access_allowed(audit, user))
     ]
+
+    visible_runs = [run for run in visible_runs
+                    if (not from_day or parse_date(run.get("closed_at") or run["completed_at"]) >= from_day)
+                    and (not to_day or parse_date(run.get("closed_at") or run["completed_at"]) <= to_day)]
+    visible_runs.sort(key=lambda run: run.get("closed_at") or run.get("completed_at") or "", reverse=True)
 
     all_runs = await legacy.db.run_audits.find(
         {"audit_id": audit_id, "completed": True}, {"_id": 0, "signature": 0}
@@ -116,7 +128,7 @@ async def get_run_audit_details(
 ):
     """View one completed run without applying a second, conflicting permission rule."""
     run, audit = await _get_accessible_run(run_id, user)
-    if not run.get("completed"):
+    if not run.get("completed") and not run.get("closed_at"):
         raise HTTPException(status_code=409, detail="Only completed audits can be viewed as reports")
 
     question_map = {
@@ -149,7 +161,7 @@ async def export_audit_pdf(
 ):
     """Download the same completed run the user is permitted to view."""
     run, audit = await _get_accessible_run(run_id, user)
-    if not run.get("completed"):
+    if not run.get("completed") and not run.get("closed_at"):
         raise HTTPException(status_code=409, detail="Only completed audits can be downloaded")
     if not audit:
         raise HTTPException(

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Header, HTTPException
 import server as legacy
 from app_core.email_service import email_is_configured, public_app_url, send_email
 from app_core.preferences import email_preference_enabled
+from app_core.audit_deadlines import process_open_audits
 
 
 logger = logging.getLogger(__name__)
@@ -130,6 +131,7 @@ async def reminder_loop() -> None:
     interval_seconds = max(300, int(os.environ.get("REMINDER_CHECK_SECONDS", "900")))
     while True:
         try:
+            await process_open_audits()
             await process_scheduled_audit_reminders()
         except asyncio.CancelledError:
             raise
@@ -141,13 +143,19 @@ async def reminder_loop() -> None:
 @router.post("/internal/jobs/scheduled-audit-reminders")
 async def run_scheduled_audit_reminders(
     x_job_secret: Optional[str] = Header(default=None, alias="X-Job-Secret"),
+    x_github_oidc_token: Optional[str] = Header(default=None, alias="X-GitHub-OIDC-Token"),
 ):
     expected = os.environ.get("INTERNAL_JOB_SECRET")
-    if not expected:
-        raise HTTPException(status_code=503, detail="Scheduled job endpoint is not configured")
-    if not x_job_secret or not secrets_compare(x_job_secret, expected):
+    if x_github_oidc_token:
+        from app_core.job_auth import verify_job_token
+        try:
+            await asyncio.to_thread(verify_job_token, x_github_oidc_token)
+        except Exception:
+            raise HTTPException(status_code=403, detail="Invalid scheduled job identity")
+    elif not expected or not x_job_secret or not secrets_compare(x_job_secret, expected):
         raise HTTPException(status_code=403, detail="Access denied")
-    return await process_scheduled_audit_reminders()
+    open_audits = await process_open_audits()
+    return {"open_audits": open_audits, "scheduled": await process_scheduled_audit_reminders()}
 
 
 def secrets_compare(left: str, right: str) -> bool:

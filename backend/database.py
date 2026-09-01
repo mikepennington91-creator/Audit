@@ -11,11 +11,16 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import asyncpg
+
+activity_actor = ContextVar("activity_actor", default={})
+activity_reason = ContextVar("activity_reason", default="")
 
 
 _FIELD_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -67,9 +72,10 @@ class _WhereBuilder:
                         operator_clauses.append(
                             f"{expression} >= {self.add(_text_value(value))}"
                         )
-                    elif operator == "$lte":
+                    elif operator in {"$lte", "$lt"}:
+                        comparator = "<=" if operator == "$lte" else "<"
                         operator_clauses.append(
-                            f"{expression} <= {self.add(_text_value(value))}"
+                            f"{expression} {comparator} {self.add(_text_value(value))}"
                         )
                     elif operator == "$ieq":
                         operator_clauses.append(
@@ -142,6 +148,11 @@ class PostgresCursor:
         self.sort_field: Optional[str] = None
         self.sort_direction = 1
         self.result_limit: Optional[int] = None
+        self.result_offset = 0
+
+    def skip(self, count: int) -> "PostgresCursor":
+        self.result_offset = max(0, int(count))
+        return self
 
     def sort(self, field: str, direction: int) -> "PostgresCursor":
         _field_expression(field)
@@ -167,8 +178,8 @@ class PostgresCursor:
         effective_limit = (
             min(length, self.result_limit) if self.result_limit is not None else length
         )
-        sql += f" LIMIT {int(effective_limit)}"
-        rows = await self.collection.database.pool.fetch(
+        sql += f" LIMIT {int(effective_limit)} OFFSET {self.result_offset}"
+        rows = await self.collection.database.connection.fetch(
             sql, self.collection.name, *where.args
         )
         return [
@@ -205,7 +216,7 @@ class PostgresCollection:
             raise ValueError(f"Documents in {self.name} must contain a non-empty id")
         payload = dict(document)
         payload.pop("_id", None)
-        await self.database.pool.execute(
+        await self.database.write("execute",
             "INSERT INTO app_documents (collection, id, data) VALUES ($1, $2, $3::jsonb)",
             self.name,
             document_id,
@@ -220,7 +231,7 @@ class PostgresCollection:
             raise ValueError(f"Documents in {self.name} must contain a non-empty id")
         payload = dict(document)
         payload.pop("_id", None)
-        await self.database.pool.execute(
+        await self.database.write("execute",
             """
             INSERT INTO app_documents (collection, id, data)
             VALUES ($1, $2, $3::jsonb)
@@ -245,7 +256,7 @@ class PostgresCollection:
             raise ValueError(f"Documents in {self.name} must contain a non-empty id")
         payload = dict(document)
         payload.pop("_id", None)
-        result = await self.database.pool.fetchrow(
+        result = await self.database.write("fetchrow",
             """
             INSERT INTO app_documents (collection, id, data)
             VALUES ($1, $2, $3::jsonb)
@@ -267,13 +278,14 @@ class PostgresCollection:
         where = _WhereBuilder(start_at=3)
         where_sql = where.build(query)
         changes = update["$set"]
-        result = await self.database.pool.fetchrow(
+        result = await self.database.write("fetchrow",
             f"""
             WITH target AS (
                 SELECT collection, id
                 FROM app_documents
                 WHERE collection = $1 AND {where_sql}
                 LIMIT 1
+                FOR UPDATE
             )
             UPDATE app_documents AS documents
             SET data = documents.data || $2::jsonb, updated_at = now()
@@ -291,7 +303,7 @@ class PostgresCollection:
     async def delete_one(self, query: Dict[str, Any]) -> DeleteResult:
         where = _WhereBuilder()
         where_sql = where.build(query)
-        result = await self.database.pool.fetchrow(
+        result = await self.database.write("fetchrow",
             f"""
             DELETE FROM app_documents
             WHERE (collection, id) IN (
@@ -309,7 +321,7 @@ class PostgresCollection:
     async def count_documents(self, query: Optional[Dict[str, Any]] = None) -> int:
         where = _WhereBuilder()
         where_sql = where.build(query)
-        return await self.database.pool.fetchval(
+        return await self.database.connection.fetchval(
             f"SELECT count(*) FROM app_documents WHERE collection = $1 AND {where_sql}",
             self.name,
             *where.args,
@@ -331,6 +343,38 @@ class PostgresDatabase:
         self.max_pool_size = max_pool_size
         self.pool: asyncpg.Pool | None = None
         self._collections: Dict[str, PostgresCollection] = {}
+        self._transaction_connection = ContextVar("transaction_connection", default=None)
+
+    @property
+    def connection(self):
+        return self._transaction_connection.get() or self.pool
+
+    @asynccontextmanager
+    async def transaction(self, lock_key: str | None = None):
+        """Keep related writes atomic and serialize changes to a shared audit."""
+        if self._transaction_connection.get() is not None:
+            yield self.connection
+            return
+        async with self.pool.acquire() as connection:
+            async with connection.transaction():
+                token = self._transaction_connection.set(connection)
+                try:
+                    if lock_key:
+                        await connection.execute(
+                            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", lock_key
+                        )
+                    yield connection
+                finally:
+                    self._transaction_connection.reset(token)
+
+    async def write(self, method, sql, *args):
+        async with self.transaction() as connection:
+            await connection.execute(
+                "SELECT set_config('app.activity_actor', $1, true), "
+                "set_config('app.activity_reason', $2, true)",
+                json.dumps(activity_actor.get()), activity_reason.get(),
+            )
+            return await getattr(connection, method)(sql, *args)
 
     async def connect(self) -> None:
         self.pool = await asyncpg.create_pool(

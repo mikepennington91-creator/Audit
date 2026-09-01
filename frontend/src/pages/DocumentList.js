@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import DeleteRecordDialog from '../components/DeleteRecordDialog';
 import { useAuth } from '../context/AuthContext';
 import EmailReportDialog from '../components/EmailReportDialog';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -24,6 +25,7 @@ const DocumentList = () => {
   const [templates, setTemplates] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deleteRecord, setDeleteRecord] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [documentAction, setDocumentAction] = useState(null);
@@ -189,7 +191,7 @@ const DocumentList = () => {
               </div>
 
               {completedDocs.map(d => (
-                <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`completed-doc-${d.id}`}><CardContent className="py-4 flex items-center gap-3"><Checkbox checked={selectedDocs.has(d.id)} onCheckedChange={() => toggleDocSelection(d.id)} onClick={(e) => e.stopPropagation()} data-testid={`select-doc-${d.id}`} /><div className="flex-1 cursor-pointer flex items-center justify-between" onClick={() => navigate(`/documents/view/${d.id}`)}><div className="flex items-center gap-3"><ClipboardCheck className="w-5 h-5 text-emerald-600" /><div><p className="font-medium">{d.template_title}</p><p className="text-xs text-muted-foreground">{d.document_reference} | v{d.version} | {formatDate(d.completed_at)} | {d.admin_closed_out ? `closed out by ${d.closed_out_by_name}` : `by ${d.completed_by_name}`}</p></div></div><div className="flex items-center gap-2"><Eye className="w-4 h-4 text-muted-foreground" /><ChevronRight className="w-4 h-4 text-muted-foreground" /></div></div></CardContent></Card>
+                <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`completed-doc-${d.id}`}><CardContent className="py-4 flex items-center gap-3"><Checkbox checked={selectedDocs.has(d.id)} onCheckedChange={() => toggleDocSelection(d.id)} onClick={(e) => e.stopPropagation()} data-testid={`select-doc-${d.id}`} /><div className="flex-1 cursor-pointer flex items-center justify-between" onClick={() => navigate(`/documents/view/${d.id}`)}><div className="flex items-center gap-3"><ClipboardCheck className="w-5 h-5 text-emerald-600" /><div><p className="font-medium">{d.template_title}</p><p className="text-xs text-muted-foreground">{d.document_reference} | v{d.version} | {formatDate(d.completed_at)} | {d.admin_closed_out ? `closed out by ${d.closed_out_by_name}` : `by ${d.completed_by_name}`}</p></div></div><div className="flex items-center gap-2"><Eye className="w-4 h-4 text-muted-foreground" /><ChevronRight className="w-4 h-4 text-muted-foreground" /></div></div>{isAdmin() && <Button variant="ghost" aria-label={`Delete ${d.template_title}`} onClick={() => setDeleteRecord(d)}><Trash2 className="w-4 h-4" /></Button>}</CardContent></Card>
               ))}
             </div>
           ) : (
@@ -198,10 +200,19 @@ const DocumentList = () => {
         </TabsContent>
 
         {inProgressDocs.length > 0 && (
-          <TabsContent value="progress" className="mt-4"><div className="space-y-3">{inProgressDocs.map(d => <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`progress-doc-${d.id}`}><CardContent className="py-4 flex items-center justify-between"><div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => navigate(`/documents/fill/${d.id}`)}><PenLine className="w-5 h-5 text-amber-500" /><div><p className="font-medium">{d.template_title}</p><p className="text-xs text-muted-foreground">{d.document_reference} | Started {formatDate(d.created_at)} | by {d.completed_by_name}</p></div></div><div className="flex items-center gap-2"><Badge variant="outline">In Progress</Badge>{isAdmin() && <><Button variant="outline" size="sm" onClick={() => setDocumentAction({ type: 'close', document: d })} data-testid={`close-out-document-${d.id}`}><CircleCheck className="w-4 h-4 mr-1" />Close Out</Button><Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => setDocumentAction({ type: 'delete', document: d })} data-testid={`delete-document-${d.id}`} aria-label={`Delete ${d.template_title}`}><Trash2 className="w-4 h-4" /></Button></>}</div></CardContent></Card>)}</div></TabsContent>
+          <TabsContent value="progress" className="mt-4"><div className="space-y-3">{inProgressDocs.map(d => <Card key={d.id} className="hover:bg-muted/50 transition-colors" data-testid={`progress-doc-${d.id}`}><CardContent className="py-4 flex items-center justify-between"><div className="flex items-center gap-3 cursor-pointer flex-1" onClick={() => navigate(`/documents/fill/${d.id}`)}><PenLine className="w-5 h-5 text-amber-500" /><div><p className="font-medium">{d.template_title}</p><p className="text-xs text-muted-foreground">{d.document_reference} | Started {formatDate(d.created_at)} | by {d.completed_by_name}</p></div></div><div className="flex items-center gap-2"><Badge variant="outline">In Progress</Badge>{isAdmin() && <><Button variant="outline" size="sm" onClick={() => setDocumentAction({ type: 'close', document: d })} data-testid={`close-out-document-${d.id}`}><CircleCheck className="w-4 h-4 mr-1" />Close Out</Button><Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => setDeleteRecord(d)} data-testid={`delete-document-${d.id}`} aria-label={`Delete ${d.template_title}`}><Trash2 className="w-4 h-4" /></Button></>}</div></CardContent></Card>)}</div></TabsContent>
         )}
       </Tabs>
 
+      <DeleteRecordDialog record={deleteRecord} onClose={() => setDeleteRecord(null)} onDelete={async reason => {
+        try {
+          await axios.delete(`${API}/traceability/documents/${deleteRecord.id}`, { data: { reason } });
+          setDocuments(prev => prev.filter(d => d.id !== deleteRecord.id));
+          setSelectedDocs(prev => { const next = new Set(prev); next.delete(deleteRecord.id); return next; });
+          setDeleteRecord(null);
+          toast.success('Record deleted; reason logged');
+        } catch (error) { toast.error(error.response?.data?.detail || 'Could not delete record'); }
+      }} />
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-destructive" />Delete Template</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Delete <strong>{deleteTarget?.title}</strong>? This cannot be undone.</p><DialogFooter className="gap-2"><Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>Cancel</Button><Button variant="destructive" onClick={handleDelete} disabled={deleting} data-testid="confirm-delete">{deleting ? 'Deleting...' : 'Delete'}</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={!!documentAction} onOpenChange={(o) => !o && setDocumentAction(null)}><DialogContent><DialogHeader><DialogTitle className="flex items-center gap-2"><AlertTriangle className={`w-5 h-5 ${documentAction?.type === 'delete' ? 'text-destructive' : 'text-amber-500'}`} />{documentAction?.type === 'delete' ? 'Delete In-Progress Document' : 'Close Out Document'}</DialogTitle></DialogHeader><div className="space-y-2 text-sm text-muted-foreground"><p>{documentAction?.type === 'delete' ? <>Permanently delete <strong>{documentAction?.document?.template_title}</strong>? This cannot be undone.</> : <>Close out <strong>{documentAction?.document?.template_title}</strong> as completed?</>}</p>{documentAction?.type === 'close' && <p>This keeps the values currently recorded and logs you as the admin who closed it out.</p>}</div><DialogFooter className="gap-2"><Button variant="outline" onClick={() => setDocumentAction(null)} disabled={processingDocument}>Cancel</Button><Button variant={documentAction?.type === 'delete' ? 'destructive' : 'default'} onClick={handleDocumentAction} disabled={processingDocument} data-testid="confirm-document-action">{processingDocument ? 'Processing...' : documentAction?.type === 'delete' ? 'Delete Document' : 'Close Out'}</Button></DialogFooter></DialogContent></Dialog>

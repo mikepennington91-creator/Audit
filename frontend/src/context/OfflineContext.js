@@ -110,11 +110,11 @@ export const OfflineProvider = ({ children }) => {
             location: audit.location || audit.data?.location || null,
             line_shift_id: audit.line_shift_id || null
           };
-          const submissionPayload = audit.data?.submission || {
+          const submissionPayload = { expected_version: 0, ...(audit.data?.submission || {
             answers: audit.answers || audit.data?.answers || [],
             notes: audit.notes || audit.data?.notes || null,
             completed: true
-          };
+          }) };
 
           if (!runId) {
             const startResponse = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/run-audits`, {

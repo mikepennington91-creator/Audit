@@ -1,0 +1,42 @@
+name: Audit deadlines
+
+on:
+  schedule:
+    # Both GMT and BST windows. The server applies Europe/London deadlines.
+    # Repeat checks recover from delayed runners, sleeping services and SMTP errors.
+    - cron: '7,37 22,23 * * 0,4'
+    - cron: '7,37 0,1 * * 1,5'
+    - cron: '17 6,10,14 * * 1,5'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: audit-deadlines
+  cancel-in-progress: false
+
+jobs:
+  check-deadlines:
+    if: github.repository == 'mikepennington91-creator/Audit' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run authenticated deadline and reminder check
+        env:
+          AUDIT_API_URL: https://infinit-audit-api.onrender.com
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Warm the service before requesting the short-lived identity token.
+          curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 120 "$AUDIT_API_URL/api/health" > /dev/null
+          job_token=$(curl --fail --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=infinit-audit-jobs" | jq -r '.value')
+          echo "::add-mask::$job_token"
+          result=$(curl --fail --silent --show-error --retry 2 --retry-all-errors --max-time 120 \
+            -X POST -H "X-GitHub-OIDC-Token: $job_token" \
+            "$AUDIT_API_URL/api/internal/jobs/scheduled-audit-reminders")
+          echo "$result"
+          echo "$result" | jq -e '.open_audits.failed == 0'

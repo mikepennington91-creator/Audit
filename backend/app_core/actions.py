@@ -133,7 +133,16 @@ async def update_run_audit(
     user: dict = Depends(legacy.require_feature("audits")),
 ):
     _validate_action_owner_inputs(submit_data)
-    result = await legacy.update_run_audit(run_id, submit_data, user)
+    from app_core.audit_reports import _get_accessible_run
+    from app_core.audit_deadlines import close_if_expired
+    async with legacy.db.transaction("audit:" + run_id):
+        run, _ = await _get_accessible_run(run_id, user)
+        run = await close_if_expired(run)
+        closed = run.get("closed_at")
+        if not closed:
+            result = await legacy.update_run_audit(run_id, submit_data, user)
+    if closed:
+        raise HTTPException(status_code=409, detail="This audit was automatically closed: not completed in time")
 
     if submit_data.completed:
         actions = await legacy.db.corrective_actions.find(
