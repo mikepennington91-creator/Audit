@@ -12,6 +12,11 @@ import server as legacy  # noqa: E402
 from app_core.account_auth import _hash_reset_token  # noqa: E402
 from app_core.actions import action_display_status  # noqa: E402
 from app_core.audit_reports import audit_access_allowed, audit_run_access_allowed  # noqa: E402
+from app_core.disposal_routes import (  # noqa: E402
+    DEFAULT_DISPOSAL_ROUTE_CONFIG,
+    default_route_style,
+    text_colour_for_background,
+)
 from app_core.email_service import _branded_html  # noqa: E402
 from app_core.hold_disposal import DISPOSAL_ROUTES, _normalised_recipients, _same_company  # noqa: E402
 from app_core.report_email import _audit_run_access_allowed  # noqa: E402
@@ -132,6 +137,19 @@ def test_disposal_routes_match_controlled_options():
     }
 
 
+def test_default_disposal_route_colours_match_factory_scheme():
+    colours = {route["key"]: route["color_hex"] for route in DEFAULT_DISPOSAL_ROUTE_CONFIG}
+    assert colours == {
+        "sugarich": "#FACC15",
+        "return_to_supplier": "#16A34A",
+        "general_waste": "#DC2626",
+        "recycling": "#7E22CE",
+    }
+    assert default_route_style("sugarich")["name"] == "SugaRich"
+    assert text_colour_for_background("#FACC15") == "#000000"
+    assert text_colour_for_background("#DC2626") == "#FFFFFF"
+
+
 def test_action_display_status_preserves_review_and_completed_states():
     yesterday = (legacy.get_uk_time().date() - timedelta(days=1)).isoformat()
 
@@ -214,3 +232,7 @@ def test_new_account_notification_and_email_routes_are_registered():
     assert ("GET", "/api/hold-disposal/disposal-notices/{notice_id}/pdf") in routes
     assert ("POST", "/api/hold-disposal/disposal-notices/{notice_id}/email") in routes
     assert ("POST", "/api/hold-disposal/distribution-lists") in routes
+    assert ("GET", "/api/hold-disposal/disposal-routes") in routes
+    assert ("POST", "/api/hold-disposal/disposal-routes") in routes
+    assert ("PUT", "/api/hold-disposal/disposal-routes/{route_id}") in routes
+    assert ("DELETE", "/api/hold-disposal/disposal-routes/{route_id}") in routes

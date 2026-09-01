@@ -13,6 +13,7 @@ from app_core.account_auth import router as account_router
 from app_core.actions import router as actions_router
 from app_core.audit_reports import router as audit_reports_router
 from app_core.audit_runs import router as audit_runs_router
+from app_core.disposal_routes import router as disposal_routes_router
 from app_core.documents import router as documents_router
 from app_core.hold_disposal import router as hold_disposal_router
 from app_core.notifications import router as notifications_router
@@ -31,6 +32,7 @@ app.include_router(account_router)
 app.include_router(actions_router)
 app.include_router(audit_reports_router)
 app.include_router(audit_runs_router)
+app.include_router(disposal_routes_router)
 app.include_router(documents_router)
 app.include_router(hold_disposal_router)
 app.include_router(notifications_router)
@@ -161,6 +163,7 @@ async def startup_event():
     await legacy.db.email_delivery_events.create_index("id", unique=True)
     await legacy.db.audit_cancellations.create_index("id", unique=True)
     await legacy.db.distribution_lists.create_index("id", unique=True)
+    await legacy.db.disposal_routes.create_index("id", unique=True)
     await legacy.db.hold_notices.create_index("id", unique=True)
     await legacy.db.disposal_notices.create_index("id", unique=True)
 
