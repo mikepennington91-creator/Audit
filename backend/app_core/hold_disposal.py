@@ -4,30 +4,18 @@ import html
 import io
 import uuid
 from typing import Optional
-from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
-from reportlab.lib.colors import HexColor
-from reportlab.lib.enums import TA_CENTER
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import cm, inch
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from starlette.responses import StreamingResponse
 
 import server as legacy
+from app_core.disposal_routes import DISPOSAL_ROUTES, resolve_disposal_route
 from app_core.email_service import EmailAttachment, send_email
+from app_core.factory_notice_pdf import notice_pdf_bytes as _notice_pdf_bytes
 
 
 router = APIRouter(prefix="/api/hold-disposal", tags=["hold-disposal"])
-
-DISPOSAL_ROUTES = {
-    "sugarich": "SugaRich",
-    "general_waste": "General Waste",
-    "recycling": "Recycling",
-    "return_to_supplier": "Return to Supplier",
-}
 
 
 class DistributionListCreate(BaseModel):
@@ -103,8 +91,7 @@ def _normalised_recipients(recipients) -> list[str]:
 @router.get("/distribution-lists")
 async def list_distribution_lists(user: dict = Depends(legacy.get_current_user)):
     query = {} if legacy.is_system_admin(user) else {"company_id": user.get("company_id")}
-    lists = await legacy.db.distribution_lists.find(query, {"_id": 0}).sort("name", 1).to_list(1000)
-    return lists
+    return await legacy.db.distribution_lists.find(query, {"_id": 0}).sort("name", 1).to_list(1000)
 
 
 @router.post("/distribution-lists")
@@ -163,11 +150,22 @@ async def delete_distribution_list(list_id: str, user: dict = Depends(legacy.get
     return {"message": "Distribution list deleted"}
 
 
-async def _create_notice(data: NoticeCreate, user: dict, *, notice_type: str, disposal_route: Optional[str] = None) -> dict:
+async def _create_notice(
+    data: NoticeCreate,
+    user: dict,
+    *,
+    notice_type: str,
+    disposal_route: Optional[str] = None,
+) -> dict:
     company_id = _company_scope(user, data.company_id)
     await _validate_company(company_id)
-    if notice_type == "disposal" and disposal_route not in DISPOSAL_ROUTES:
-        raise HTTPException(status_code=400, detail="Select a valid disposal route")
+
+    route = None
+    if notice_type == "disposal":
+        route = await resolve_disposal_route(company_id, disposal_route or "")
+        if not route:
+            raise HTTPException(status_code=400, detail="Select a valid disposal route")
+
     now = legacy.get_uk_time_iso()
     prefix = "DISP" if notice_type == "disposal" else "HOLD"
     record = {
@@ -183,8 +181,11 @@ async def _create_notice(data: NoticeCreate, user: dict, *, notice_type: str, di
         "event_date": data.event_date,
         "event_time": data.event_time,
         "line_area": data.line_area.strip(),
-        "disposal_route": disposal_route,
-        "disposal_route_label": DISPOSAL_ROUTES.get(disposal_route) if disposal_route else None,
+        "disposal_route": route.get("key") if route else None,
+        "disposal_route_id": route.get("id") if route else None,
+        "disposal_route_label": route.get("name") if route else None,
+        "disposal_route_color": route.get("color_hex") if route else None,
+        "disposal_route_text_color": route.get("text_color") if route else None,
         "created_by_id": user.get("id"),
         "created_by_name": user.get("name"),
         "created_at": now,
@@ -230,93 +231,6 @@ async def _get_notice(notice_type: str, notice_id: str, user: dict) -> dict:
     return record
 
 
-def _pdf_label_value(label: str, value: str, styles) -> list:
-    return [
-        Paragraph(f"<b>{escape(label)}</b>", styles["Normal"]),
-        Paragraph(escape(str(value or "-")), styles["Normal"]),
-    ]
-
-
-async def _notice_pdf_bytes(record: dict) -> bytes:
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=1.6 * cm,
-        leftMargin=1.6 * cm,
-        topMargin=1.5 * cm,
-        bottomMargin=1.5 * cm,
-    )
-    styles = getSampleStyleSheet()
-    title = "DISPOSAL NOTICE" if record.get("notice_type") == "disposal" else "HOLD NOTICE"
-    company = None
-    if record.get("company_id"):
-        company = await legacy.db.companies.find_one({"id": record["company_id"]}, {"_id": 0})
-
-    story = []
-    story.extend(legacy.build_company_pdf_header(company, title, styles))
-    story.append(Paragraph(f"<b>Reference:</b> {escape(record.get('reference', ''))}", styles["Normal"]))
-    story.append(Spacer(1, 0.18 * inch))
-
-    rows = [
-        _pdf_label_value("RM Number / Reference", record.get("rm_number"), styles),
-        _pdf_label_value("Ingredient / Material Name", record.get("ingredient_name"), styles),
-        _pdf_label_value("Quantity", record.get("quantity"), styles),
-        _pdf_label_value("Date", record.get("event_date"), styles),
-        _pdf_label_value("Time", record.get("event_time"), styles),
-        _pdf_label_value("Line / Factory Area", record.get("line_area"), styles),
-    ]
-    if record.get("notice_type") == "disposal":
-        rows.append(_pdf_label_value("Disposal Route", record.get("disposal_route_label"), styles))
-
-    table = Table(rows, colWidths=[2.25 * inch, 4.1 * inch])
-    table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#d9e7e5")),
-        ("BACKGROUND", (0, 0), (0, -1), HexColor("#f0f9f8")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-    ]))
-    story.append(table)
-    story.append(Spacer(1, 0.25 * inch))
-
-    reason_title = "Disposal Reason" if record.get("notice_type") == "disposal" else "Hold Reason"
-    section_style = ParagraphStyle(
-        "NoticeSection",
-        parent=styles["Heading2"],
-        fontSize=12,
-        textColor=HexColor("#1a7a6e"),
-        spaceAfter=6,
-    )
-    story.append(Paragraph(reason_title, section_style))
-    story.append(Paragraph(escape(record.get("reason") or "-"), styles["Normal"]))
-    story.append(Spacer(1, 0.18 * inch))
-    story.append(Paragraph("Action Required", section_style))
-    story.append(Paragraph(escape(record.get("action_required") or "-"), styles["Normal"]))
-    story.append(Spacer(1, 0.28 * inch))
-
-    signoff = Table([
-        ["Raised By", record.get("created_by_name") or "-"],
-        ["Raised At", legacy.format_uk_datetime(record.get("created_at"))],
-    ], colWidths=[2.25 * inch, 4.1 * inch])
-    signoff.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#d9e7e5")),
-        ("BACKGROUND", (0, 0), (0, -1), HexColor("#f7faf9")),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("PADDING", (0, 0), (-1, -1), 7),
-    ]))
-    story.append(signoff)
-    story.append(Spacer(1, 0.35 * inch))
-    footer = ParagraphStyle("NoticeFooter", parent=styles["Normal"], fontSize=8, alignment=TA_CENTER, textColor=HexColor("#667085"))
-    story.append(Paragraph("Generated by Infinit Audit · www.infinit-audit.co.uk", footer))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer.read()
-
-
 async def _pdf_response(record: dict) -> StreamingResponse:
     content = await _notice_pdf_bytes(record)
     filename = f"{record['reference'].lower()}_{record.get('rm_number', 'notice').replace(' ', '_')}.pdf"
@@ -357,17 +271,24 @@ async def _email_notice(notice_type: str, notice_id: str, request: NoticeEmailRe
             f"Quantity: {record.get('quantity')}\n"
             f"Line / area: {record.get('line_area')}\n"
         )
+        if notice_type == "disposal":
+            text_body += f"Disposal route: {record.get('disposal_route_label')}\n"
         if message_text:
             text_body += f"\nMessage:\n{message_text}\n"
+
         html_body = (
             f"<p><strong>{html.escape(notice_name)} {html.escape(record['reference'])}</strong></p>"
             f"<p><strong>Material:</strong> {html.escape(record.get('ingredient_name') or '')}<br>"
             f"<strong>RM number:</strong> {html.escape(record.get('rm_number') or '')}<br>"
             f"<strong>Quantity:</strong> {html.escape(record.get('quantity') or '')}<br>"
-            f"<strong>Line / area:</strong> {html.escape(record.get('line_area') or '')}</p>"
+            f"<strong>Line / area:</strong> {html.escape(record.get('line_area') or '')}"
         )
+        if notice_type == "disposal":
+            html_body += f"<br><strong>Disposal route:</strong> {html.escape(record.get('disposal_route_label') or '')}"
+        html_body += "</p>"
         if message_text:
             html_body += f"<p><strong>Message:</strong><br>{html.escape(message_text).replace(chr(10), '<br>')}</p>"
+
         result = await send_email(
             to_email=recipient,
             subject=f"Infinit Audit {notice_name}: {record['reference']}",
