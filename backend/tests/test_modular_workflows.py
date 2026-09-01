@@ -12,6 +12,7 @@ import server as legacy  # noqa: E402
 from app_core.account_auth import _hash_reset_token  # noqa: E402
 from app_core.actions import action_display_status  # noqa: E402
 from app_core.email_service import _branded_html  # noqa: E402
+from app_core.hold_disposal import DISPOSAL_ROUTES, _normalised_recipients, _same_company  # noqa: E402
 from app_core.report_email import _audit_run_access_allowed  # noqa: E402
 from app_core.schedules import schedule_access_allowed, scheduled_date  # noqa: E402
 from app_core.user_lifecycle import _temporary_password  # noqa: E402
@@ -82,6 +83,32 @@ def test_audit_report_email_access_does_not_cross_company_boundaries():
         run,
         _user("system", legacy.UserRole.SYSTEM_ADMIN, None),
     ) is True
+
+
+def test_hold_disposal_records_are_company_scoped():
+    record = {"company_id": "company-1", "created_by_id": "user-1"}
+
+    assert _same_company(record, _user("user-2", company_id="company-1")) is True
+    assert _same_company(record, _user("user-3", company_id="company-2")) is False
+    assert _same_company(record, _user("system", legacy.UserRole.SYSTEM_ADMIN, None)) is True
+    assert _same_company({"company_id": None, "created_by_id": "user-1"}, _user("user-1")) is True
+
+
+def test_distribution_recipient_list_is_normalised_and_deduplicated():
+    assert _normalised_recipients([
+        "Technical@Example.com",
+        " technical@example.com ",
+        "warehouse@example.com",
+    ]) == ["technical@example.com", "warehouse@example.com"]
+
+
+def test_disposal_routes_match_controlled_options():
+    assert DISPOSAL_ROUTES == {
+        "sugarich": "SugaRich",
+        "general_waste": "General Waste",
+        "recycling": "Recycling",
+        "return_to_supplier": "Return to Supplier",
+    }
 
 
 def test_action_display_status_preserves_review_and_completed_states():
@@ -156,3 +183,10 @@ def test_new_account_notification_and_email_routes_are_registered():
     assert ("GET", "/api/notifications/unread-count") in routes
     assert ("POST", "/api/reports/audit-runs/{run_id}/email") in routes
     assert ("GET", "/api/schedule-assignees") in routes
+    assert ("POST", "/api/hold-disposal/hold-notices") in routes
+    assert ("GET", "/api/hold-disposal/hold-notices/{notice_id}/pdf") in routes
+    assert ("POST", "/api/hold-disposal/hold-notices/{notice_id}/email") in routes
+    assert ("POST", "/api/hold-disposal/disposal-notices") in routes
+    assert ("GET", "/api/hold-disposal/disposal-notices/{notice_id}/pdf") in routes
+    assert ("POST", "/api/hold-disposal/disposal-notices/{notice_id}/email") in routes
+    assert ("POST", "/api/hold-disposal/distribution-lists") in routes
