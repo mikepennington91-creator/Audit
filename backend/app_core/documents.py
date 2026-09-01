@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 import server as legacy
+from app_core.company_activity import DeletionReason, delete_with_reason
 from app_core.report_email import _document_access_allowed, _get_accessible_document
 
 
@@ -130,3 +131,14 @@ async def batch_export_traceability_pdf(
     for document_id in document_ids:
         await _get_accessible_document(str(document_id), user, completed=True)
     return await legacy.batch_export_traceability_pdf({"document_ids": document_ids}, user)
+
+
+@router.delete("/traceability/documents/{doc_id}")
+async def delete_traceability_document(
+    doc_id: str, data: DeletionReason,
+    user: dict = Depends(legacy.require_feature("documents")),
+):
+    document = await legacy.db.traceability_documents.find_one({"id": doc_id})
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return await delete_with_reason(legacy.db.traceability_documents, document, data, user)

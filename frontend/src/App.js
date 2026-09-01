@@ -11,6 +11,7 @@ import ResetPassword from "./pages/ResetPassword";
 import ChangeTemporaryPassword from "./pages/ChangeTemporaryPassword";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Dashboard from "./pages/Dashboard";
+import CompanyActivity from "./pages/CompanyActivity";
 import Account from "./pages/Account";
 import Configuration from "./pages/Configuration";
 import UserManagement from "./pages/UserManagement";
@@ -68,6 +69,7 @@ function AppRoutes() {
       <Route path="/privacy" element={<PrivacyPolicy />} />
 
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/company-activity" element={<ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}><CompanyActivity /></ProtectedRoute>} />
       <Route path="/account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
       <Route path="/user-management" element={<ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}><UserManagement /></ProtectedRoute>} />
       <Route path="/configuration" element={<ProtectedRoute feature="audits_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}><Configuration /></ProtectedRoute>} />

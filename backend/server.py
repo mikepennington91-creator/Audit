@@ -301,6 +301,7 @@ class RunAuditCreate(BaseModel):
     line_shift_id: Optional[str] = None  # Optional line/shift selection
 
 class RunAuditSubmit(BaseModel):
+    expected_version: Optional[int] = None
     answers: List[AnswerSubmit]
     notes: Optional[str] = None
     completed: bool = False
@@ -309,6 +310,14 @@ class RunAuditSubmit(BaseModel):
     signoff_email: Optional[str] = None
 
 class RunAuditResponse(BaseModel):
+    version: int = 0
+    status: Optional[str] = None
+    due_date: Optional[str] = None
+    auto_close_at: Optional[str] = None
+    closed_at: Optional[str] = None
+    not_completed_in_time: bool = False
+    completed_by_id: Optional[str] = None
+    completed_by_name: Optional[str] = None
     model_config = ConfigDict(extra="ignore")
     id: str
     audit_id: str
@@ -1174,6 +1183,10 @@ async def delete_audit(
     audit_id: str,
     user: dict = Depends(require_role([UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR], "audits_edit"))
 ):
+    from app_core.audit_reports import _get_accessible_audit
+    await _get_accessible_audit(audit_id, user)
+    if await db.run_audits.count_documents({"audit_id": audit_id}):
+        raise HTTPException(status_code=409, detail="This template has audit records. Delete those records before deleting the template.")
     result = await db.audits.delete_one({"id": audit_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Audit not found")
@@ -1233,6 +1246,10 @@ async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(require
     if not audit:
         raise HTTPException(status_code=404, detail="Audit not found")
     
+    from app_core.audit_reports import audit_access_allowed
+    from app_core.audit_deadlines import audit_deadlines
+    if not audit_access_allowed(audit, user):
+        raise HTTPException(status_code=404, detail="Audit not found")
     # Get line/shift info if provided
     line_shift_title = None
     if run_data.line_shift_id:
@@ -1265,6 +1282,8 @@ async def start_run_audit(run_data: RunAuditCreate, user: dict = Depends(require
         "signoff_name": None,
         "signoff_email": None
     }
+    run_doc.update(audit_deadlines(run_doc['started_at']))
+    run_doc.update(version=0, status='open')
     await db.run_audits.insert_one(run_doc)
     return RunAuditResponse(**run_doc)
 
@@ -1361,8 +1380,15 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
     run_audit = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
     if not run_audit:
         raise HTTPException(status_code=404, detail="Run audit not found")
-    if run_audit["auditor_id"] != user["id"] and user["role"] not in [UserRole.SYSTEM_ADMIN, UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR]:
-        raise HTTPException(status_code=403, detail="Access denied")
+    from app_core.audit_reports import audit_run_access_allowed
+    from app_core.audit_deadlines import is_expired
+    audit_template = await db.audits.find_one({"id": run_audit["audit_id"]}, {"_id": 0})
+    if not audit_run_access_allowed(run_audit, user, audit_template):
+        raise HTTPException(status_code=404, detail="Audit run not found")
+    if run_audit.get("completed") or run_audit.get("closed_at") or is_expired(run_audit):
+        raise HTTPException(status_code=409, detail="This audit is closed and cannot be edited")
+    if submit_data.expected_version != (run_audit.get("version") or 0):
+        raise HTTPException(status_code=409, detail="This audit has changed. Reload it before saving to avoid overwriting another user's work")
     
     answers = [a.model_dump() for a in submit_data.answers]
     # Drafts may be incomplete. Submission-only rules are enforced when the audit is completed.
@@ -1412,6 +1438,8 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
         "answers": answers,
         "notes": submit_data.notes,
         "completed": submit_data.completed,
+        "version": (run_audit.get("version") or 0) + 1,
+        "status": "completed" if submit_data.completed else "open",
         "total_score": total_score,
         "non_conformance_count": non_conformance_count,
         "scoring_mode": scoring_mode,
@@ -1423,6 +1451,12 @@ async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict 
     }
     if submit_data.completed:
         update_dict["completed_at"] = get_uk_time_iso()
+        update_dict["completed_by_id"] = user["id"]
+        update_dict["completed_by_name"] = user["name"]
+        update_dict["signoff_name"] = user["name"]
+        update_dict["signoff_email"] = user.get("email")
+        from app_core.audit_deadlines import audit_deadlines
+        update_dict["not_completed_in_time"] = get_uk_time().date().isoformat() > audit_deadlines(run_audit["started_at"])["due_date"]
     
     await db.run_audits.update_one({"id": run_id}, {"$set": update_dict})
     updated = await db.run_audits.find_one({"id": run_id}, {"_id": 0})
@@ -1918,10 +1952,11 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
     
     # Meta information table
     meta_data = [
-        ["Auditor:", run_audit.get("auditor_name", "N/A")],
+        ["Started by:", run_audit.get("auditor_name", "N/A")],
+        ["Completed by:", run_audit.get("completed_by_name") or (run_audit.get("signoff_name") if run_audit.get("completed") else None) or (run_audit.get("auditor_name") if run_audit.get("completed") else "Not completed")],
         ["Started:", format_uk_datetime(run_audit.get("started_at"))],
-        ["Completed:", format_uk_datetime(run_audit.get("completed_at"))],
-        ["Status:", run_audit.get("pass_status", "Completed").upper() if run_audit.get("pass_status") else "Completed"],
+        ["Closed:" if run_audit.get("closed_at") else "Completed:", format_uk_datetime(run_audit.get("closed_at") or run_audit.get("completed_at"))],
+        ["Status:", "NOT COMPLETED IN TIME" if run_audit.get("closed_at") else (run_audit.get("pass_status") or "Completed").upper()],
     ]
     if run_audit.get("scoring_mode", audit.get("scoring_mode", "percentage")) == "non_conformances":
         meta_data.append(["Non-Conformances:", str(run_audit.get("non_conformance_count", 0) or 0)])

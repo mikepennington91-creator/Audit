@@ -9,10 +9,12 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 
 import server as legacy
+from database import activity_actor
 from app_core.account_auth import router as account_router
 from app_core.actions import router as actions_router
 from app_core.audit_reports import router as audit_reports_router
 from app_core.audit_runs import router as audit_runs_router
+from app_core.company_activity import router as company_activity_router
 from app_core.disposal_routes import router as disposal_routes_router
 from app_core.documents import router as documents_router
 from app_core.hold_disposal import router as hold_disposal_router
@@ -32,6 +34,7 @@ app.include_router(account_router)
 app.include_router(actions_router)
 app.include_router(audit_reports_router)
 app.include_router(audit_runs_router)
+app.include_router(company_activity_router)
 app.include_router(disposal_routes_router)
 app.include_router(documents_router)
 app.include_router(hold_disposal_router)
@@ -65,6 +68,7 @@ async def enforce_session_restrictions(request: Request, call_next):
     if request.method == "OPTIONS" or request.url.path in _TEMP_PASSWORD_EXEMPT_PATHS:
         return await call_next(request)
 
+    actor = {}
     authorization = request.headers.get("authorization", "")
     if authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
@@ -79,6 +83,8 @@ async def enforce_session_restrictions(request: Request, call_next):
                 user = await legacy.db.users.find_one(
                     {"id": user_id}, {"_id": 0, "password": 0}
                 )
+                if user:
+                    actor = {key: user.get(key) for key in ("id", "name", "company_id")}
                 if user and user.get("must_change_password"):
                     return JSONResponse(
                         status_code=403,
@@ -101,7 +107,11 @@ async def enforce_session_restrictions(request: Request, call_next):
             # the normal authentication error for invalid/expired sessions.
             pass
 
-    return await call_next(request)
+    token = activity_actor.set(actor)
+    try:
+        return await call_next(request)
+    finally:
+        activity_actor.reset(token)
 
 
 _REPLACED_ROUTES = {
@@ -113,6 +123,9 @@ _REPLACED_ROUTES = {
     ("POST", "/api/users/bulk-import"),
     ("GET", "/api/users/export-template"),
     ("DELETE", "/api/run-audits/{run_id}"),
+    ("GET", "/api/run-audits"),
+    ("GET", "/api/run-audits/{run_id}"),
+    ("DELETE", "/api/traceability/documents/{doc_id}"),
     ("PUT", "/api/run-audits/{run_id}"),
     ("GET", "/api/audits/{audit_id}/runs"),
     ("GET", "/api/run-audits/{run_id}/details"),

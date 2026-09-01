@@ -86,24 +86,13 @@ async def _get_accessible_document(document_id: str, user: dict, *, completed: b
 
 
 def _audit_run_access_allowed(run: dict, user: dict) -> bool:
-    if legacy.is_system_admin(user):
-        return True
-    if run.get("auditor_id") == user.get("id"):
-        return True
-    if user.get("role") in [
-        legacy.UserRole.COMPANY_ADMIN,
-        legacy.UserRole.ADMIN,
-        legacy.UserRole.AUDIT_CREATOR,
-    ]:
-        return run.get("company_id") == user.get("company_id")
-    return False
+    from app_core.audit_reports import audit_run_access_allowed
+    return audit_run_access_allowed(run, user)
 
 
 async def _get_accessible_audit_run(run_id: str, user: dict) -> dict:
-    run = await legacy.db.run_audits.find_one({"id": run_id}, {"_id": 0})
-    if not run or not _audit_run_access_allowed(run, user):
-        # Do not reveal whether a run ID belongs to another company.
-        raise HTTPException(status_code=404, detail="Audit run not found")
+    from app_core.audit_reports import _get_accessible_run
+    run, _ = await _get_accessible_run(run_id, user)
     return run
 
 
