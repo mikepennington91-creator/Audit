@@ -13,6 +13,7 @@ from app_core.account_auth import router as account_router
 from app_core.actions import router as actions_router
 from app_core.audit_runs import router as audit_runs_router
 from app_core.documents import router as documents_router
+from app_core.hold_disposal import router as hold_disposal_router
 from app_core.notifications import router as notifications_router
 from app_core.reminders import reminder_loop, router as reminders_router
 from app_core.report_email import router as report_email_router
@@ -29,6 +30,7 @@ app.include_router(account_router)
 app.include_router(actions_router)
 app.include_router(audit_runs_router)
 app.include_router(documents_router)
+app.include_router(hold_disposal_router)
 app.include_router(notifications_router)
 app.include_router(reminders_router)
 app.include_router(report_email_router)
@@ -149,6 +151,9 @@ async def startup_event():
     await legacy.db.password_reset_tokens.create_index("id", unique=True)
     await legacy.db.email_delivery_events.create_index("id", unique=True)
     await legacy.db.audit_cancellations.create_index("id", unique=True)
+    await legacy.db.distribution_lists.create_index("id", unique=True)
+    await legacy.db.hold_notices.create_index("id", unique=True)
+    await legacy.db.disposal_notices.create_index("id", unique=True)
 
     enabled = os.environ.get("REMINDER_LOOP_ENABLED", "true").strip().lower() in {
         "1", "true", "yes", "on"
