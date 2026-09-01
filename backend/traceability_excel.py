@@ -101,7 +101,10 @@ def _date_value(value: Any) -> date | str | None:
     try:
         return date.fromisoformat(text[:10])
     except ValueError:
-        return text
+        try:
+            return datetime.strptime(text, "%d/%m/%Y").date()
+        except ValueError:
+            return text
 
 
 def _number_value(value: Any) -> float | int | None:

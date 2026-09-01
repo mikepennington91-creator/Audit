@@ -1,3 +1,4 @@
+import { formatUKDate } from '../utils/dates';
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
@@ -61,6 +62,7 @@ const DocumentView = () => {
   const getDisplayValue = (field, value) => {
     if (value === undefined || value === null || value === '') return '-';
     if (field?.field_type === 'checkbox') return value ? 'Yes' : 'No';
+    if (field?.field_type === 'date') return formatUKDate(value);
     return String(value);
   };
 

@@ -592,7 +592,7 @@ const RunAudit = () => {
             <CardHeader><CardTitle className="text-lg flex items-center gap-2"><Save className="w-5 h-5" />Saved Audits</CardTitle><CardDescription>Continue an audit you saved earlier.</CardDescription></CardHeader>
             <CardContent className="space-y-3">
               {savedRuns.map(run => (
-                <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-3"><div><p className="font-medium">{run.audit_name}</p><p className="text-xs text-muted-foreground">Started {new Date(run.started_at).toLocaleString('en-GB')}</p></div><Button onClick={() => navigate(`/run-audit/${run.id}`)} data-testid={`continue-audit-${run.id}`}><Play className="w-4 h-4 mr-2" />Continue Audit</Button></div>
+                <div key={run.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border p-3"><div><p className="font-medium">{run.audit_name}</p><p className="text-xs text-muted-foreground">Started {new Date(run.started_at).toLocaleString('en-GB', { timeZone: 'Europe/London' })}</p></div><Button onClick={() => navigate(`/run-audit/${run.id}`)} data-testid={`continue-audit-${run.id}`}><Play className="w-4 h-4 mr-2" />Continue Audit</Button></div>
               ))}
             </CardContent>
           </Card>
@@ -644,7 +644,7 @@ const RunAudit = () => {
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <div className="min-w-0"><h1 className="text-xl font-bold">{currentAudit?.name}</h1><p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap"><Clock className="w-3 h-3" />Started {new Date(activeRun.started_at).toLocaleTimeString()}{activeRun.line_shift_title && <><span>•</span><Layers className="w-3 h-3" />{activeRun.line_shift_title}</>}</p></div>
+          <div className="min-w-0"><h1 className="text-xl font-bold">{currentAudit?.name}</h1><p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap"><Clock className="w-3 h-3" />Started {new Date(activeRun.started_at).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', hour12: false })}{activeRun.line_shift_title && <><span>•</span><Layers className="w-3 h-3" />{activeRun.line_shift_title}</>}</p></div>
         </div>
         <Button variant="outline" onClick={() => saveProgress(true)} disabled={exiting || submitting} data-testid="save-progress-btn"><Save className="w-4 h-4 mr-2" />{exiting ? 'Exiting...' : 'Save & Exit'}</Button>
       </div>

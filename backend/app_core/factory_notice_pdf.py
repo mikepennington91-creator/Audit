@@ -10,10 +10,11 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm, inch
 from reportlab.platypus import Image as RLImage
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 import server as legacy
 from app_core.disposal_routes import route_style_from_notice
+from date_formats import format_uk_date
 
 
 HOLD_RED = "#E30613"
@@ -96,7 +97,7 @@ def _reference_row(record: dict, styles):
         "RefLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=9, leading=11
     )
     value = ParagraphStyle("RefValue", parent=styles["Normal"], fontSize=9, leading=11)
-    date_time = f"{record.get('event_date') or '-'}  {record.get('event_time') or ''}".strip()
+    date_time = f"{format_uk_date(record.get('event_date'), '-')}  {record.get('event_time') or ''}".strip()
     table = Table([
         [Paragraph("Reference Number:", label), _paragraph(record.get("reference"), value), Paragraph("Date / Time:", label), _paragraph(date_time, value)]
     ], colWidths=[1.25 * inch, 2.0 * inch, 1.05 * inch, 2.4 * inch])
@@ -119,8 +120,12 @@ def _details_table(record: dict, styles):
     value_style = ParagraphStyle("DetailValue", parent=styles["Normal"], fontSize=10, leading=12)
     rows = [
         [Paragraph("Product / Material:", label_style), _paragraph(record.get("ingredient_name"), value_style)],
-        [Paragraph("RM Number(s) / Ref:", label_style), _paragraph(record.get("rm_number"), value_style)],
-        [Paragraph("Quantity / No. of Cases:", label_style), _paragraph(record.get("quantity"), value_style)],
+        [Paragraph("RM Number:", label_style), _paragraph(record.get("rm_number"), value_style)],
+        [Paragraph("Our Batch:", label_style), _paragraph(record.get("our_batch"), value_style)],
+        [Paragraph("Vendor Batch:", label_style), _paragraph(record.get("vendor_batch"), value_style)],
+        [Paragraph("Date Delivered:", label_style), _paragraph(format_uk_date(record.get("date_delivered"), "-"), value_style)],
+        [Paragraph("Quantity Delivered:", label_style), _paragraph(record.get("quantity_delivered"), value_style)],
+        [Paragraph("Quantity for Disposal:" if record.get("notice_type") == "disposal" else "Quantity on Hold:", label_style), _paragraph(record.get("quantity"), value_style)],
         [Paragraph("Line / Factory Area:", label_style), _paragraph(record.get("line_area"), value_style)],
     ]
     table = Table(rows, colWidths=[1.62 * inch, 5.08 * inch])
@@ -149,7 +154,8 @@ def _boxed_section(label: str, value: str, styles, *, fill: str | None = None, t
     content = Table(
         [[Paragraph(label, label_style), _paragraph(value, value_style)]],
         colWidths=[1.62 * inch, 5.08 * inch],
-        rowHeights=[min_height],
+        minRowHeights=[min_height],
+        splitInRow=1,
     )
     commands = [
         ("BOX", (0, 0), (-1, -1), 1.0, BORDER),
@@ -208,14 +214,6 @@ async def notice_pdf_bytes(record: dict) -> bytes:
         alignment=TA_CENTER,
         textColor=HexColor("#222222"),
     )
-    footer = ParagraphStyle(
-        "FactoryFooter",
-        parent=normal,
-        fontSize=7.5,
-        leading=9,
-        alignment=TA_LEFT,
-        textColor=MUTED,
-    )
 
     company = None
     if record.get("company_id"):
@@ -242,13 +240,34 @@ async def notice_pdf_bytes(record: dict) -> bytes:
 
     if notice_type == "hold":
         story.extend([
-            _boxed_section("HOLD REASON", record.get("reason"), styles, min_height=1.18 * inch),
+            _boxed_section("ISSUE", record.get("reason"), styles, min_height=1.18 * inch),
             Spacer(1, 0.18 * inch),
             _boxed_section("ACTION REQUIRED / COMMENTS", record.get("action_required"), styles, min_height=1.18 * inch),
             Spacer(1, 0.24 * inch),
             _signoff(record, styles, notice_type),
         ])
-    else:
+
+    if notice_type == "hold" and (record.get("outcome_version") or any(record.get(field) for field in (
+        "quantity_released", "quantity_discarded", "root_cause", "corrective_action"
+    ))):
+        story.extend([
+            PageBreak(),
+            _banner(company, "hold", HOLD_RED, "#FFFFFF", styles),
+            Spacer(1, 0.08 * inch),
+            _reference_row(record, styles),
+            Paragraph("Hold Outcome &amp; Investigation", styles["Heading2"]),
+            _boxed_section("QUANTITY RELEASED", record.get("quantity_released"), styles, min_height=0.48 * inch),
+            Spacer(1, 0.12 * inch),
+            _boxed_section("QUANTITY DISCARDED", record.get("quantity_discarded"), styles, min_height=0.48 * inch),
+            Spacer(1, 0.12 * inch),
+            _boxed_section("ROOT CAUSE", record.get("root_cause"), styles, min_height=1.18 * inch),
+            Spacer(1, 0.12 * inch),
+            _boxed_section("CORRECTIVE ACTION", record.get("corrective_action"), styles, min_height=1.18 * inch),
+            Spacer(1, 0.24 * inch),
+            _signoff({**record, "created_by_name": record.get("outcome_updated_by_name"),
+                      "created_at": record.get("outcome_updated_at")}, styles, "hold"),
+        ])
+    if notice_type != "hold":
         story.extend([
             _boxed_section(
                 "DISPOSAL ROUTE",
@@ -279,11 +298,19 @@ async def notice_pdf_bytes(record: dict) -> bytes:
             _signoff(record, styles, notice_type),
         ])
 
-    story.extend([
-        Spacer(1, 0.18 * inch),
-        Paragraph("Generated by Infinit Audit · Controlled factory notice", footer),
-    ])
+    def page_reference(canvas, document):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(MUTED)
+        reference = str(record.get("reference") or "Factory notice")
+        # Long user-entered references must not overlap the central footer.
+        while canvas.stringWidth(reference, "Helvetica", 7) > 1.8 * inch:
+            reference = reference[:-4] + "..."
+        canvas.drawString(document.leftMargin, 10, reference)
+        canvas.drawCentredString(A4[0] / 2, 10, "Generated by Infinit Audit · Controlled factory notice")
+        canvas.drawRightString(A4[0] - document.rightMargin, 10, f"Page {document.page}")
+        canvas.restoreState()
 
-    doc.build(story)
+    doc.build(story, onFirstPage=page_reference, onLaterPages=page_reference)
     buffer.seek(0)
     return buffer.read()

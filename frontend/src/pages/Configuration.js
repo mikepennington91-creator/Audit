@@ -1,3 +1,4 @@
+import { formatUKDate } from '../utils/dates';
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useSearchParams } from 'react-router-dom';
@@ -224,7 +225,7 @@ const Configuration = () => {
               <CardContent>
                 {loading ? <Skeleton className="h-32 w-full" /> : (
                   <Table><TableHeader><TableRow><TableHead>Company</TableHead><TableHead>Description</TableHead><TableHead>Created</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                    <TableBody>{companies.map((company) => <TableRow key={company.id}><TableCell className="font-medium">{company.name}</TableCell><TableCell className="text-muted-foreground">{company.description || '-'}</TableCell><TableCell>{new Date(company.created_at).toLocaleDateString('en-GB')}</TableCell><TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => editCompany(company)}><Pencil className="w-4 h-4" /></Button><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => deleteCompany(company.id)}><Trash2 className="w-4 h-4" /></Button></TableCell></TableRow>)}</TableBody>
+                    <TableBody>{companies.map((company) => <TableRow key={company.id}><TableCell className="font-medium">{company.name}</TableCell><TableCell className="text-muted-foreground">{company.description || '-'}</TableCell><TableCell>{formatUKDate(company.created_at)}</TableCell><TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => editCompany(company)}><Pencil className="w-4 h-4" /></Button><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => deleteCompany(company.id)}><Trash2 className="w-4 h-4" /></Button></TableCell></TableRow>)}</TableBody>
                   </Table>
                 )}
               </CardContent>
@@ -293,7 +294,7 @@ const Configuration = () => {
             <CardContent>
               {loading ? <Skeleton className="h-32 w-full" /> : lines.length ? (
                 <Table><TableHeader><TableRow><TableHead>Title</TableHead><TableHead>Created</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                  <TableBody>{lines.map((line) => <TableRow key={line.id}><TableCell><div className="flex items-center gap-3"><span className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center"><Settings className="w-4 h-4 text-primary" /></span><span className="font-medium">{line.title}</span></div></TableCell><TableCell>{new Date(line.created_at).toLocaleDateString('en-GB')}</TableCell><TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => editLine(line)}><Pencil className="w-4 h-4" /></Button><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => deleteLine(line.id)}><Trash2 className="w-4 h-4" /></Button></TableCell></TableRow>)}</TableBody>
+                  <TableBody>{lines.map((line) => <TableRow key={line.id}><TableCell><div className="flex items-center gap-3"><span className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center"><Settings className="w-4 h-4 text-primary" /></span><span className="font-medium">{line.title}</span></div></TableCell><TableCell>{formatUKDate(line.created_at)}</TableCell><TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => editLine(line)}><Pencil className="w-4 h-4" /></Button><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => deleteLine(line.id)}><Trash2 className="w-4 h-4" /></Button></TableCell></TableRow>)}</TableBody>
                 </Table>
               ) : <div className="text-center py-12 text-muted-foreground">No lines or shifts have been created yet.</div>}
             </CardContent>

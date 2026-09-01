@@ -1,3 +1,4 @@
+import { formatUKDate, formatUKDateTime, ukToday } from '../utils/dates';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -24,6 +25,9 @@ import {
 } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import { Download, FileSpreadsheet, Loader2, PackageCheck, Pencil, Plus, Printer, Trash2, Upload } from 'lucide-react';
+
+const DATE_FIELDS = new Set(['intakeDate', 'productionDate', 'bestBeforeDate', 'usageDate', 'dispatchDate']);
+const displayField = (key, value) => DATE_FIELDS.has(key) ? formatUKDate(value, '') : value;
 
 const STORAGE_KEY = 'traceabilityDataV1';
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -387,7 +391,7 @@ const Traceability = () => {
       const url = window.URL.createObjectURL(response.data);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `traceability_bulk_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      link.download = `traceability_bulk_${formatUKDate(ukToday()).replaceAll('/', '')}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -448,7 +452,7 @@ const Traceability = () => {
       .concat(
         rows.map(row =>
           header
-            .map(key => `"${String(row[key] ?? '').replace(/"/g, '""')}"`)
+            .map(key => `"${String(displayField(key, row[key]) ?? '').replace(/"/g, '""')}"`)
             .join(','),
         ),
       )
@@ -503,7 +507,7 @@ const Traceability = () => {
     const tableRows = data.rawIntakes
       .map(row => {
         const cells = columns
-          .map(column => `<td>${escapeHtml(row[column.key])}</td>`)
+          .map(column => `<td>${escapeHtml(displayField(column.key, row[column.key]))}</td>`)
           .join('');
         return `<tr>${cells}</tr>`;
       })
@@ -647,7 +651,7 @@ const Traceability = () => {
   const filteredFinishedBatches = data.finishedBatches.filter(item => {
     const term = finishedFilter.trim().toLowerCase();
     const matchesText = !term || [
-      item.productionDate, item.finishedProduct, item.finishedBatchCode,
+      formatUKDate(item.productionDate), item.productionDate, item.finishedProduct, item.finishedBatchCode,
       item.palletLabel, item.lineNumber, item.bestBeforeDate,
     ].some(value => String(value || '').toLowerCase().includes(term));
     const status = item.releaseStatus || 'Quarantine';
@@ -953,7 +957,7 @@ const Traceability = () => {
                     ) : (
                       data.rawIntakes.map(item => (
                         <TableRow key={item.id}>
-                          <TableCell>{item.intakeDate || '-'}</TableCell>
+                          <TableCell>{formatUKDate(item.intakeDate)}</TableCell>
                           <TableCell>{item.materialName || '-'}</TableCell>
                           <TableCell>{item.sweetdreamsBatchCode || '-'}</TableCell>
                           <TableCell>{item.supplierName || '-'}</TableCell>
@@ -1099,7 +1103,7 @@ const Traceability = () => {
                     ) : (
                       filteredFinishedBatches.map(item => (
                         <TableRow key={item.id}>
-                          <TableCell>{item.productionDate || '-'}</TableCell>
+                          <TableCell>{formatUKDate(item.productionDate)}</TableCell>
                           <TableCell>{item.finishedProduct || '-'}</TableCell>
                           <TableCell>{item.finishedBatchCode || '-'}</TableCell>
                           <TableCell>{item.palletLabel || '-'}</TableCell>
@@ -1159,8 +1163,8 @@ const Traceability = () => {
               {editHistory.length === 0 ? <p className="text-sm text-muted-foreground">No previous corrections.</p> : editHistory.map(entry => (
                 <div key={entry.id} className="rounded-md border p-3 text-sm">
                   <div className="font-medium">{entry.reason}</div>
-                  <div className="text-muted-foreground">{entry.edited_by_name} — {new Date(entry.edited_at).toLocaleString('en-GB')}</div>
-                  <div className="mt-2 space-y-1">{Object.entries(entry.changes || {}).map(([field, change]) => <div key={field}><span className="font-medium">{field}:</span> {String(change.before ?? '-')} → {String(change.after ?? '-')}</div>)}</div>
+                  <div className="text-muted-foreground">{entry.edited_by_name} — {formatUKDateTime(entry.edited_at)}</div>
+                  <div className="mt-2 space-y-1">{Object.entries(entry.changes || {}).map(([field, change]) => <div key={field}><span className="font-medium">{field}:</span> {String(displayField(field, change.before) ?? '-')} → {String(displayField(field, change.after) ?? '-')}</div>)}</div>
                 </div>
               ))}
             </div>
@@ -1189,7 +1193,7 @@ const Traceability = () => {
               <h3 className="font-semibold">Dispatch History</h3>
               {dispatches.length === 0 ? <p className="text-sm text-muted-foreground">This batch has not been dispatched.</p> : (
                 <Table><TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Customer</TableHead><TableHead>Quantity</TableHead><TableHead>Reference</TableHead></TableRow></TableHeader>
-                  <TableBody>{dispatches.map(item => <TableRow key={item.id}><TableCell>{item.dispatchDate}</TableCell><TableCell>{item.customer}</TableCell><TableCell>{item.quantity}</TableCell><TableCell>{item.reference || '-'}</TableCell></TableRow>)}</TableBody>
+                  <TableBody>{dispatches.map(item => <TableRow key={item.id}><TableCell>{formatUKDate(item.dispatchDate)}</TableCell><TableCell>{item.customer}</TableCell><TableCell>{item.quantity}</TableCell><TableCell>{item.reference || '-'}</TableCell></TableRow>)}</TableBody>
                 </Table>
               )}
             </div>
@@ -1310,7 +1314,7 @@ const Traceability = () => {
                     ) : (
                       data.materialUsage.map(item => (
                         <TableRow key={item.id}>
-                          <TableCell>{item.usageDate || '-'}</TableCell>
+                          <TableCell>{formatUKDate(item.usageDate)}</TableCell>
                           <TableCell>{item.sweetdreamsBatchCode || '-'}</TableCell>
                           <TableCell>{item.palletNumber || '-'}</TableCell>
                           <TableCell>{item.finishedBatchCode || '-'}</TableCell>
@@ -1384,7 +1388,7 @@ const Traceability = () => {
                     ) : (
                       finishedTraceRows.map((row, index) => (
                         <TableRow key={`${row.sweetdreamsBatchCode}-${index}`}>
-                          <TableCell>{row.usageDate || '-'}</TableCell>
+                          <TableCell>{formatUKDate(row.usageDate)}</TableCell>
                           <TableCell>{row.sweetdreamsBatchCode || '-'}</TableCell>
                           <TableCell>{row.palletNumber || '-'}</TableCell>
                           <TableCell>{row.materialName || '-'}</TableCell>
@@ -1452,10 +1456,10 @@ const Traceability = () => {
                     ) : (
                       rawTraceRows.map((row, index) => (
                         <TableRow key={`${row.finishedBatchCode}-${index}`}>
-                          <TableCell>{row.usageDate || '-'}</TableCell>
+                          <TableCell>{formatUKDate(row.usageDate)}</TableCell>
                           <TableCell>{row.finishedBatchCode || '-'}</TableCell>
                           <TableCell>{row.finishedProduct || '-'}</TableCell>
-                          <TableCell>{row.productionDate || '-'}</TableCell>
+                          <TableCell>{formatUKDate(row.productionDate)}</TableCell>
                           <TableCell>{row.palletNumber || '-'}</TableCell>
                           <TableCell>{row.quantityUsedKg || '-'}</TableCell>
                           <TableCell>{row.quantityWastedKg || '-'}</TableCell>
@@ -1562,18 +1566,18 @@ const Traceability = () => {
                     ) : dateTraceType === 'finished' ? (
                       dateTraceRows.map(row => (
                         <TableRow key={row.finishedBatchCode}>
-                          <TableCell>{row.productionDate || '-'}</TableCell>
+                          <TableCell>{formatUKDate(row.productionDate)}</TableCell>
                           <TableCell>{row.finishedProduct || '-'}</TableCell>
                           <TableCell>{row.finishedBatchCode || '-'}</TableCell>
                           <TableCell>{row.unitsProduced || '-'}</TableCell>
                           <TableCell>{row.lineNumber || '-'}</TableCell>
-                          <TableCell>{row.bestBeforeDate || '-'}</TableCell>
+                          <TableCell>{formatUKDate(row.bestBeforeDate)}</TableCell>
                         </TableRow>
                       ))
                     ) : (
                       dateTraceRows.map(row => (
                         <TableRow key={`${row.sweetdreamsBatchCode}-${row.palletNumber || ''}`}>
-                          <TableCell>{row.intakeDate || '-'}</TableCell>
+                          <TableCell>{formatUKDate(row.intakeDate)}</TableCell>
                           <TableCell>{row.materialName || '-'}</TableCell>
                           <TableCell>{row.sweetdreamsBatchCode || '-'}</TableCell>
                           <TableCell>{row.palletNumber || '-'}</TableCell>

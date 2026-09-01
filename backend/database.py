@@ -233,6 +233,31 @@ class PostgresCollection:
         )
         return InsertOneResult(inserted_id=document_id)
 
+    async def insert_one_if_absent(self, document: Dict[str, Any]) -> bool:
+        """Atomically insert by ID without overwriting an existing document.
+
+        Callers seeding shared defaults must use a deterministic ID for the
+        logical record. The existing (collection, id) primary key then also
+        protects concurrent requests across backend workers.
+        """
+        document_id = str(document.get("id") or "")
+        if not document_id:
+            raise ValueError(f"Documents in {self.name} must contain a non-empty id")
+        payload = dict(document)
+        payload.pop("_id", None)
+        result = await self.database.pool.fetchrow(
+            """
+            INSERT INTO app_documents (collection, id, data)
+            VALUES ($1, $2, $3::jsonb)
+            ON CONFLICT (collection, id) DO NOTHING
+            RETURNING id
+            """,
+            self.name,
+            document_id,
+            json.dumps(payload),
+        )
+        return result is not None
+
     async def update_one(
         self, query: Dict[str, Any], update: Dict[str, Any]
     ) -> UpdateResult:

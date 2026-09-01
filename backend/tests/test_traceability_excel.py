@@ -54,3 +54,12 @@ def test_normalise_record_requires_key_fields_and_typed_numbers():
         "quantityUsedKg": "1,250.5",
     })
     assert record["quantityUsedKg"] == 1250.5
+
+
+def test_uk_date_text_is_accepted_and_normalised_for_storage():
+    record = normalise_record("raw", {
+        "intakeDate": "01/09/2026", "materialName": "Sugar",
+        "sweetdreamsBatchCode": "SD-100", "bestBeforeDate": "30/09/2026",
+    })
+    assert record["intakeDate"] == "2026-09-01"
+    assert record["bestBeforeDate"] == "2026-09-30"

@@ -72,7 +72,7 @@ async def send_action_assignment_email(action: Dict[str, Any], *, force: bool = 
             "A corrective action has been assigned to you in Infinit Audit.\n\n"
             f"Audit: {action.get('audit_name', 'N/A')}\n"
             f"Action required: {action.get('action_required', 'N/A')}\n"
-            f"Due date: {action.get('due_date', 'N/A')}\n\n"
+            f"Due date: {legacy.format_uk_date(action.get('due_date'))}\n\n"
             f"Open Infinit Audit: {action_url}"
         ),
         html_body=(
@@ -80,7 +80,7 @@ async def send_action_assignment_email(action: Dict[str, Any], *, force: bool = 
             "<p>A corrective action has been assigned to you in Infinit Audit.</p>"
             f"<p><strong>Audit:</strong> {html.escape(str(action.get('audit_name') or 'N/A'))}<br>"
             f"<strong>Action required:</strong> {html.escape(str(action.get('action_required') or 'N/A'))}<br>"
-            f"<strong>Due date:</strong> {html.escape(str(action.get('due_date') or 'N/A'))}</p>"
+            f"<strong>Due date:</strong> {html.escape(legacy.format_uk_date(action.get('due_date')))}</p>"
             f"<p><a href=\"{html.escape(action_url, quote=True)}\">Open corrective actions</a></p>"
         ),
         template="action_assigned",
