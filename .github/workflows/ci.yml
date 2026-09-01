@@ -28,7 +28,7 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - name: Install backend dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt -r tests/requirements.txt
       - name: Run local regression tests
         run: >-
           pytest -q
@@ -40,6 +40,7 @@ jobs:
           tests/test_traceability_excel.py
           tests/test_database.py
           tests/test_audit_deadlines_activity.py
+          tests/test_pdf_exports.py
 
   frontend-build:
     runs-on: ubuntu-latest

@@ -1,3 +1,4 @@
+import { pdfErrorMessage } from '../utils/pdfErrors';
 import { formatUKDate } from '../utils/dates';
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -35,7 +36,7 @@ const DocumentView = () => {
     setDownloading(true);
     try {
       const res = await axios.get(`${API}/traceability/documents/${documentId}/pdf`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
       link.setAttribute('download', `${doc?.document_reference || 'document'}.pdf`);
@@ -44,7 +45,7 @@ const DocumentView = () => {
       link.remove();
       window.URL.revokeObjectURL(url);
       toast.success('PDF downloaded');
-    } catch { toast.error('Failed to download PDF'); }
+    } catch (error) { toast.error(await pdfErrorMessage(error)); }
     finally { setDownloading(false); }
   };
 
