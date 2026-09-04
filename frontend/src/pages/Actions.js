@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { AlertTriangle, Archive, CheckCircle2, Clock3, Eye, FileDown, History, Mail, RotateCcw, ShieldCheck, Trash2, UserRoundCog, XCircle } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, Clock3, Eye, FileDown, History, Mail, Plus, RotateCcw, ShieldCheck, Trash2, UserRoundCog, XCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import EmailReportDialog from '../components/EmailReportDialog';
 import { Badge } from '../components/ui/badge';
@@ -13,6 +13,7 @@ import { Label } from '../components/ui/label';
 import { Skeleton } from '../components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Textarea } from '../components/ui/textarea';
+import { Switch } from '../components/ui/switch';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -24,6 +25,9 @@ const Actions = () => {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [showArchived, setShowArchived] = useState(false);
+  const [myActionsOnly, setMyActionsOnly] = useState(false);
+  const [showCreateAction, setShowCreateAction] = useState(false);
+  const [newAction, setNewAction] = useState({ title: '', non_conformance: '', action_required: '', assigned_user_id: '', reviewer_user_id: '', due_date: '' });
   const [selectedAction, setSelectedAction] = useState(null);
   const [actionTaken, setActionTaken] = useState('');
   const [saving, setSaving] = useState(false);
@@ -35,6 +39,7 @@ const Actions = () => {
   const [extensionReason, setExtensionReason] = useState('');
   const [decisionComment, setDecisionComment] = useState('');
   const [reviewComment, setReviewComment] = useState('');
+  const [reviewerUserId, setReviewerUserId] = useState('');
 
   const fetchActions = async () => {
     try {
@@ -53,19 +58,21 @@ const Actions = () => {
     axios.get(`${API}/action-assignees`).then((r) => setAssignees(r.data)).catch(() => setAssignees([]));
   }, []);
 
+  const isMine = (action) => action?.assigned_user_id === user?.id;
+  const isMyReview = (action) => (action?.reviewer_user_id || action?.created_by_id) === user?.id;
   const visibleActions = actions.filter((action) => !!action.archived === showArchived);
-  const counts = useMemo(() => ({
-    open: visibleActions.filter((action) => action.status === 'open').length,
-    overdue: visibleActions.filter((action) => action.status === 'overdue').length,
-    awaiting_review: visibleActions.filter((action) => action.status === 'awaiting_review').length,
-    completed: visibleActions.filter((action) => action.status === 'completed').length,
-  }), [visibleActions]);
+  const scopedActions = myActionsOnly ? visibleActions.filter((action) => isMine(action)) : visibleActions;
+  const counts = {
+    open: scopedActions.filter((action) => action.status === 'open').length,
+    overdue: scopedActions.filter((action) => action.status === 'overdue').length,
+    awaiting_review: scopedActions.filter((action) => action.status === 'awaiting_review').length,
+    completed: scopedActions.filter((action) => action.status === 'completed').length,
+  };
 
-  const filteredActions = statusFilter === 'all' ? visibleActions : visibleActions.filter((action) => action.status === statusFilter);
+  const filteredActions = statusFilter === 'all' ? scopedActions : scopedActions.filter((action) => action.status === statusFilter);
   const assignedTo = (action) => action.assigned_user_name || action.assigned_department || 'Unassigned';
   const formatDate = (value) => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB') : '-';
   const formatDateTime = (value) => value ? new Date(value).toLocaleString('en-GB', { timeZone: 'Europe/London' }) : '-';
-  const isMine = (action) => action?.assigned_user_id === user?.id;
 
   const statusBadge = (status) => {
     if (status === 'completed') return <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">Completed</Badge>;
@@ -88,6 +95,51 @@ const Actions = () => {
     setExtensionReason('');
     setDecisionComment('');
     setReviewComment('');
+    setReviewerUserId(action.reviewer_user_id || action.created_by_id || '');
+  };
+
+  useEffect(() => {
+    if (!actions.length) return;
+    const actionId = new URLSearchParams(window.location.search).get('action');
+    const linkedAction = actions.find((action) => action.id === actionId);
+    if (linkedAction) {
+      openAction(linkedAction);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [actions]);
+
+  const createAction = async (event) => {
+    event.preventDefault();
+    if (!newAction.title.trim() || !newAction.non_conformance.trim() || !newAction.action_required.trim() || !newAction.assigned_user_id || !newAction.due_date) {
+      return toast.error('Complete all required action details');
+    }
+    setSaving(true);
+    try {
+      const response = await axios.post(`${API}/actions`, { ...newAction, reviewer_user_id: newAction.reviewer_user_id || user.id });
+      setActions((current) => [...current, response.data]);
+      setShowCreateAction(false);
+      setNewAction({ title: '', non_conformance: '', action_required: '', assigned_user_id: '', reviewer_user_id: '', due_date: '' });
+      openAction(response.data);
+      toast.success('Action created and the assigned user notified');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to create action');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const changeReviewer = async () => {
+    if (!reviewerUserId) return toast.error('Select an approver');
+    setSaving(true);
+    try {
+      const response = await axios.put(`${API}/actions/${selectedAction.id}/reviewer`, { reviewer_user_id: reviewerUserId });
+      replaceAction(response.data);
+      toast.success('Action approver updated');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to change the approver');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const submitActionForReview = async (event) => {
@@ -97,7 +149,7 @@ const Actions = () => {
     try {
       const response = await axios.put(`${API}/actions/${selectedAction.id}`, { action_taken: actionTaken });
       replaceAction(response.data);
-      toast.success('Action submitted to the owner for review and sign-off');
+      toast.success('Action submitted to the approver for review and sign-off');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit action for review');
     } finally {
@@ -224,7 +276,7 @@ const Actions = () => {
   };
 
   const filters = [
-    { key: 'all', label: `All (${visibleActions.length})` },
+    { key: 'all', label: `All (${scopedActions.length})` },
     { key: 'open', label: `Open (${counts.open})` },
     { key: 'overdue', label: `Overdue (${counts.overdue})` },
     { key: 'awaiting_review', label: `Awaiting Review (${counts.awaiting_review})` },
@@ -233,21 +285,19 @@ const Actions = () => {
 
   const canReassignSelected = selectedAction && !selectedAction.archived && !['completed', 'awaiting_review'].includes(selectedAction.status) && (isMine(selectedAction) || canAdmin);
   const canRequestExtension = selectedAction && !selectedAction.archived && !['completed', 'awaiting_review'].includes(selectedAction.status) && isMine(selectedAction);
+  const canChangeReviewerSelected = selectedAction && !selectedAction.archived && selectedAction.status !== 'completed' && (selectedAction.created_by_id === user?.id || canAdmin);
 
   return (
     <div className="space-y-6" data-testid="actions-page">
-      <div><h1 className="text-3xl font-bold tracking-tight">Corrective Actions</h1><p className="text-muted-foreground mt-1">Track actions from assignment through completion, owner review and final sign-off.</p></div>
+      <div className="flex items-start justify-between gap-4 flex-wrap"><div><h1 className="text-3xl font-bold tracking-tight">Corrective Actions</h1><p className="text-muted-foreground mt-1">Track actions from assignment through completion, approver review and final sign-off.</p></div><Button onClick={() => { setNewAction((current) => ({ ...current, reviewer_user_id: current.reviewer_user_id || user?.id || '' })); setShowCreateAction(true); }}><Plus className="w-4 h-4 mr-2" />Add Action</Button></div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card><CardContent className="pt-6 flex items-center gap-4"><Clock3 className="w-8 h-8 text-amber-600" /><div><p className="text-2xl font-bold">{counts.open}</p><p className="text-sm text-muted-foreground">Open</p></div></CardContent></Card>
-        <Card><CardContent className="pt-6 flex items-center gap-4"><AlertTriangle className="w-8 h-8 text-red-600" /><div><p className="text-2xl font-bold">{counts.overdue}</p><p className="text-sm text-muted-foreground">Overdue</p></div></CardContent></Card>
-        <Card><CardContent className="pt-6 flex items-center gap-4"><ShieldCheck className="w-8 h-8 text-blue-600" /><div><p className="text-2xl font-bold">{counts.awaiting_review}</p><p className="text-sm text-muted-foreground">Awaiting Review</p></div></CardContent></Card>
-        <Card><CardContent className="pt-6 flex items-center gap-4"><CheckCircle2 className="w-8 h-8 text-emerald-600" /><div><p className="text-2xl font-bold">{counts.completed}</p><p className="text-sm text-muted-foreground">Completed</p></div></CardContent></Card>
+        {[{ key: 'open', label: 'Open', count: counts.open, icon: Clock3, colour: 'text-amber-600' }, { key: 'overdue', label: 'Overdue', count: counts.overdue, icon: AlertTriangle, colour: 'text-red-600' }, { key: 'awaiting_review', label: 'Awaiting Review', count: counts.awaiting_review, icon: ShieldCheck, colour: 'text-blue-600' }, { key: 'completed', label: 'Completed', count: counts.completed, icon: CheckCircle2, colour: 'text-emerald-600' }].map((summary) => { const Icon = summary.icon; return <Card key={summary.key} className={`cursor-pointer transition-colors hover:bg-muted/50 ${statusFilter === summary.key ? 'ring-2 ring-primary' : ''}`} onClick={() => setStatusFilter(summary.key)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setStatusFilter(summary.key); }}><CardContent className="pt-6 flex items-center gap-4"><Icon className={`w-8 h-8 ${summary.colour}`} /><div><p className="text-2xl font-bold">{summary.count}</p><p className="text-sm text-muted-foreground">{summary.label}</p></div></CardContent></Card>; })}
       </div>
 
       <Card>
         <CardHeader className="space-y-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap"><CardTitle className="text-lg">Action Reports</CardTitle>{canAdmin && <Button variant={showArchived ? 'default' : 'outline'} size="sm" onClick={() => { setShowArchived(!showArchived); setStatusFilter('all'); }}>{showArchived ? 'Viewing Archived' : 'View Archived'}</Button>}</div>
+          <div className="flex items-center justify-between gap-3 flex-wrap"><CardTitle className="text-lg">Action Reports</CardTitle><div className="flex items-center gap-4"><div className="flex items-center gap-2"><Switch id="my-actions-only" checked={myActionsOnly} onCheckedChange={setMyActionsOnly} /><Label htmlFor="my-actions-only" className="cursor-pointer">My actions only</Label></div>{canAdmin && <Button variant={showArchived ? 'default' : 'outline'} size="sm" onClick={() => { setShowArchived(!showArchived); setStatusFilter('all'); }}>{showArchived ? 'Viewing Archived' : 'View Archived'}</Button>}</div></div>
           <div className="flex flex-wrap gap-2">{filters.map((filter) => <Button key={filter.key} size="sm" variant={statusFilter === filter.key ? 'default' : 'outline'} onClick={() => setStatusFilter(filter.key)}>{filter.label}</Button>)}</div>
         </CardHeader>
         <CardContent>
@@ -264,7 +314,7 @@ const Actions = () => {
                       <TableCell className="max-w-xs">{action.action_required}</TableCell>
                       <TableCell>{assignedTo(action)}</TableCell>
                       <TableCell>{formatDate(action.due_date)}{action.extension_request?.status === 'pending' && <Badge className="ml-2 bg-amber-100 text-amber-800">Extension Pending</Badge>}</TableCell>
-                      <TableCell>{statusBadge(action.status)}</TableCell>
+                      <TableCell><button type="button" onClick={() => openAction(action)} className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Open ${action.audit_name}`}>{statusBadge(action.status)}</button></TableCell>
                       <TableCell className="text-right whitespace-nowrap"><Button variant="ghost" size="sm" onClick={() => openAction(action)} title="View action"><Eye className="w-4 h-4" /></Button><Button variant="ghost" size="sm" disabled={downloading === action.id} onClick={() => downloadReport(action)} title="Download PDF">{downloading === action.id ? '...' : <FileDown className="w-4 h-4" />}</Button><Button variant="ghost" size="sm" onClick={() => setEmailActionId(action.id)} title="Email PDF"><Mail className="w-4 h-4" /></Button></TableCell>
                     </TableRow>
                   ))}
@@ -275,12 +325,29 @@ const Actions = () => {
         </CardContent>
       </Card>
 
+      <Dialog open={showCreateAction} onOpenChange={setShowCreateAction}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>Add Corrective Action</DialogTitle></DialogHeader>
+          <form onSubmit={createAction} className="space-y-4">
+            <div className="space-y-2"><Label htmlFor="new-action-title">Action title *</Label><Input id="new-action-title" value={newAction.title} onChange={(event) => setNewAction({ ...newAction, title: event.target.value })} placeholder="e.g. Repair damaged line guard" /></div>
+            <div className="space-y-2"><Label htmlFor="new-action-issue">Issue / Non-Conformance *</Label><Textarea id="new-action-issue" value={newAction.non_conformance} onChange={(event) => setNewAction({ ...newAction, non_conformance: event.target.value })} rows={3} /></div>
+            <div className="space-y-2"><Label htmlFor="new-action-required">Action Required *</Label><Textarea id="new-action-required" value={newAction.action_required} onChange={(event) => setNewAction({ ...newAction, action_required: event.target.value })} rows={3} /></div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="space-y-2"><Label htmlFor="new-action-owner">Assigned to *</Label><select id="new-action-owner" className="w-full h-10 rounded-md border bg-background px-3" value={newAction.assigned_user_id} onChange={(event) => setNewAction({ ...newAction, assigned_user_id: event.target.value })}><option value="">Select action owner</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</select></div>
+              <div className="space-y-2"><Label htmlFor="new-action-approver">Approver *</Label><select id="new-action-approver" className="w-full h-10 rounded-md border bg-background px-3" value={newAction.reviewer_user_id || user?.id || ''} onChange={(event) => setNewAction({ ...newAction, reviewer_user_id: event.target.value })}>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</select><p className="text-xs text-muted-foreground">Defaults to you as the person raising the action.</p></div>
+            </div>
+            <div className="space-y-2 sm:max-w-xs"><Label htmlFor="new-action-due">Due date *</Label><Input id="new-action-due" type="date" value={newAction.due_date} onChange={(event) => setNewAction({ ...newAction, due_date: event.target.value })} /></div>
+            <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setShowCreateAction(false)}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Creating...' : 'Create Action'}</Button></div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!selectedAction} onOpenChange={(open) => { if (!open) setSelectedAction(null); }}>
         <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Corrective Action Report</DialogTitle></DialogHeader>
           {selectedAction && <div className="space-y-5">
-            <div className="grid sm:grid-cols-2 gap-3 rounded-lg bg-muted/50 p-4 text-sm"><div><p className="text-muted-foreground">Audit</p><p className="font-medium">{selectedAction.audit_name}</p></div><div><p className="text-muted-foreground">Status</p>{statusBadge(selectedAction.status)}</div><div><p className="text-muted-foreground">Action owner</p><p className="font-medium">{assignedTo(selectedAction)}</p></div><div><p className="text-muted-foreground">Due date</p><p className="font-medium">{formatDate(selectedAction.due_date)}</p></div></div>
-            <div><Label>Audit Question</Label><p className="mt-1 text-sm">{selectedAction.question_text}</p></div>
+            <div className="grid sm:grid-cols-2 gap-3 rounded-lg bg-muted/50 p-4 text-sm"><div><p className="text-muted-foreground">Source</p><p className="font-medium">{selectedAction.audit_name}</p></div><div><p className="text-muted-foreground">Status</p>{statusBadge(selectedAction.status)}</div><div><p className="text-muted-foreground">Action owner</p><p className="font-medium">{assignedTo(selectedAction)}</p></div><div><p className="text-muted-foreground">Approver</p><p className="font-medium">{selectedAction.reviewer_user_name || selectedAction.created_by_name || '-'}</p></div><div><p className="text-muted-foreground">Due date</p><p className="font-medium">{formatDate(selectedAction.due_date)}</p></div><div><p className="text-muted-foreground">Raised by</p><p className="font-medium">{selectedAction.created_by_name || '-'}</p></div></div>
+            {selectedAction.question_id && <div><Label>Audit Question</Label><p className="mt-1 text-sm">{selectedAction.question_text}</p></div>}
             <div><Label>Non-Conformance</Label><p className="mt-1 rounded-md border p-3 text-sm">{selectedAction.non_conformance}</p></div>
             <div><Label>Action Required</Label><p className="mt-1 rounded-md border p-3 text-sm">{selectedAction.action_required}</p></div>
 
@@ -298,6 +365,10 @@ const Actions = () => {
               </div>
             )}
 
+            {canChangeReviewerSelected && (
+              <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><ShieldCheck className="w-4 h-4" />Action Approver</CardTitle></CardHeader><CardContent className="space-y-3"><p className="text-sm text-muted-foreground">The person who raised the action is the default approver. You can nominate another user if needed.</p><div className="flex gap-2 flex-wrap"><select className="h-10 min-w-56 flex-1 rounded-md border bg-background px-3" value={reviewerUserId} onChange={(event) => setReviewerUserId(event.target.value)}>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</select><Button type="button" variant="outline" onClick={changeReviewer} disabled={saving || reviewerUserId === selectedAction.reviewer_user_id}>Update Approver</Button></div></CardContent></Card>
+            )}
+
             {selectedAction.status === 'completed' ? (
               <div className="space-y-3">
                 <div><Label>Action Taken</Label><p className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm dark:bg-emerald-950/20">{selectedAction.action_taken}</p><p className="text-xs text-muted-foreground mt-2">Submitted by {selectedAction.completed_by_name} on {formatDateTime(selectedAction.completed_at)}</p></div>
@@ -305,14 +376,14 @@ const Actions = () => {
               </div>
             ) : selectedAction.status === 'awaiting_review' ? (
               <div className="space-y-4 rounded-lg border border-blue-300 bg-blue-50/70 dark:bg-blue-950/20 p-4">
-                <div><p className="font-medium flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-blue-600" />Completion submitted for owner review</p><p className="text-sm mt-2"><strong>Action taken:</strong> {selectedAction.action_taken}</p><p className="text-xs text-muted-foreground mt-2">Submitted by {selectedAction.completed_by_name} on {formatDateTime(selectedAction.completed_at)}</p></div>
-                {isMine(selectedAction) ? (
-                  <div className="space-y-3 border-t border-blue-200 pt-4"><Label>Owner Review / Sign-Off</Label><Textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} placeholder="Review comment (required if returning the action for more work)" rows={3} /><div className="flex flex-wrap gap-2"><Button onClick={() => reviewAction(true)} disabled={saving}><ShieldCheck className="w-4 h-4 mr-2" />Approve & Sign Off</Button><Button variant="outline" onClick={() => reviewAction(false)} disabled={saving}><XCircle className="w-4 h-4 mr-2" />Return for More Work</Button></div></div>
-                ) : <p className="text-sm text-muted-foreground border-t border-blue-200 pt-3">Waiting for {assignedTo(selectedAction)} to review and sign off this action.</p>}
+                <div><p className="font-medium flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-blue-600" />Completion submitted for approver review</p><p className="text-sm mt-2"><strong>Action taken:</strong> {selectedAction.action_taken}</p><p className="text-xs text-muted-foreground mt-2">Submitted by {selectedAction.completed_by_name} on {formatDateTime(selectedAction.completed_at)}</p></div>
+                {isMyReview(selectedAction) ? (
+                  <div className="space-y-3 border-t border-blue-200 pt-4"><Label>Approver Review / Sign-Off</Label><Textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} placeholder="Review comment (required if returning the action for more work)" rows={3} /><div className="flex flex-wrap gap-2"><Button onClick={() => reviewAction(true)} disabled={saving}><ShieldCheck className="w-4 h-4 mr-2" />Approve & Sign Off</Button><Button variant="outline" onClick={() => reviewAction(false)} disabled={saving}><XCircle className="w-4 h-4 mr-2" />Return for More Work</Button></div></div>
+                ) : <p className="text-sm text-muted-foreground border-t border-blue-200 pt-3">Waiting for {selectedAction.reviewer_user_name || selectedAction.created_by_name} to review and sign off this action.</p>}
               </div>
-            ) : !selectedAction.archived && (
-              <form onSubmit={submitActionForReview} className="space-y-3"><Label>Action Taken *</Label><Textarea value={actionTaken} onChange={(e) => setActionTaken(e.target.value)} rows={4} required /><Button type="submit" disabled={saving}><CheckCircle2 className="w-4 h-4 mr-2" />Submit for Owner Review</Button></form>
-            )}
+            ) : !selectedAction.archived && isMine(selectedAction) ? (
+              <form onSubmit={submitActionForReview} className="space-y-3"><Label>Action Taken *</Label><Textarea value={actionTaken} onChange={(e) => setActionTaken(e.target.value)} rows={4} required /><Button type="submit" disabled={saving}><CheckCircle2 className="w-4 h-4 mr-2" />Submit for Approver Review</Button></form>
+            ) : !selectedAction.archived && <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">This action is assigned to {assignedTo(selectedAction)} for completion.</p>}
 
             <div><div className="flex items-center gap-2 mb-2"><History className="w-4 h-4" /><Label>Action History</Label></div><div className="space-y-2">{(selectedAction.history || []).length ? [...selectedAction.history].reverse().map((entry) => <div key={entry.id} className="rounded-md border p-3 text-sm"><p>{entry.message}</p><p className="text-xs text-muted-foreground mt-1">{entry.user_name} · {formatDateTime(entry.created_at)}</p></div>) : <p className="text-sm text-muted-foreground">No changes recorded yet.</p>}</div></div>
 

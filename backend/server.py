@@ -289,6 +289,9 @@ class AnswerSubmit(BaseModel):
     assigned_user_name: Optional[str] = None
     assigned_user_email: Optional[str] = None
     assigned_department: Optional[str] = None
+    reviewer_user_id: Optional[str] = None
+    reviewer_user_name: Optional[str] = None
+    reviewer_user_email: Optional[str] = None
     action_assignee_type: Optional[str] = None
     action_due_date: Optional[str] = None
     action_status: Optional[str] = None
@@ -389,6 +392,11 @@ class CorrectiveActionResponse(BaseModel):
     created_at: str
     updated_at: str
     completed_at: Optional[str] = None
+    review_status: Optional[str] = None
+    reviewed_by_id: Optional[str] = None
+    reviewed_by_name: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    review_comment: Optional[str] = None
     archived: bool = False
     archived_by_id: Optional[str] = None
     archived_by_name: Optional[str] = None
@@ -1369,6 +1377,9 @@ async def prepare_corrective_actions(run_audit: dict, audit: dict, answers: List
                 "action_taken": None,
                 "created_by_id": user["id"],
                 "created_by_name": user["name"],
+                "reviewer_user_id": user["id"],
+                "reviewer_user_name": user["name"],
+                "reviewer_user_email": user.get("email"),
                 "completed_by_id": None,
                 "completed_by_name": None,
                 "created_at": now,
@@ -1590,6 +1601,8 @@ async def get_accessible_corrective_action(action_id: str, user: dict) -> dict:
         raise HTTPException(status_code=404, detail="Corrective action not found")
     if action.get("assigned_user_id") == user["id"]:
         return action
+    if (action.get("reviewer_user_id") or action.get("created_by_id")) == user["id"]:
+        return action
     if is_system_admin(user):
         return action
     if user["role"] in [UserRole.COMPANY_ADMIN, UserRole.ADMIN, UserRole.AUDIT_CREATOR] and action.get("company_id") == user.get("company_id"):
@@ -1775,7 +1788,7 @@ async def complete_corrective_action(
 @api_router.get("/actions/{action_id}/pdf")
 async def export_corrective_action_pdf(action_id: str, user: dict = Depends(require_feature("actions"))):
     action = await get_accessible_corrective_action(action_id, user)
-    display_status = corrective_action_status(action)
+    display_status = action.get("status") if action.get("status") in {"completed", "awaiting_review"} else corrective_action_status(action)
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
@@ -1784,6 +1797,7 @@ async def export_corrective_action_pdf(action_id: str, user: dict = Depends(requ
     section_style = ParagraphStyle('ActionSection', parent=styles['Heading2'], fontSize=13, textColor=HexColor('#1a7a6e'), spaceBefore=14, spaceAfter=8)
     normal_style = styles['Normal']
     assigned_to = action.get("assigned_user_name") or action.get("assigned_department") or "Unassigned"
+    approver = action.get("reviewer_user_name") or action.get("created_by_name") or "N/A"
 
     story = [
         Paragraph("INFINIT-AUDIT", title_style),
@@ -1792,8 +1806,9 @@ async def export_corrective_action_pdf(action_id: str, user: dict = Depends(requ
     ]
     meta_data = [
         ["Audit:", action.get("audit_name", "N/A")],
-        ["Status:", display_status.title()],
+        ["Status:", display_status.replace("_", " ").title()],
         ["Assigned to:", assigned_to],
+        ["Approver:", approver],
         ["Due date:", format_uk_date(action.get("due_date"))],
         ["Raised by:", action.get("created_by_name", "N/A")],
         ["Raised:", format_uk_datetime(action.get("created_at"))],
