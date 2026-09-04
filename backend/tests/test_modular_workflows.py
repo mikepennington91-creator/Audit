@@ -17,10 +17,15 @@ from app_core.disposal_routes import (  # noqa: E402
     default_route_style,
     text_colour_for_background,
 )
-from app_core.email_service import _branded_html  # noqa: E402
+from app_core.email_service import _branded_html, _build_message  # noqa: E402
 from app_core.hold_disposal import DISPOSAL_ROUTES, _normalised_recipients, _same_company  # noqa: E402
 from app_core.report_email import _audit_run_access_allowed  # noqa: E402
-from app_core.schedules import schedule_access_allowed, scheduled_date  # noqa: E402
+from app_core.schedules import (  # noqa: E402
+    run_satisfies_schedule,
+    schedule_access_allowed,
+    schedule_window,
+    scheduled_date,
+)
 from app_core.user_lifecycle import _temporary_password  # noqa: E402
 from main import app  # noqa: E402
 
@@ -71,6 +76,48 @@ def test_legacy_schedule_without_company_id_uses_assigned_users_company_for_acce
         _user("manager-2", legacy.UserRole.ADMIN, "company-2"),
         assigned_user,
     ) is False
+
+
+def test_weekly_schedule_accepts_any_same_company_run_within_monday_to_sunday():
+    schedule = {
+        "audit_id": "audit-1",
+        "company_id": "company-1",
+        "scheduled_date": "2026-09-02",  # Wednesday
+        "recurrence": "weekly",
+    }
+    assert schedule_window(schedule) == (
+        scheduled_date("2026-08-31"),
+        scheduled_date("2026-09-06"),
+    )
+    assert run_satisfies_schedule(
+        {
+            "id": "run-by-another-auditor",
+            "audit_id": "audit-1",
+            "company_id": "company-1",
+            "completed": True,
+            "completed_at": "2026-09-06T22:00:00+01:00",
+            "auditor_id": "someone-else",
+        },
+        schedule,
+    ) is True
+
+
+def test_weekly_schedule_rejects_wrong_week_audit_or_company():
+    schedule = {
+        "audit_id": "audit-1",
+        "company_id": "company-1",
+        "scheduled_date": "2026-09-02",
+        "recurrence": "weekly",
+    }
+    base_run = {
+        "audit_id": "audit-1",
+        "company_id": "company-1",
+        "completed": True,
+        "completed_at": "2026-09-07T00:01:00+01:00",
+    }
+    assert run_satisfies_schedule(base_run, schedule) is False
+    assert run_satisfies_schedule({**base_run, "completed_at": "2026-09-02", "audit_id": "audit-2"}, schedule) is False
+    assert run_satisfies_schedule({**base_run, "completed_at": "2026-09-02", "company_id": "company-2"}, schedule) is False
 
 
 def test_audit_report_email_access_does_not_cross_company_boundaries():
@@ -214,6 +261,22 @@ def test_branded_email_shell_contains_logo_and_privacy_link():
     assert "Test message" in markup
 
 
+def test_text_only_email_also_receives_branded_html_layout():
+    message = _build_message(
+        to_email="auditor@example.com",
+        subject="Action update",
+        text_body="Hi Sam,\n\nAn action is ready for review.",
+        html_body=None,
+        attachments=(),
+    )
+    alternatives = list(message.iter_parts())
+    assert len(alternatives) == 2
+    assert alternatives[1].get_content_type() == "text/html"
+    markup = alternatives[1].get_content()
+    assert "Infinit Audit" in markup
+    assert "An action is ready for review." in markup
+
+
 def test_modular_entrypoint_has_single_replacement_route_for_critical_endpoints():
     def route_count(method, path):
         return sum(
@@ -257,6 +320,8 @@ def test_new_account_notification_and_email_routes_are_registered():
     assert ("POST", "/api/auth/password-reset/request") in routes
     assert ("POST", "/api/auth/password-reset/confirm") in routes
     assert ("POST", "/api/auth/change-temporary-password") in routes
+    assert ("POST", "/api/users/{user_id}/password-reset") in routes
+    assert ("PUT", "/api/users/{user_id}/lock") in routes
     assert ("GET", "/api/notifications/unread-count") in routes
     assert ("POST", "/api/reports/audit-runs/{run_id}/email") in routes
     assert ("GET", "/api/schedule-assignees") in routes

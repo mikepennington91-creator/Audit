@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -25,6 +25,95 @@ def scheduled_date(value: str | None) -> Optional[date]:
         return date.fromisoformat(str(value)[:10])
     except (TypeError, ValueError):
         return None
+
+
+def schedule_window(schedule: Dict[str, Any]) -> tuple[Optional[date], Optional[date]]:
+    """Return the calendar window in which a run satisfies an occurrence."""
+    anchor = scheduled_date(schedule.get("scheduled_date"))
+    if not anchor:
+        return None, None
+    if schedule.get("recurrence") == "weekly":
+        start = anchor - timedelta(days=anchor.weekday())
+        return start, start + timedelta(days=6)
+    return anchor, anchor
+
+
+def run_completion_date(run: Dict[str, Any]) -> Optional[date]:
+    value = run.get("completed_at") or run.get("updated_at")
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.date()
+    except (TypeError, ValueError):
+        return scheduled_date(str(value))
+
+
+def run_satisfies_schedule(run: Dict[str, Any], schedule: Dict[str, Any]) -> bool:
+    if not run.get("completed") or run.get("audit_id") != schedule.get("audit_id"):
+        return False
+    if run.get("company_id") != schedule.get("company_id"):
+        return False
+    completed_on = run_completion_date(run)
+    window_start, window_end = schedule_window(schedule)
+    return bool(completed_on and window_start and window_end and window_start <= completed_on <= window_end)
+
+
+async def _create_next_weekly_occurrence(schedule: Dict[str, Any]) -> None:
+    if schedule.get("recurrence") != "weekly":
+        return
+    current_date = scheduled_date(schedule.get("scheduled_date"))
+    if not current_date:
+        return
+    next_date = current_date + timedelta(days=7)
+    series_id = schedule.get("series_id") or schedule["id"]
+    next_id = str(legacy.uuid.uuid5(
+        legacy.uuid.NAMESPACE_URL,
+        f"infinit-audit-schedule:{series_id}:{next_date.isoformat()}",
+    ))
+    next_occurrence = {
+        **schedule,
+        "id": next_id,
+        "series_id": series_id,
+        "scheduled_date": next_date.isoformat(),
+        "status": "pending",
+        "created_at": legacy.get_uk_time_iso(),
+        "completed_run_id": None,
+        "completed_at": None,
+        "reminder_email_status": None,
+        "reminder_last_attempt_at": None,
+        "reminder_sent_at": None,
+    }
+    await legacy.db.scheduled_audits.insert_one_if_absent(next_occurrence)
+
+
+async def complete_matching_schedules(run: Dict[str, Any]) -> int:
+    """Complete same-company occurrences covered by a completed audit run."""
+    if not run.get("completed") or not run.get("audit_id") or not run.get("company_id"):
+        return 0
+    schedules_collection = getattr(legacy.db, "scheduled_audits", None)
+    if schedules_collection is None:
+        return 0
+    candidates = await schedules_collection.find(
+        {
+            "audit_id": run["audit_id"],
+            "company_id": run["company_id"],
+            "status": {"$in": ["pending", "overdue"]},
+        },
+        {"_id": 0},
+    ).to_list(500)
+    matching = [schedule for schedule in candidates if run_satisfies_schedule(run, schedule)]
+    for schedule in matching:
+        await legacy.db.scheduled_audits.update_one(
+            {"id": schedule["id"]},
+            {"$set": {
+                "status": "completed",
+                "completed_run_id": run["id"],
+                "completed_at": run.get("completed_at") or legacy.get_uk_time_iso(),
+            }},
+        )
+        await _create_next_weekly_occurrence(schedule)
+    return len(matching)
 
 
 def schedule_access_allowed(
@@ -150,9 +239,14 @@ async def create_scheduled_audit(
     if reminder_days < 0 or reminder_days > 365:
         raise HTTPException(status_code=400, detail="Reminder days must be between 0 and 365")
 
+    recurrence = str(schedule_data.recurrence or "none").lower()
+    if recurrence not in {"none", "weekly"}:
+        raise HTTPException(status_code=400, detail="Recurrence must be none or weekly")
+
     now = legacy.get_uk_time_iso()
+    schedule_id = str(legacy.uuid.uuid4())
     schedule_doc = {
-        "id": str(legacy.uuid.uuid4()),
+        "id": schedule_id,
         "audit_id": audit["id"],
         "audit_name": audit["name"],
         "assigned_to": assigned_user["id"],
@@ -167,6 +261,8 @@ async def create_scheduled_audit(
         "created_by": user["id"],
         "created_at": now,
         "completed_run_id": None,
+        "recurrence": recurrence,
+        "series_id": schedule_id,
         "reminder_email_status": None,
         "reminder_last_attempt_at": None,
         "reminder_sent_at": None,
@@ -201,7 +297,7 @@ async def get_scheduled_audits(
     today = legacy.get_uk_time().date()
     results = []
     for schedule in schedules:
-        due_date = scheduled_date(schedule.get("scheduled_date"))
+        _, due_date = schedule_window(schedule)
         if schedule.get("status") == "pending" and due_date and due_date < today:
             schedule["status"] = "overdue"
             await legacy.db.scheduled_audits.update_one(
@@ -227,7 +323,7 @@ async def get_my_scheduled_audits(
     today = legacy.get_uk_time().date()
     results = []
     for schedule in schedules:
-        due_date = scheduled_date(schedule.get("scheduled_date"))
+        _, due_date = schedule_window(schedule)
         if schedule.get("status") == "pending" and due_date and due_date < today:
             schedule["status"] = "overdue"
             await legacy.db.scheduled_audits.update_one(
@@ -249,19 +345,13 @@ async def complete_scheduled_audit(
         raise HTTPException(status_code=404, detail="Audit run not found")
     if not run.get("completed"):
         raise HTTPException(status_code=409, detail="The audit run has not been completed")
-    if run.get("audit_id") != schedule.get("audit_id"):
-        raise HTTPException(status_code=400, detail="The audit run does not match this schedule")
-    if run.get("auditor_id") != schedule.get("assigned_to"):
-        raise HTTPException(status_code=400, detail="The audit run was completed by a different user")
+    if not run_satisfies_schedule(run, schedule):
+        raise HTTPException(
+            status_code=400,
+            detail="The audit run must be for this audit and company within the scheduled period",
+        )
 
-    await legacy.db.scheduled_audits.update_one(
-        {"id": schedule_id},
-        {"$set": {
-            "status": "completed",
-            "completed_run_id": run_id,
-            "completed_at": legacy.get_uk_time_iso(),
-        }},
-    )
+    await complete_matching_schedules(run)
     return {"message": "Scheduled audit marked as completed"}
 
 

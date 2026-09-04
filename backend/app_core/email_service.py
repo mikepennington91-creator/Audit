@@ -106,6 +106,17 @@ def _branded_html(subject: str, body: str) -> str:
 </html>"""
 
 
+def _text_to_html(text_body: str) -> str:
+    """Turn a plain-text template into readable HTML inside the shared shell."""
+    paragraphs = []
+    for block in str(text_body or "").strip().split("\n\n"):
+        if not block.strip():
+            continue
+        escaped = html.escape(block.strip()).replace("\n", "<br>")
+        paragraphs.append(f'<p style="margin:0 0 16px">{escaped}</p>')
+    return "".join(paragraphs) or "<p>&nbsp;</p>"
+
+
 def _build_message(
     *,
     to_email: str,
@@ -124,8 +135,12 @@ def _build_message(
     message["To"] = to_email
     message["Subject"] = subject
     message.set_content(f"{text_body.rstrip()}\n\nPrivacy Policy: {privacy_url}\n")
-    if html_body:
-        message.add_alternative(_branded_html(subject, html_body), subtype="html")
+    # Every application email gets the same polished HTML treatment. Templates
+    # can supply richer content, while text-only operational emails still render
+    # as a professional branded message instead of an unformatted fallback.
+    message.add_alternative(
+        _branded_html(subject, html_body or _text_to_html(text_body)), subtype="html"
+    )
 
     for attachment in attachments:
         message.add_attachment(

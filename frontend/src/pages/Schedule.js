@@ -32,6 +32,7 @@ const Schedule = () => {
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
   const [reminderDays, setReminderDays] = useState('1');
+  const [recurrence, setRecurrence] = useState('none');
 
   useEffect(() => {
     fetchData();
@@ -72,7 +73,8 @@ const Schedule = () => {
         scheduled_date: format(scheduledDate, 'yyyy-MM-dd'),
         location: location || null,
         notes: notes || null,
-        reminder_days: parseInt(reminderDays)
+        reminder_days: parseInt(reminderDays),
+        recurrence,
       });
       toast.success('Audit scheduled successfully');
       setDialogOpen(false);
@@ -101,6 +103,7 @@ const Schedule = () => {
     setLocation('');
     setNotes('');
     setReminderDays('1');
+    setRecurrence('none');
   };
 
   const getStatusBadge = (status) => {
@@ -158,7 +161,7 @@ const Schedule = () => {
               </div>
 
               <div className="space-y-2">
-                <Label>Scheduled Date *</Label>
+                <Label>{recurrence === 'weekly' ? 'First Scheduled Date *' : 'Scheduled Date *'}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="schedule-date-btn">
@@ -180,6 +183,22 @@ const Schedule = () => {
                     />
                   </PopoverContent>
                 </Popover>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Repeat</Label>
+                <Select value={recurrence} onValueChange={setRecurrence}>
+                  <SelectTrigger data-testid="schedule-recurrence"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Does not repeat</SelectItem>
+                    <SelectItem value="weekly">Every week</SelectItem>
+                  </SelectContent>
+                </Select>
+                {recurrence === 'weekly' && (
+                  <p className="text-xs text-muted-foreground">
+                    Any completed run of this audit for the company during that Monday–Sunday week will complete the occurrence.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -233,13 +252,14 @@ const Schedule = () => {
           ) : schedules.length > 0 ? (
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow><TableHead>Audit</TableHead><TableHead>Assigned To</TableHead><TableHead>Date</TableHead><TableHead>Location</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Audit</TableHead><TableHead>Assigned To</TableHead><TableHead>Date</TableHead><TableHead>Repeat</TableHead><TableHead>Location</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {schedules.map((schedule) => (
                     <TableRow key={schedule.id} data-testid={`schedule-row-${schedule.id}`}>
                       <TableCell className="font-medium">{schedule.audit_name}</TableCell>
                       <TableCell><div className="flex items-center gap-2"><User className="w-4 h-4 text-muted-foreground" />{schedule.assigned_to_name}</div></TableCell>
                       <TableCell><div className="flex items-center gap-2"><CalendarIcon className="w-4 h-4 text-muted-foreground" />{formatDate(schedule.scheduled_date)}</div></TableCell>
+                      <TableCell>{schedule.recurrence === 'weekly' ? <Badge variant="outline">Weekly</Badge> : 'Once'}</TableCell>
                       <TableCell>{schedule.location ? <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-muted-foreground" />{schedule.location}</div> : '-'}</TableCell>
                       <TableCell>{getStatusBadge(schedule.status)}</TableCell>
                       <TableCell className="text-right">
