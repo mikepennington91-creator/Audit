@@ -21,6 +21,7 @@ from app_core.email_service import _branded_html, _build_message  # noqa: E402
 from app_core.hold_disposal import DISPOSAL_ROUTES, _normalised_recipients, _same_company  # noqa: E402
 from app_core.report_email import _audit_run_access_allowed  # noqa: E402
 from app_core.schedules import (  # noqa: E402
+    next_occurrence_date,
     run_satisfies_schedule,
     schedule_access_allowed,
     schedule_window,
@@ -118,6 +119,35 @@ def test_weekly_schedule_rejects_wrong_week_audit_or_company():
     assert run_satisfies_schedule(base_run, schedule) is False
     assert run_satisfies_schedule({**base_run, "completed_at": "2026-09-02", "audit_id": "audit-2"}, schedule) is False
     assert run_satisfies_schedule({**base_run, "completed_at": "2026-09-02", "company_id": "company-2"}, schedule) is False
+
+
+def test_recurring_schedule_intervals_use_calendar_dates():
+    start = scheduled_date("2026-01-31")
+
+    assert next_occurrence_date(start, "weekly").isoformat() == "2026-02-07"
+    assert next_occurrence_date(start, "fortnightly").isoformat() == "2026-02-14"
+    assert next_occurrence_date(start, "monthly").isoformat() == "2026-02-28"
+    assert next_occurrence_date(start, "quarterly").isoformat() == "2026-04-30"
+    assert next_occurrence_date(start, "six_monthly").isoformat() == "2026-07-31"
+    assert next_occurrence_date(start, "annually").isoformat() == "2027-01-31"
+    assert next_occurrence_date(start, "monthly", 2).isoformat() == "2026-03-31"
+    assert next_occurrence_date(start, "none") is None
+
+
+def test_monthly_occurrence_is_satisfied_during_its_scheduled_week():
+    schedule = {
+        "audit_id": "audit-1",
+        "company_id": "company-1",
+        "scheduled_date": "2026-09-16",
+        "recurrence": "monthly",
+    }
+    run = {
+        "audit_id": "audit-1",
+        "company_id": "company-1",
+        "completed": True,
+        "completed_at": "2026-09-14T08:00:00+01:00",
+    }
+    assert run_satisfies_schedule(run, schedule) is True
 
 
 def test_audit_report_email_access_does_not_cross_company_boundaries():

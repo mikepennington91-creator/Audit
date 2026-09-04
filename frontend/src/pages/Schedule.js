@@ -17,6 +17,15 @@ import { format } from 'date-fns';
 import { Plus, Calendar as CalendarIcon, Trash2, Clock, MapPin, User, AlertTriangle, CheckCircle, Mail } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const RECURRENCE_LABELS = {
+  none: 'Once',
+  weekly: 'Weekly',
+  fortnightly: 'Fortnightly',
+  monthly: 'Monthly',
+  quarterly: 'Every 3 months',
+  six_monthly: 'Every 6 months',
+  annually: 'Annually',
+};
 
 const Schedule = () => {
   const [schedules, setSchedules] = useState([]);
@@ -161,7 +170,7 @@ const Schedule = () => {
               </div>
 
               <div className="space-y-2">
-                <Label>{recurrence === 'weekly' ? 'First Scheduled Date *' : 'Scheduled Date *'}</Label>
+                <Label>{recurrence !== 'none' ? 'First Scheduled Date *' : 'Scheduled Date *'}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button variant="outline" className="w-full justify-start text-left font-normal" data-testid="schedule-date-btn">
@@ -192,11 +201,16 @@ const Schedule = () => {
                   <SelectContent>
                     <SelectItem value="none">Does not repeat</SelectItem>
                     <SelectItem value="weekly">Every week</SelectItem>
+                    <SelectItem value="fortnightly">Every 2 weeks</SelectItem>
+                    <SelectItem value="monthly">Every month</SelectItem>
+                    <SelectItem value="quarterly">Every 3 months</SelectItem>
+                    <SelectItem value="six_monthly">Every 6 months</SelectItem>
+                    <SelectItem value="annually">Every year</SelectItem>
                   </SelectContent>
                 </Select>
-                {recurrence === 'weekly' && (
+                {recurrence !== 'none' && (
                   <p className="text-xs text-muted-foreground">
-                    Any completed run of this audit for the company during that Monday–Sunday week will complete the occurrence.
+                    Each occurrence is completed by any matching company audit run during its Monday–Sunday week.
                   </p>
                 )}
               </div>
@@ -259,7 +273,7 @@ const Schedule = () => {
                       <TableCell className="font-medium">{schedule.audit_name}</TableCell>
                       <TableCell><div className="flex items-center gap-2"><User className="w-4 h-4 text-muted-foreground" />{schedule.assigned_to_name}</div></TableCell>
                       <TableCell><div className="flex items-center gap-2"><CalendarIcon className="w-4 h-4 text-muted-foreground" />{formatDate(schedule.scheduled_date)}</div></TableCell>
-                      <TableCell>{schedule.recurrence === 'weekly' ? <Badge variant="outline">Weekly</Badge> : 'Once'}</TableCell>
+                      <TableCell>{!schedule.recurrence || schedule.recurrence === 'none' ? 'Once' : <Badge variant="outline">{RECURRENCE_LABELS[schedule.recurrence] || schedule.recurrence}</Badge>}</TableCell>
                       <TableCell>{schedule.location ? <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-muted-foreground" />{schedule.location}</div> : '-'}</TableCell>
                       <TableCell>{getStatusBadge(schedule.status)}</TableCell>
                       <TableCell className="text-right">

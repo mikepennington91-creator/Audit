@@ -2233,7 +2233,7 @@ class ScheduledAuditCreate(BaseModel):
     location: Optional[str] = None
     notes: Optional[str] = None
     reminder_days: int = 1  # Days before to send reminder
-    recurrence: str = "none"  # none or weekly
+    recurrence: str = "none"
 
 class ScheduledAuditResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
