@@ -35,6 +35,10 @@ class TemporaryPasswordChange(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class AccountLockUpdate(BaseModel):
+    locked: bool
+
+
 def _temporary_password(length: int = 14) -> str:
     """Create a strong but reasonably typeable one-time password."""
     upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"
@@ -57,7 +61,30 @@ def _public_user(user: dict) -> dict:
     result = {key: value for key, value in user.items() if key not in {"_id", "password"}}
     result["feature_access"] = legacy.normalise_feature_access(user)
     result["must_change_password"] = bool(user.get("must_change_password", False))
+    result["account_locked"] = bool(user.get("account_locked", False))
     return result
+
+
+async def _manageable_user(user_id: str, admin: dict) -> dict:
+    if not legacy.is_admin(admin):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    target = await legacy.db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not legacy.is_system_admin(admin):
+        if target.get("company_id") != admin.get("company_id"):
+            raise HTTPException(status_code=404, detail="User not found")
+        if target.get("role") == legacy.UserRole.SYSTEM_ADMIN:
+            raise HTTPException(status_code=403, detail="Cannot manage system administrators")
+    return target
+
+
+async def _would_lock_last_admin(target: dict) -> bool:
+    query = legacy.admin_scope_query(target)
+    if not query:
+        return False
+    admins = await legacy.db.users.find(query, {"_id": 0, "password": 0}).to_list(1000)
+    return sum(not item.get("account_locked", False) for item in admins) <= 1
 
 
 async def _send_welcome_email(user: dict, temporary_password: str):
@@ -215,9 +242,59 @@ async def login(credentials: LoginRequest):
     user = await legacy.db.users.find_one({"email": {"$ieq": email}})
     if not user or not legacy.verify_password(credentials.password, user["password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user.get("account_locked"):
+        raise HTTPException(status_code=403, detail="This account has been locked. Contact your administrator.")
 
     token = legacy.create_token(user["id"], user["email"], user["role"])
     return {"token": token, "user": _public_user(user)}
+
+
+@router.post("/users/{user_id}/password-reset")
+async def admin_password_reset(
+    user_id: str,
+    admin: dict = Depends(legacy.get_current_user),
+):
+    target = await _manageable_user(user_id, admin)
+    from app_core.account_auth import issue_password_reset
+
+    delivery = await issue_password_reset(target)
+    if not delivery or not delivery.sent:
+        raise HTTPException(
+            status_code=502,
+            detail="The password reset email could not be delivered. Please try again.",
+        )
+    return {"message": f"Password reset link emailed to {target.get('email')}."}
+
+
+@router.put("/users/{user_id}/lock")
+async def set_account_lock(
+    user_id: str,
+    data: AccountLockUpdate,
+    admin: dict = Depends(legacy.get_current_user),
+):
+    target = await _manageable_user(user_id, admin)
+    if target.get("id") == admin.get("id"):
+        raise HTTPException(status_code=400, detail="You cannot lock your own account")
+    if data.locked and await _would_lock_last_admin(target):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot lock the last administrator. Assign or unlock another administrator first.",
+        )
+
+    now = legacy.get_uk_time_iso()
+    await legacy.db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "account_locked": data.locked,
+            "account_locked_at": now if data.locked else None,
+            "account_locked_by_id": admin.get("id") if data.locked else None,
+            "account_locked_by_name": admin.get("name") if data.locked else None,
+        }},
+    )
+    return {
+        "message": "User locked out successfully" if data.locked else "User access restored successfully",
+        "account_locked": data.locked,
+    }
 
 
 @router.get("/auth/me")

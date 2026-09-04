@@ -13,7 +13,7 @@ import { Skeleton } from '../components/ui/skeleton';
 import { Checkbox } from '../components/ui/checkbox';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
 import { toast } from 'sonner';
-import { Building2, Crown, Download, Info, KeyRound, Mail, Pencil, Plus, Shield, Trash2, Upload, UserCircle, Users } from 'lucide-react';
+import { Building2, Crown, Download, Info, KeyRound, Lock, LockOpen, Mail, Pencil, Plus, Shield, Trash2, Upload, UserCircle, Users } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const DEFAULT_ACCESS = {
@@ -41,7 +41,6 @@ const accessFor = (user) => isAdminRole(user?.role)
 
 const emptyUserForm = {
   email: '',
-  password: '',
   name: '',
   is_admin: false,
   company_id: '',
@@ -58,6 +57,7 @@ const UserManagement = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [form, setForm] = useState(emptyUserForm);
+  const [busyUserId, setBusyUserId] = useState(null);
 
   const isSystemAdmin = currentUser?.role === 'system_admin';
 
@@ -89,7 +89,6 @@ const UserManagement = () => {
     setEditingUser(user);
     setForm({
       email: user.email,
-      password: '',
       name: user.name,
       is_admin: isAdminRole(user.role),
       company_id: user.company_id || '',
@@ -113,7 +112,6 @@ const UserManagement = () => {
       };
 
       if (editingUser) {
-        if (form.password) payload.password = form.password;
         await axios.put(`${API}/users/${editingUser.id}`, payload);
         toast.success('User updated successfully');
       } else {
@@ -140,6 +138,37 @@ const UserManagement = () => {
       toast.success('User deleted successfully');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete user');
+    }
+  };
+
+  const handlePasswordReset = async (targetUser) => {
+    if (!window.confirm(`Email a password reset link to ${targetUser.email}?`)) return;
+    setBusyUserId(targetUser.id);
+    try {
+      const response = await axios.post(`${API}/users/${targetUser.id}/password-reset`);
+      toast.success(response.data?.message || 'Password reset link emailed successfully');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Unable to send password reset link');
+    } finally {
+      setBusyUserId(null);
+    }
+  };
+
+  const handleLockToggle = async (targetUser) => {
+    const nextLocked = !targetUser.account_locked;
+    const verb = nextLocked ? 'lock' : 'unlock';
+    if (!window.confirm(`${verb[0].toUpperCase()}${verb.slice(1)} ${targetUser.name}?`)) return;
+    setBusyUserId(targetUser.id);
+    try {
+      const response = await axios.put(`${API}/users/${targetUser.id}/lock`, { locked: nextLocked });
+      setUsers((current) => current.map((item) => (
+        item.id === targetUser.id ? { ...item, account_locked: nextLocked } : item
+      )));
+      toast.success(response.data?.message || `User ${nextLocked ? 'locked' : 'unlocked'} successfully`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `Unable to ${verb} user`);
+    } finally {
+      setBusyUserId(null);
     }
   };
 
@@ -255,7 +284,7 @@ const UserManagement = () => {
                     )}
                   </div>
 
-                  {!editingUser ? (
+                  {!editingUser && (
                     <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
                       <div className="flex items-start gap-3">
                         <Mail className="h-5 w-5 text-primary mt-0.5" />
@@ -265,16 +294,6 @@ const UserManagement = () => {
                             The user will receive their temporary sign-in details by email and must create a new password before they can use Infinit Audit.
                           </p>
                         </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="user-password">New Password (optional)</Label>
-                        <Input id="user-password" type="password" minLength={8} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                      </div>
-                      <div className="space-y-2 rounded-lg border p-3">
-                        <div className="flex items-start gap-2 text-sm"><KeyRound className="h-4 w-4 mt-0.5" /><span>Use this only when an administrator needs to reset an existing account password.</span></div>
                       </div>
                     </div>
                   )}
@@ -383,6 +402,7 @@ const UserManagement = () => {
                           <div className="text-sm text-muted-foreground">{user.email}</div>
                           {user.company_name && <div className="text-xs text-muted-foreground flex items-center gap-1 mt-1"><Building2 className="w-3 h-3" />{user.company_name}</div>}
                           {user.must_change_password && <Badge variant="outline" className="mt-2 gap-1"><KeyRound className="w-3 h-3" />Password change required</Badge>}
+                          {user.account_locked && <Badge variant="destructive" className="mt-2 ml-2 gap-1"><Lock className="w-3 h-3" />Locked out</Badge>}
                         </TableCell>
                         <TableCell><Badge variant={fullAccess ? 'default' : 'outline'} className="gap-1">{roleIcon(user.role)}{roleName(user.role)}</Badge></TableCell>
                         <TableCell>
@@ -393,10 +413,23 @@ const UserManagement = () => {
                             {!fullAccess && FEATURES.every((feature) => !access[feature.key]) && <span className="text-sm text-muted-foreground">Actions only</span>}
                           </div>
                         </TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => openEdit(user)}><Pencil className="w-4 h-4" /></Button>
+                        <TableCell className="text-right whitespace-nowrap">
+                          <Button variant="ghost" size="sm" onClick={() => openEdit(user)} title="Edit user"><Pencil className="w-4 h-4" /></Button>
+                          <Button variant="ghost" size="sm" disabled={busyUserId === user.id} onClick={() => handlePasswordReset(user)} title="Email password reset link">
+                            <KeyRound className="w-4 h-4" />
+                          </Button>
                           {user.id !== currentUser?.id && (
-                            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(user.id)}><Trash2 className="w-4 h-4" /></Button>
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={busyUserId === user.id}
+                                onClick={() => handleLockToggle(user)}
+                                className={user.account_locked ? 'text-emerald-700 hover:text-emerald-700' : 'text-amber-700 hover:text-amber-700'}
+                                title={user.account_locked ? 'Unlock user' : 'Lock user out'}
+                              >{user.account_locked ? <LockOpen className="w-4 h-4" /> : <Lock className="w-4 h-4" />}</Button>
+                              <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(user.id)} title="Delete user"><Trash2 className="w-4 h-4" /></Button>
+                            </>
                           )}
                         </TableCell>
                       </TableRow>

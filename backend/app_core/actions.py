@@ -163,6 +163,16 @@ async def _send_review_ready_email(action: Dict[str, Any], reviewer: Dict[str, A
             f"Action taken: {action.get('action_taken', 'N/A')}\n\n"
             f"Review the action: {action_url}"
         ),
+        html_body=(
+            f"<p>Hi {html.escape(reviewer.get('name') or '')},</p>"
+            "<p>A corrective action is waiting for your review and sign-off.</p>"
+            "<div style=\"margin:22px 0;padding:18px;border:1px solid #dbe5e4;border-radius:10px;background:#f7faf9\">"
+            f"<p style=\"margin:0 0 8px\"><strong>Audit</strong><br>{html.escape(str(action.get('audit_name') or 'N/A'))}</p>"
+            f"<p style=\"margin:0 0 8px\"><strong>Action required</strong><br>{html.escape(str(action.get('action_required') or 'N/A'))}</p>"
+            f"<p style=\"margin:0\"><strong>Action taken</strong><br>{html.escape(str(action.get('action_taken') or 'N/A'))}</p>"
+            "</div>"
+            f"<p><a href=\"{html.escape(action_url, quote=True)}\" style=\"display:inline-block;background:#17877d;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600\">Review corrective action</a></p>"
+        ),
         template="action_review_ready",
     )
 
@@ -205,6 +215,14 @@ async def update_run_audit(
         raise HTTPException(status_code=409, detail="This audit was automatically closed: not completed in time")
 
     if submit_data.completed:
+        from app_core.schedules import complete_matching_schedules
+
+        await complete_matching_schedules({
+            **result.model_dump(),
+            # RunAuditResponse intentionally omits tenant metadata from its API
+            # payload, but schedule matching must retain the stored company scope.
+            "company_id": run.get("company_id"),
+        })
         actions = await legacy.db.corrective_actions.find(
             {"run_id": run_id}, {"_id": 0}
         ).to_list(1000)

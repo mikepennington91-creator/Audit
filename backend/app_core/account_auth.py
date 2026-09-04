@@ -50,11 +50,11 @@ def _parse_iso(value: str | None) -> datetime | None:
         return None
 
 
-async def _send_password_reset_email(to_email: str, name: str, raw_token: str) -> None:
+async def _send_password_reset_email(to_email: str, name: str, raw_token: str):
     reset_url = f"{public_app_url()}/reset-password?token={raw_token}"
     safe_name = html.escape(name or "there")
     safe_url = html.escape(reset_url, quote=True)
-    await send_email(
+    return await send_email(
         to_email=to_email,
         subject="Reset your Infinit Audit password",
         text_body=(
@@ -66,12 +66,36 @@ async def _send_password_reset_email(to_email: str, name: str, raw_token: str) -
         html_body=(
             f"<p>Hi {safe_name},</p>"
             "<p>A password reset was requested for your Infinit Audit account.</p>"
-            f"<p><a href=\"{safe_url}\">Reset your password</a></p>"
+            f"<p style=\"margin:22px 0\"><a href=\"{safe_url}\" style=\"display:inline-block;background:#17877d;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600\">Reset password</a></p>"
             f"<p>This link expires in {RESET_TOKEN_TTL_MINUTES} minutes and can only be used once.</p>"
             "<p>If you did not request this, you can ignore this email.</p>"
         ),
         template="password_reset",
     )
+
+
+async def issue_password_reset(user: dict, background_tasks: BackgroundTasks | None = None):
+    """Create a one-time reset token and queue its delivery."""
+    now = datetime.now(timezone.utc)
+    raw_token = secrets.token_urlsafe(32)
+    token_doc = {
+        "id": secrets.token_hex(16),
+        "user_id": user["id"],
+        "token_hash": _hash_reset_token(raw_token),
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)).isoformat(),
+        "used_at": None,
+    }
+    await legacy.db.password_reset_tokens.insert_one(token_doc)
+    await legacy.db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"password_reset_requested_at": now.isoformat()}},
+    )
+    email_args = (user.get("email") or "", user.get("name") or "", raw_token)
+    if background_tasks is not None:
+        background_tasks.add_task(_send_password_reset_email, *email_args)
+        return None
+    return await _send_password_reset_email(*email_args)
 
 
 @router.get("/account")
@@ -124,27 +148,7 @@ async def request_password_reset(
     if last_requested and now - last_requested < timedelta(seconds=RESET_REQUEST_COOLDOWN_SECONDS):
         return generic_response
 
-    raw_token = secrets.token_urlsafe(32)
-    token_hash = _hash_reset_token(raw_token)
-    token_doc = {
-        "id": secrets.token_hex(16),
-        "user_id": user["id"],
-        "token_hash": token_hash,
-        "created_at": now.isoformat(),
-        "expires_at": (now + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)).isoformat(),
-        "used_at": None,
-    }
-    await legacy.db.password_reset_tokens.insert_one(token_doc)
-    await legacy.db.users.update_one(
-        {"id": user["id"]},
-        {"$set": {"password_reset_requested_at": now.isoformat()}},
-    )
-    background_tasks.add_task(
-        _send_password_reset_email,
-        user.get("email") or email,
-        user.get("name") or "",
-        raw_token,
-    )
+    await issue_password_reset(user, background_tasks)
     return generic_response
 
 

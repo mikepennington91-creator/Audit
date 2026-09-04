@@ -87,6 +87,14 @@ async def enforce_session_restrictions(request: Request, call_next):
                 )
                 if user:
                     actor = {key: user.get(key) for key in ("id", "name", "company_id")}
+                if user and user.get("account_locked"):
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "detail": "This account has been locked. Contact your administrator.",
+                            "code": "account_locked",
+                        },
+                    )
                 if user and user.get("must_change_password"):
                     return JSONResponse(
                         status_code=403,

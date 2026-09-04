@@ -139,6 +139,7 @@ class UserResponse(BaseModel):
     company_id: Optional[str] = None
     company_name: Optional[str] = None
     feature_access: Dict[str, bool] = Field(default_factory=lambda: DEFAULT_FEATURE_ACCESS.copy())
+    account_locked: bool = False
     created_at: str
 
 class UserUpdate(BaseModel):
@@ -430,6 +431,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        if user.get("account_locked"):
+            raise HTTPException(status_code=403, detail="This account has been locked. Contact your administrator.")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -2230,6 +2233,7 @@ class ScheduledAuditCreate(BaseModel):
     location: Optional[str] = None
     notes: Optional[str] = None
     reminder_days: int = 1  # Days before to send reminder
+    recurrence: str = "none"  # none or weekly
 
 class ScheduledAuditResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -2247,6 +2251,8 @@ class ScheduledAuditResponse(BaseModel):
     created_by: str
     created_at: str
     completed_run_id: Optional[str] = None
+    recurrence: str = "none"
+    series_id: Optional[str] = None
 
 @api_router.post("/scheduled-audits", response_model=ScheduledAuditResponse)
 async def create_scheduled_audit(
