@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import server as legacy  # noqa: E402
 from app_core.account_auth import _hash_reset_token  # noqa: E402
-from app_core.actions import action_display_status  # noqa: E402
+from app_core.actions import action_display_status, action_payload, action_reviewer_id  # noqa: E402
 from app_core.audit_reports import audit_access_allowed, audit_run_access_allowed  # noqa: E402
 from app_core.disposal_routes import (  # noqa: E402
     DEFAULT_DISPOSAL_ROUTE_CONFIG,
@@ -158,6 +158,34 @@ def test_action_display_status_preserves_review_and_completed_states():
     assert action_display_status({"status": "open", "due_date": yesterday}) == "overdue"
 
 
+def test_action_reviewer_defaults_to_the_person_who_raised_legacy_action():
+    legacy_action = {
+        "created_by_id": "raiser-1",
+        "created_by_name": "Action Raiser",
+        "assigned_user_id": "owner-1",
+        "status": "open",
+        "due_date": "2099-01-01",
+    }
+
+    assert action_reviewer_id(legacy_action) == "raiser-1"
+    payload = action_payload(legacy_action)
+    assert payload["reviewer_user_id"] == "raiser-1"
+    assert payload["reviewer_user_name"] == "Action Raiser"
+
+
+def test_explicit_action_reviewer_overrides_the_raiser():
+    action = {
+        "created_by_id": "raiser-1",
+        "reviewer_user_id": "approver-1",
+        "reviewer_user_name": "Chosen Approver",
+        "status": "open",
+        "due_date": "2099-01-01",
+    }
+
+    assert action_reviewer_id(action) == "approver-1"
+    assert action_payload(action)["reviewer_user_name"] == "Chosen Approver"
+
+
 def test_password_reset_tokens_are_stored_as_hashes_not_raw_values():
     raw = "sample-reset-token-value"
     digest = _hash_reset_token(raw)
@@ -206,6 +234,8 @@ def test_modular_entrypoint_has_single_replacement_route_for_critical_endpoints(
     assert route_count("GET", "/api/run-audits/{run_id}/details") == 1
     assert route_count("GET", "/api/run-audits/{run_id}/pdf") == 1
     assert route_count("GET", "/api/actions") == 1
+    assert route_count("POST", "/api/actions") == 1
+    assert route_count("PUT", "/api/actions/{action_id}/reviewer") == 1
     assert route_count("POST", "/api/scheduled-audits") == 1
     assert route_count("GET", "/api/scheduled-audits") == 1
     assert route_count("DELETE", "/api/scheduled-audits/{schedule_id}") == 1
