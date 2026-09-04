@@ -37,6 +37,20 @@ create index if not exists app_documents_due_date_idx
 create index if not exists app_documents_status_idx
     on public.app_documents (collection, (data ->> 'status'));
 
+-- Cover the list and dashboard access patterns without sorting entire tenant
+-- collections in memory.
+create index if not exists app_documents_company_created_idx
+    on public.app_documents (collection, (data ->> 'company_id'), (data ->> 'created_at') desc);
+
+create index if not exists app_documents_company_completed_idx
+    on public.app_documents (collection, (data ->> 'company_id'), (data ->> 'completed'), (data ->> 'completed_at') desc);
+
+create index if not exists app_documents_audit_completed_idx
+    on public.app_documents (collection, (data ->> 'audit_id'), (data ->> 'completed'), (data ->> 'completed_at') desc);
+
+create index if not exists app_documents_company_release_status_idx
+    on public.app_documents (collection, (data ->> 'company_id'), (data ->> 'releaseStatus'), (data ->> 'created_at') desc);
+
 revoke all on table public.app_documents from anon, authenticated;
 
 -- Activity entries are generated in the same transaction as the change. No

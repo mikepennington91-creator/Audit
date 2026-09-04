@@ -236,6 +236,11 @@ def test_modular_entrypoint_has_single_replacement_route_for_critical_endpoints(
     assert route_count("GET", "/api/actions") == 1
     assert route_count("POST", "/api/actions") == 1
     assert route_count("PUT", "/api/actions/{action_id}/reviewer") == 1
+    assert route_count("GET", "/api/actions/counts") == 1
+    assert route_count("GET", "/api/dashboard/summary") == 1
+    assert route_count("GET", "/api/reports/summary") == 1
+    assert route_count("GET", "/api/documents/summary") == 1
+    assert route_count("GET", "/api/traceability/records/{record_type}") == 1
     assert route_count("POST", "/api/scheduled-audits") == 1
     assert route_count("GET", "/api/scheduled-audits") == 1
     assert route_count("DELETE", "/api/scheduled-audits/{schedule_id}") == 1

@@ -20,7 +20,6 @@ const Reports = () => {
   const { isAdmin } = useAuth();
   const [auditTypes, setAuditTypes] = useState([]);
   const [audits, setAudits] = useState([]);
-  const [runs, setRuns] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -37,16 +36,10 @@ const Reports = () => {
 
   const fetchData = async () => {
     try {
-      const [typesRes, auditsRes, runsRes, statsRes] = await Promise.all([
-        axios.get(`${API}/audit-types`),
-        axios.get(`${API}/audits`),
-        axios.get(`${API}/run-audits?completed=true`),
-        axios.get(`${API}/dashboard/stats`)
-      ]);
-      setAuditTypes(typesRes.data);
-      setAudits(auditsRes.data);
-      setRuns(runsRes.data);
-      setStats(statsRes.data);
+      const response = await axios.get(`${API}/reports/summary`);
+      setAuditTypes(response.data.audit_types);
+      setAudits(response.data.audits);
+      setStats(response.data.stats);
     } catch (error) {
       console.error('Failed to fetch reports:', error);
     } finally {
@@ -94,13 +87,14 @@ const Reports = () => {
 
   // Per-audit stats
   const getAuditStats = (audit) => {
-    const auditRuns = runs.filter(r => r.audit_id === audit.id);
-    const completed = auditRuns.length;
-    const passed = auditRuns.filter(r => r.pass_status === 'pass').length;
-    const failed = auditRuns.filter(r => r.pass_status === 'fail').length;
-    const passRate = completed > 0 ? Math.round((passed / completed) * 100) : 0;
-    const lastRun = auditRuns.length > 0 ? auditRuns[0]?.completed_at : null;
-    return { completed, passed, failed, passRate, lastRun };
+    const summary = audit.stats || {};
+    return {
+      completed: summary.completed || 0,
+      passed: summary.passed || 0,
+      failed: summary.failed || 0,
+      passRate: summary.pass_rate || 0,
+      lastRun: summary.last_run || null,
+    };
   };
 
   const handleDeleteAudit = async () => {

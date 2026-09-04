@@ -36,12 +36,9 @@ const Dashboard = () => {
 
   const fetchData = async () => {
     try {
-      const [statsRes, runsRes] = await Promise.all([
-        axios.get(`${API}/dashboard/stats`),
-        axios.get(`${API}/run-audits?completed=true`)
-      ]);
-      setStats(statsRes.data);
-      setRecentRuns(runsRes.data.slice(0, 5));
+      const response = await axios.get(`${API}/dashboard/summary`);
+      setStats(response.data.stats);
+      setRecentRuns(response.data.recent_runs);
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
     } finally {

@@ -40,12 +40,9 @@ const DocumentList = () => {
 
   const fetchData = async () => {
     try {
-      const [tRes, dRes] = await Promise.all([
-        axios.get(`${API}/traceability/templates`),
-        axios.get(`${API}/traceability/documents`)
-      ]);
-      setTemplates(tRes.data);
-      setDocuments(dRes.data);
+      const response = await axios.get(`${API}/documents/summary`);
+      setTemplates(response.data.templates);
+      setDocuments(response.data.documents);
     } catch (error) {
       toast.error('Failed to load data');
     } finally {
@@ -173,7 +170,7 @@ const DocumentList = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {templates.map(t => (
                 <Card key={t.id} className="hover:border-primary hover:shadow-md transition-all group" data-testid={`template-card-${t.id}`}>
-                  <CardHeader className="pb-3"><div className="flex items-start justify-between"><div className="flex-1 min-w-0"><CardTitle className="text-base truncate">{t.title}</CardTitle><div className="flex items-center gap-2 mt-1"><Badge variant="secondary" className="text-xs">{t.document_reference}</Badge><Badge variant="outline" className="text-xs">v{t.version}</Badge></div></div></div><p className="text-xs text-muted-foreground mt-1">{t.fields?.length || 0} fields | Authorised by {t.authorised_by}</p></CardHeader>
+                  <CardHeader className="pb-3"><div className="flex items-start justify-between"><div className="flex-1 min-w-0"><CardTitle className="text-base truncate">{t.title}</CardTitle><div className="flex items-center gap-2 mt-1"><Badge variant="secondary" className="text-xs">{t.document_reference}</Badge><Badge variant="outline" className="text-xs">v{t.version}</Badge></div></div></div><p className="text-xs text-muted-foreground mt-1">{t.field_count || 0} fields | Authorised by {t.authorised_by}</p></CardHeader>
                   <CardContent className="pt-0"><div className="flex items-center gap-2"><Button size="sm" className="flex-1" onClick={() => startDocument(t.id)} data-testid={`fill-template-${t.id}`}><PenLine className="w-4 h-4 mr-1" />Fill In</Button>{hasFeature('documents_edit') && <><Button variant="outline" size="sm" onClick={() => navigate(`/documents/design/${t.id}`)} data-testid={`edit-template-${t.id}`}>Edit</Button><Button variant="outline" size="sm" onClick={() => handleDuplicate(t)} disabled={duplicating === t.id} data-testid={`duplicate-template-${t.id}`}>{duplicating === t.id ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Copy className="w-4 h-4" />}</Button></>}{isAdmin() && <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive" onClick={() => setDeleteTarget(t)} data-testid={`delete-template-${t.id}`}><Trash2 className="w-4 h-4" /></Button>}</div></CardContent>
                 </Card>
               ))}

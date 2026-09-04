@@ -79,7 +79,9 @@ async def cancel_audit_run(run_id: str, data: AuditCancellation | None = None,
 
 @router.get("/run-audits")
 async def get_run_audits(completed: bool | None = None,
-                         user: dict = Depends(legacy.require_feature("audits"))):
+                         user: dict = Depends(legacy.require_feature("audits")),
+                         limit: int = 100):
+    limit = max(1, min(int(limit), 500))
     query = {} if legacy.is_system_admin(user) else {"$or": [{"company_id": user.get("company_id")}, {"company_id": None}]}
     if not legacy.is_system_admin(user) and not user.get("company_id"):
         query["auditor_id"] = user["id"]
@@ -87,7 +89,7 @@ async def get_run_audits(completed: bool | None = None,
         query["completed"] = completed
     if completed is False:
         query["closed_at"] = None
-    runs = await legacy.db.run_audits.find(query, {"_id": 0}).sort("started_at", -1).to_list(5000)
+    runs = await legacy.db.run_audits.find(query, {"_id": 0}).sort("started_at", -1).to_list(limit)
     visible = []
     for run in runs:
         audit = await legacy.db.audits.find_one({"id": run.get("audit_id")}) if not run.get("company_id") else None

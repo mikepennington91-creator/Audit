@@ -24,6 +24,8 @@ const Actions = () => {
   const [assignees, setAssignees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [counts, setCounts] = useState({ all: 0, open: 0, overdue: 0, awaiting_review: 0, completed: 0 });
+  const [actionLimit, setActionLimit] = useState(100);
   const [showArchived, setShowArchived] = useState(false);
   const [myActionsOnly, setMyActionsOnly] = useState(false);
   const [showCreateAction, setShowCreateAction] = useState(false);
@@ -44,8 +46,15 @@ const Actions = () => {
   const fetchActions = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API}/actions${canAdmin ? '?include_archived=true' : ''}`);
+      const response = await axios.get(`${API}/actions`, { params: {
+        include_archived: canAdmin && showArchived,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        assigned_to_me: myActionsOnly,
+        limit: actionLimit,
+      }});
       setActions(response.data);
+      const countResponse = await axios.get(`${API}/actions/counts`, { params: { include_archived: showArchived, assigned_to_me: myActionsOnly } });
+      setCounts(countResponse.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to load corrective actions');
     } finally {
@@ -55,21 +64,17 @@ const Actions = () => {
 
   useEffect(() => {
     fetchActions();
+  }, [statusFilter, showArchived, myActionsOnly, actionLimit]);
+
+  useEffect(() => {
     axios.get(`${API}/action-assignees`).then((r) => setAssignees(r.data)).catch(() => setAssignees([]));
   }, []);
 
   const isMine = (action) => action?.assigned_user_id === user?.id;
   const isMyReview = (action) => (action?.reviewer_user_id || action?.created_by_id) === user?.id;
   const visibleActions = actions.filter((action) => !!action.archived === showArchived);
-  const scopedActions = myActionsOnly ? visibleActions.filter((action) => isMine(action)) : visibleActions;
-  const counts = {
-    open: scopedActions.filter((action) => action.status === 'open').length,
-    overdue: scopedActions.filter((action) => action.status === 'overdue').length,
-    awaiting_review: scopedActions.filter((action) => action.status === 'awaiting_review').length,
-    completed: scopedActions.filter((action) => action.status === 'completed').length,
-  };
-
-  const filteredActions = statusFilter === 'all' ? scopedActions : scopedActions.filter((action) => action.status === statusFilter);
+  const filteredActions = visibleActions;
+  const filteredTotal = statusFilter === 'all' ? counts.all : counts[statusFilter];
   const assignedTo = (action) => action.assigned_user_name || action.assigned_department || 'Unassigned';
   const formatDate = (value) => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`).toLocaleDateString('en-GB') : '-';
   const formatDateTime = (value) => value ? new Date(value).toLocaleString('en-GB', { timeZone: 'Europe/London' }) : '-';
@@ -86,7 +91,7 @@ const Actions = () => {
     setSelectedAction(updated);
   };
 
-  const openAction = (action) => {
+  const openAction = async (action) => {
     setSelectedAction(action);
     setActionTaken(action.action_taken || '');
     setReassignUserId('');
@@ -96,6 +101,14 @@ const Actions = () => {
     setDecisionComment('');
     setReviewComment('');
     setReviewerUserId(action.reviewer_user_id || action.created_by_id || '');
+    try {
+      const response = await axios.get(`${API}/actions/${action.id}`);
+      setSelectedAction(response.data);
+      setActionTaken(response.data.action_taken || '');
+      setReviewerUserId(response.data.reviewer_user_id || response.data.created_by_id || '');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to load action details');
+    }
   };
 
   useEffect(() => {
@@ -276,7 +289,7 @@ const Actions = () => {
   };
 
   const filters = [
-    { key: 'all', label: `All (${scopedActions.length})` },
+    { key: 'all', label: `All (${counts.all})` },
     { key: 'open', label: `Open (${counts.open})` },
     { key: 'overdue', label: `Overdue (${counts.overdue})` },
     { key: 'awaiting_review', label: `Awaiting Review (${counts.awaiting_review})` },
@@ -304,7 +317,7 @@ const Actions = () => {
           {loading ? (
             <div className="space-y-3">{[1,2,3].map((item) => <Skeleton key={item} className="h-14 w-full" />)}</div>
           ) : filteredActions.length ? (
-            <div className="overflow-x-auto">
+            <div className="space-y-4"><div className="overflow-x-auto">
               <Table>
                 <TableHeader><TableRow><TableHead>Non-Conformance</TableHead><TableHead>Action Required</TableHead><TableHead>Owner</TableHead><TableHead>When</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Report</TableHead></TableRow></TableHeader>
                 <TableBody>
@@ -320,7 +333,7 @@ const Actions = () => {
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </div>{filteredActions.length < filteredTotal && <div className="flex justify-center"><Button variant="outline" onClick={() => setActionLimit(limit => Math.min(limit + 100, 500))}>Load more actions ({filteredActions.length} of {filteredTotal})</Button></div>}</div>
           ) : <div className="text-center py-12"><p className="text-muted-foreground">No corrective actions match this view.</p></div>}
         </CardContent>
       </Card>

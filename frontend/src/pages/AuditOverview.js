@@ -33,6 +33,7 @@ const AuditOverview = () => {
   const [deleteRecord, setDeleteRecord] = useState(null);
   const [audit, setAudit] = useState(null);
   const [runs, setRuns] = useState([]);
+  const [totalRuns, setTotalRuns] = useState(0);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState({ from: undefined, to: undefined });
@@ -45,10 +46,10 @@ const AuditOverview = () => {
   const [photoPreview, setPhotoPreview] = useState(null);
 
   useEffect(() => {
-    fetchAuditRuns();
+    fetchAuditRuns(false);
   }, [auditId, dateRange, passFilter]);
 
-  const fetchAuditRuns = async () => {
+  const fetchAuditRuns = async (append = false) => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
@@ -59,9 +60,12 @@ const AuditOverview = () => {
         params.append('date_to', endOfDay.toISOString());
       }
       if (passFilter !== 'all') params.append('pass_status', passFilter);
+      params.append('limit', '50');
+      params.append('offset', append ? String(runs.length) : '0');
       const response = await axios.get(`${API}/audits/${auditId}/runs?${params}`);
       setAudit(response.data.audit);
-      setRuns(response.data.runs);
+      setRuns(current => append ? [...current, ...response.data.runs] : response.data.runs);
+      setTotalRuns(response.data.total_filtered ?? response.data.runs.length);
       setStats(response.data.stats);
     } catch (error) {
       toast.error('Failed to load audit data');
@@ -139,12 +143,12 @@ const AuditOverview = () => {
       <Card><CardContent className="pt-6"><div className="flex flex-wrap items-center gap-4"><div className="flex items-center gap-2"><Filter className="w-4 h-4 text-muted-foreground" /><span className="text-sm font-medium">Filters:</span></div><Popover><PopoverTrigger asChild><Button variant="outline" size="sm" className="gap-2" data-testid="date-range-picker"><CalendarIcon className="w-4 h-4" />{dateRange.from ? dateRange.to ? `${format(dateRange.from, 'dd/MM/yyyy')} - ${format(dateRange.to, 'dd/MM/yyyy')}` : format(dateRange.from, 'dd/MM/yyyy') : 'Select date range'}</Button></PopoverTrigger><PopoverContent className="w-auto p-0" align="start"><Calendar mode="range" selected={dateRange} onSelect={(range) => setDateRange(range || { from: undefined, to: undefined })} numberOfMonths={2} /></PopoverContent></Popover><Select value={passFilter} onValueChange={setPassFilter}><SelectTrigger className="w-[140px]" data-testid="pass-fail-filter"><SelectValue placeholder="All statuses" /></SelectTrigger><SelectContent><SelectItem value="all">All Statuses</SelectItem><SelectItem value="pass">Passed</SelectItem><SelectItem value="fail">Failed</SelectItem><SelectItem value="closed_incomplete">Not completed in time</SelectItem></SelectContent></Select>{hasActiveFilters && <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="clear-filters"><X className="w-4 h-4 mr-1" />Clear</Button>}</div></CardContent></Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5" />Completed / Closed Audit Runs ({runs.length})</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-lg flex items-center gap-2"><BarChart3 className="w-5 h-5" />Completed / Closed Audit Runs ({totalRuns})</CardTitle></CardHeader>
         <CardContent>
           {loading ? (
             <div className="space-y-4">{[1, 2, 3].map(i => <div key={i} className="flex items-center gap-4"><Skeleton className="h-10 w-10 rounded-full" /><div className="flex-1 space-y-2"><Skeleton className="h-4 w-1/3" /><Skeleton className="h-3 w-1/4" /></div></div>)}</div>
           ) : runs.length > 0 ? (
-            <div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Started / completed by</TableHead><TableHead>Date & Time (UK)</TableHead><TableHead>Score</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{runs.map((run) => (
+            <><div className="overflow-x-auto"><Table><TableHeader><TableRow><TableHead>Started / completed by</TableHead><TableHead>Date & Time (UK)</TableHead><TableHead>Score</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{runs.map((run) => (
               <TableRow key={run.id} data-testid={`run-row-${run.id}`} className="cursor-pointer hover:bg-muted/50" onClick={() => openDetails(run)}>
                 <TableCell className="font-medium"><div>Started: {run.auditor_name}</div><div className="text-xs text-muted-foreground">Completed: {run.completed ? (run.completed_by_name || run.signoff_name || run.auditor_name) : 'Not completed'}</div></TableCell>
                 <TableCell className="text-muted-foreground"><div className="flex items-center gap-1"><CalendarIcon className="w-3 h-3" />{formatUKDateTime(run.closed_at || run.completed_at)}</div></TableCell>
@@ -152,7 +156,7 @@ const AuditOverview = () => {
                 <TableCell>{run.closed_at ? <Badge variant="destructive">Not completed in time</Badge> : run.pass_status ? <Badge className={run.pass_status === 'pass' ? 'badge-pass' : 'badge-fail'}>{run.pass_status === 'pass' ? 'Passed' : 'Failed'}</Badge> : <Badge variant="secondary">Completed</Badge>}</TableCell>
                 <TableCell className="text-right"><div className="flex items-center justify-end gap-1"><Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); openDetails(run); }} data-testid={`view-run-${run.id}`} title="View"><Eye className="w-4 h-4" /></Button><Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); downloadPdf(run.id, audit?.name); }} disabled={downloadingPdf === run.id} data-testid={`download-run-${run.id}`} title="Download PDF">{downloadingPdf === run.id ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <FileDown className="w-4 h-4" />}</Button>{run.completed && <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setEmailRunId(run.id); }} title="Email PDF"><Mail className="w-4 h-4" /></Button>}{isAdmin() && <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); setDeleteRecord(run); }}>Delete</Button>}</div></TableCell>
               </TableRow>
-            ))}</TableBody></Table></div>
+            ))}</TableBody></Table></div>{runs.length < totalRuns && <div className="flex justify-center mt-4"><Button variant="outline" onClick={() => fetchAuditRuns(true)}>Load more audits ({runs.length} of {totalRuns})</Button></div>}</>
           ) : (
             <div className="text-center py-12"><ClipboardCheck className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-30" /><p className="text-muted-foreground mb-2">No completed audit runs found</p>{hasActiveFilters && <Button variant="outline" size="sm" onClick={clearFilters}>Clear Filters</Button>}</div>
           )}

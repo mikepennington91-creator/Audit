@@ -216,10 +216,12 @@ async def update_run_audit(
 @router.get("/actions")
 async def get_corrective_actions(
     status: Optional[str] = None,
-    assigned_to_me: bool = True,
+    assigned_to_me: bool = False,
     include_archived: bool = False,
+    limit: int = 100,
     user: dict = Depends(legacy.require_feature("actions")),
 ) -> List[Dict[str, Any]]:
+    limit = max(1, min(int(limit), 500))
     allowed_statuses = {"open", "overdue", "awaiting_review", "completed"}
     if status and status not in allowed_statuses:
         raise HTTPException(status_code=400, detail="Unknown action status")
@@ -240,9 +242,11 @@ async def get_corrective_actions(
                 {"created_by_id": user["id"]},
             ]
         }
+    if assigned_to_me:
+        query = {"assigned_user_id": user["id"]}
 
     actions = await legacy.db.corrective_actions.find(
-        query, {"_id": 0}
+        query, {"_id": 0, "history": 0}
     ).sort("due_date", 1).to_list(5000)
     results = []
     for action in actions:
@@ -252,6 +256,8 @@ async def get_corrective_actions(
         if status and item["status"] != status:
             continue
         results.append(item)
+        if len(results) >= limit:
+            break
     return results
 
 
@@ -369,6 +375,46 @@ async def change_action_reviewer(
         )
         await _send_review_ready_email(updated, reviewer)
     return action_payload(updated)
+
+
+@router.get("/actions/counts")
+async def corrective_action_counts(
+    include_archived: bool = False,
+    assigned_to_me: bool = False,
+    user: dict = Depends(legacy.require_feature("actions")),
+):
+    if legacy.is_system_admin(user):
+        query = {}
+    elif user["role"] in [legacy.UserRole.COMPANY_ADMIN, legacy.UserRole.ADMIN, legacy.UserRole.AUDIT_CREATOR]:
+        query = {"company_id": user.get("company_id")}
+    else:
+        query = {"$or": [
+            {"assigned_user_id": user["id"]},
+            {"reviewer_user_id": user["id"]},
+            {"created_by_id": user["id"]},
+        ]}
+    if assigned_to_me:
+        query = {"assigned_user_id": user["id"]}
+    actions = await legacy.db.corrective_actions.find(
+        query, {"_id": 0, "history": 0, "action_taken": 0}
+    ).to_list(5000)
+    counts = {"all": 0, "open": 0, "overdue": 0, "awaiting_review": 0, "completed": 0}
+    for action in actions:
+        if bool(action.get("archived")) != include_archived:
+            continue
+        status = action_display_status(action)
+        counts["all"] += 1
+        counts[status] += 1
+    return counts
+
+
+@router.get("/actions/{action_id}")
+async def get_corrective_action(
+    action_id: str,
+    user: dict = Depends(legacy.require_feature("actions")),
+):
+    action = await legacy.get_accessible_corrective_action(action_id, user)
+    return action_payload(action)
 
 
 @router.put("/actions/{action_id}/reassign")

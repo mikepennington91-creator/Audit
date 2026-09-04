@@ -67,8 +67,12 @@ async def get_audit_runs(
     date_to: Optional[str] = None,
     pass_status: Optional[str] = None,
     user: dict = Depends(legacy.require_feature("audits")),
+    limit: int = 50,
+    offset: int = 0,
 ):
     """Return completed runs using the same tenant rule as View and PDF."""
+    limit = max(1, min(int(limit), 250))
+    offset = max(0, int(offset))
     audit = await _get_accessible_audit(audit_id, user)
 
     query: dict = {"audit_id": audit_id, "$or": [{"completed": True}, {"status": "closed_incomplete"}]}
@@ -83,7 +87,7 @@ async def get_audit_runs(
         query["status" if pass_status == "closed_incomplete" else "pass_status"] = pass_status
 
     runs = await legacy.db.run_audits.find(
-        query, {"_id": 0, "signature": 0}
+        query, {"_id": 0, "signature": 0, "answers": 0, "notes": 0}
     ).sort("started_at", -1).to_list(5000)
 
     visible_runs = [
@@ -98,7 +102,8 @@ async def get_audit_runs(
     visible_runs.sort(key=lambda run: run.get("closed_at") or run.get("completed_at") or "", reverse=True)
 
     all_runs = await legacy.db.run_audits.find(
-        {"audit_id": audit_id, "completed": True}, {"_id": 0, "signature": 0}
+        {"audit_id": audit_id, "completed": True},
+        {"_id": 0, "signature": 0, "answers": 0, "notes": 0}
     ).to_list(5000)
     visible_all_runs = [
         run for run in all_runs
@@ -117,7 +122,8 @@ async def get_audit_runs(
             "failed": failed,
             "pass_percentage": round((passed / total * 100) if total else 0, 1),
         },
-        "runs": visible_runs,
+        "runs": visible_runs[offset:offset + limit],
+        "total_filtered": len(visible_runs),
     }
 
 
