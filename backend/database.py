@@ -167,7 +167,22 @@ class PostgresCursor:
     async def to_list(self, length: int) -> list[Dict[str, Any]]:
         where = _WhereBuilder()
         where_sql = where.build(self.query)
-        sql = "SELECT data FROM app_documents WHERE collection = $1 AND " + where_sql
+        # Apply exclusion projections in PostgreSQL.  Previously every JSONB
+        # document (including signatures, photos and completed form values) was
+        # transferred to Python and stripped there, which made list endpoints
+        # progressively slower even when callers requested lightweight rows.
+        excluded = [
+            field for field, include in (self.projection or {}).items()
+            if include == 0 and field != "_id"
+        ]
+        select_expression = "data"
+        if excluded:
+            escaped = ", ".join("'" + field + "'" for field in excluded)
+            select_expression = f"data - ARRAY[{escaped}]::text[]"
+        sql = (
+            f"SELECT {select_expression} AS data FROM app_documents "
+            "WHERE collection = $1 AND " + where_sql
+        )
 
         if self.sort_field:
             direction = "DESC" if self.sort_direction < 0 else "ASC"

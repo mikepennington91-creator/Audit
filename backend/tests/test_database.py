@@ -1,10 +1,11 @@
+import asyncio
 import sys
 from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from database import _WhereBuilder, _apply_projection, _decode_document  # noqa: E402
+from database import PostgresCursor, _WhereBuilder, _apply_projection, _decode_document  # noqa: E402
 
 
 def build_where(query):
@@ -59,3 +60,24 @@ def test_asyncpg_jsonb_text_is_decoded_to_a_document():
         "id": "audit-1",
         "completed": True,
     }
+
+
+def test_exclusion_projection_is_applied_in_postgres_before_transfer():
+    class Connection:
+        def __init__(self):
+            self.sql = ""
+
+        async def fetch(self, sql, *args):
+            self.sql = sql
+            return [{"data": '{"id":"run-1","answers":[]}'}]
+
+    class Database:
+        connection = Connection()
+
+    class Collection:
+        name = "run_audits"
+        database = Database()
+
+    cursor = PostgresCursor(Collection(), {}, {"_id": 0, "answers": 0, "signature": 0})
+    assert asyncio.run(cursor.to_list(5)) == [{"id": "run-1"}]
+    assert "data - ARRAY['answers', 'signature']::text[]" in Collection.database.connection.sql

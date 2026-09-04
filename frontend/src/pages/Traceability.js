@@ -51,6 +51,8 @@ const Traceability = () => {
   const fileInputRef = useRef(null);
   const [data, setData] = useState(emptyData);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [loadedTypes, setLoadedTypes] = useState(new Set());
+  const [recordTotals, setRecordTotals] = useState({ rawIntakes: 0, finishedBatches: 0, materialUsage: 0 });
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
@@ -126,20 +128,26 @@ const Traceability = () => {
         }
       }
       try {
-        const response = await axios.get(`${API}/traceability/records`);
-        let sharedData = response.data;
-        const sharedCount = sharedData.rawIntakes.length + sharedData.finishedBatches.length + sharedData.materialUsage.length;
+        const [configResponse, countsResponse] = await Promise.all([
+          axios.get(`${API}/traceability/config`),
+          axios.get(`${API}/traceability/record-counts`),
+        ]);
+        let counts = countsResponse.data;
+        const sharedCount = Object.values(counts).reduce((sum, count) => sum + count, 0);
         const legacyCount = legacyData
           ? (legacyData.rawIntakes?.length || 0) + (legacyData.finishedBatches?.length || 0) + (legacyData.materialUsage?.length || 0)
           : 0;
         if (sharedCount === 0 && legacyCount > 0) {
           const migration = await axios.post(`${API}/traceability/records/migrate-local`, legacyData);
-          sharedData = migration.data;
           if (migration.data.migrated_count > 0) {
             toast.success(`${migration.data.migrated_count} existing traceability records moved to shared storage`);
           }
+          counts = (await axios.get(`${API}/traceability/record-counts`)).data;
         }
-        if (!cancelled) setData({ ...emptyData, ...sharedData });
+        if (!cancelled) {
+          setData(prev => ({ ...prev, config: configResponse.data }));
+          setRecordTotals(counts);
+        }
       } catch (error) {
         console.error('Failed to load traceability data', error);
         if (!cancelled && legacyData) setData({ ...emptyData, ...legacyData });
@@ -154,6 +162,26 @@ const Traceability = () => {
     };
   }, []);
 
+  const loadRecordType = async (recordType, { append = false, search = '', releaseStatus = '' } = {}) => {
+    const mapping = { raw: 'rawIntakes', finished: 'finishedBatches', usage: 'materialUsage' };
+    const key = mapping[recordType];
+    const offset = append ? data[key].length : 0;
+    const response = await axios.get(`${API}/traceability/records/${recordType}`, {
+      params: {
+        limit: 50,
+        offset,
+        search: search || undefined,
+        release_status: releaseStatus && releaseStatus !== 'all' ? releaseStatus : undefined,
+      },
+    });
+    setData(prev => ({
+      ...prev,
+      [key]: append ? [...prev[key], ...response.data.items] : response.data.items,
+    }));
+    setRecordTotals(prev => ({ ...prev, [key]: response.data.total }));
+    setLoadedTypes(prev => new Set(prev).add(recordType));
+  };
+
   useEffect(() => {
     const hashValue = location.hash.replace('#', '');
     const validTabs = ['intake', 'finished', 'usage', 'reports', 'config'];
@@ -163,8 +191,31 @@ const Traceability = () => {
   }, [location.hash]);
 
   useEffect(() => {
-    if (dataLoaded) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [data, dataLoaded]);
+    if (!dataLoaded) return;
+    const recordType = { intake: 'raw', finished: 'finished', usage: 'usage' }[activeTab];
+    if (recordType && !loadedTypes.has(recordType)) {
+      loadRecordType(recordType).catch(error => {
+        toast.error(error.response?.data?.detail || 'Failed to load traceability records');
+      });
+    }
+    // The existing report builder joins all three datasets. Load them only
+    // when the reports tab is actually opened, never during normal data entry.
+    if (activeTab === 'reports' && !loadedTypes.has('reports')) {
+      axios.get(`${API}/traceability/records`).then(response => {
+        setData(prev => ({ ...prev, ...response.data, config: prev.config }));
+        setLoadedTypes(prev => new Set(prev).add('reports').add('raw').add('finished').add('usage'));
+      }).catch(error => toast.error(error.response?.data?.detail || 'Failed to load report data'));
+    }
+  }, [activeTab, dataLoaded]);
+
+  useEffect(() => {
+    if (!dataLoaded || activeTab !== 'finished') return;
+    const timer = setTimeout(() => {
+      loadRecordType('finished', { search: finishedFilter, releaseStatus: finishedStatusFilter })
+        .catch(error => toast.error(error.response?.data?.detail || 'Failed to filter finished batches'));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [finishedFilter, finishedStatusFilter]);
 
   const saveConfig = async config => {
     try {
@@ -432,8 +483,10 @@ const Traceability = () => {
       formData.append('file', file);
       const response = await axios.post(`${API}/traceability/bulk-import`, formData);
       setImportResult(response.data);
-      const refreshed = await axios.get(`${API}/traceability/records`);
-      setData({ ...emptyData, ...refreshed.data });
+      setLoadedTypes(new Set());
+      const counts = await axios.get(`${API}/traceability/record-counts`);
+      setRecordTotals(counts.data);
+      await loadRecordType(({ intake: 'raw', finished: 'finished', usage: 'usage' })[activeTab] || 'raw');
       toast.success(`${response.data.imported_total} records imported`);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to upload traceability workbook');
@@ -976,6 +1029,13 @@ const Traceability = () => {
                   </TableBody>
                 </Table>
               </ScrollArea>
+              {data.rawIntakes.length < recordTotals.rawIntakes && (
+                <div className="flex justify-center mt-4">
+                  <Button variant="outline" onClick={() => loadRecordType('raw', { append: true })}>
+                    Load more intakes ({data.rawIntakes.length} of {recordTotals.rawIntakes})
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1138,6 +1198,13 @@ const Traceability = () => {
                   </TableBody>
                 </Table>
               </ScrollArea>
+              {data.finishedBatches.length < recordTotals.finishedBatches && (
+                <div className="flex justify-center mt-4">
+                  <Button variant="outline" onClick={() => loadRecordType('finished', { append: true, search: finishedFilter, releaseStatus: finishedStatusFilter })}>
+                    Load more batches ({data.finishedBatches.length} of {recordTotals.finishedBatches})
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -1333,6 +1400,13 @@ const Traceability = () => {
                   </TableBody>
                 </Table>
               </ScrollArea>
+              {data.materialUsage.length < recordTotals.materialUsage && (
+                <div className="flex justify-center mt-4">
+                  <Button variant="outline" onClick={() => loadRecordType('usage', { append: true })}>
+                    Load more usage entries ({data.materialUsage.length} of {recordTotals.materialUsage})
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

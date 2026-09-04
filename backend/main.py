@@ -19,6 +19,7 @@ from app_core.disposal_routes import router as disposal_routes_router
 from app_core.documents import router as documents_router
 from app_core.hold_disposal import router as hold_disposal_router
 from app_core.notifications import router as notifications_router
+from app_core.performance import router as performance_router
 from app_core.reminders import reminder_loop, router as reminders_router
 from app_core.report_email import router as report_email_router
 from app_core.schedules import router as schedules_router
@@ -39,6 +40,7 @@ app.include_router(disposal_routes_router)
 app.include_router(documents_router)
 app.include_router(hold_disposal_router)
 app.include_router(notifications_router)
+app.include_router(performance_router)
 app.include_router(reminders_router)
 app.include_router(report_email_router)
 app.include_router(schedules_router)
