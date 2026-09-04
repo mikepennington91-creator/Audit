@@ -10,6 +10,14 @@ import server as legacy
 
 router = APIRouter(prefix="/api", tags=["schedules"])
 
+RECURRENCE_MONTHS = {
+    "monthly": 1,
+    "quarterly": 3,
+    "six_monthly": 6,
+    "annually": 12,
+}
+RECURRENCE_OPTIONS = {"none", "weekly", "fortnightly", *RECURRENCE_MONTHS}
+
 SCHEDULE_MANAGER_ROLES = [
     legacy.UserRole.SYSTEM_ADMIN,
     legacy.UserRole.COMPANY_ADMIN,
@@ -32,10 +40,32 @@ def schedule_window(schedule: Dict[str, Any]) -> tuple[Optional[date], Optional[
     anchor = scheduled_date(schedule.get("scheduled_date"))
     if not anchor:
         return None, None
-    if schedule.get("recurrence") == "weekly":
+    if (schedule.get("recurrence") or "none") != "none":
         start = anchor - timedelta(days=anchor.weekday())
         return start, start + timedelta(days=6)
     return anchor, anchor
+
+
+def add_months(value: date, months: int) -> date:
+    """Move a date by calendar months, clamping to the destination month end."""
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    month_end = (next_month - timedelta(days=1)).day
+    return date(year, month, min(value.day, month_end))
+
+
+def next_occurrence_date(value: date, recurrence: str, occurrences: int = 1) -> Optional[date]:
+    if recurrence == "weekly":
+        return value + timedelta(days=7 * occurrences)
+    if recurrence == "fortnightly":
+        return value + timedelta(days=14 * occurrences)
+    months = RECURRENCE_MONTHS.get(recurrence)
+    return add_months(value, months * occurrences) if months else None
 
 
 def run_completion_date(run: Dict[str, Any]) -> Optional[date]:
@@ -59,13 +89,19 @@ def run_satisfies_schedule(run: Dict[str, Any], schedule: Dict[str, Any]) -> boo
     return bool(completed_on and window_start and window_end and window_start <= completed_on <= window_end)
 
 
-async def _create_next_weekly_occurrence(schedule: Dict[str, Any]) -> None:
-    if schedule.get("recurrence") != "weekly":
-        return
+async def _create_next_recurring_occurrence(schedule: Dict[str, Any]) -> None:
     current_date = scheduled_date(schedule.get("scheduled_date"))
     if not current_date:
         return
-    next_date = current_date + timedelta(days=7)
+    anchor_date = scheduled_date(schedule.get("recurrence_anchor_date")) or current_date
+    occurrence_number = int(schedule.get("occurrence_number") or 0) + 1
+    next_date = next_occurrence_date(
+        anchor_date,
+        schedule.get("recurrence") or "none",
+        occurrence_number,
+    )
+    if not next_date:
+        return
     series_id = schedule.get("series_id") or schedule["id"]
     next_id = str(legacy.uuid.uuid5(
         legacy.uuid.NAMESPACE_URL,
@@ -75,6 +111,8 @@ async def _create_next_weekly_occurrence(schedule: Dict[str, Any]) -> None:
         **schedule,
         "id": next_id,
         "series_id": series_id,
+        "recurrence_anchor_date": anchor_date.isoformat(),
+        "occurrence_number": occurrence_number,
         "scheduled_date": next_date.isoformat(),
         "status": "pending",
         "created_at": legacy.get_uk_time_iso(),
@@ -112,7 +150,7 @@ async def complete_matching_schedules(run: Dict[str, Any]) -> int:
                 "completed_at": run.get("completed_at") or legacy.get_uk_time_iso(),
             }},
         )
-        await _create_next_weekly_occurrence(schedule)
+        await _create_next_recurring_occurrence(schedule)
     return len(matching)
 
 
@@ -240,8 +278,8 @@ async def create_scheduled_audit(
         raise HTTPException(status_code=400, detail="Reminder days must be between 0 and 365")
 
     recurrence = str(schedule_data.recurrence or "none").lower()
-    if recurrence not in {"none", "weekly"}:
-        raise HTTPException(status_code=400, detail="Recurrence must be none or weekly")
+    if recurrence not in RECURRENCE_OPTIONS:
+        raise HTTPException(status_code=400, detail="Select a valid recurrence interval")
 
     now = legacy.get_uk_time_iso()
     schedule_id = str(legacy.uuid.uuid4())
@@ -263,6 +301,8 @@ async def create_scheduled_audit(
         "completed_run_id": None,
         "recurrence": recurrence,
         "series_id": schedule_id,
+        "recurrence_anchor_date": due_date.isoformat(),
+        "occurrence_number": 0,
         "reminder_email_status": None,
         "reminder_last_attempt_at": None,
         "reminder_sent_at": None,
