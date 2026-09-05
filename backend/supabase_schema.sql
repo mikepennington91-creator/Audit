@@ -37,6 +37,15 @@ create index if not exists app_documents_due_date_idx
 create index if not exists app_documents_status_idx
     on public.app_documents (collection, (data ->> 'status'));
 
+create index if not exists app_documents_series_id_idx
+    on public.app_documents (collection, (data ->> 'series_id'));
+
+create index if not exists app_documents_user_id_idx
+    on public.app_documents (collection, (data ->> 'user_id'));
+
+create index if not exists app_documents_company_status_date_idx
+    on public.app_documents (collection, (data ->> 'company_id'), (data ->> 'status'), (data ->> 'scheduled_date'));
+
 -- Cover the list and dashboard access patterns without sorting entire tenant
 -- collections in memory.
 create index if not exists app_documents_company_created_idx
