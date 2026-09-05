@@ -363,8 +363,8 @@ async def change_action_reviewer(
     action = await legacy.get_accessible_corrective_action(action_id, user)
     if action.get("archived") or action.get("status") in {"completed", "effectiveness_pending"}:
         raise HTTPException(status_code=400, detail="Archived or completed actions cannot change approver")
-    if user.get("id") != action.get("created_by_id") and not legacy.is_action_admin(user):
-        raise HTTPException(status_code=403, detail="Only the action raiser or an administrator can change the approver")
+    if not legacy.is_action_admin(user):
+        raise HTTPException(status_code=403, detail="Only an administrator can change the action approver")
     reviewer = await _company_user(update.reviewer_user_id, action.get("company_id"), user)
     old_name = action.get("reviewer_user_name") or action.get("created_by_name") or "Unknown"
     history = list(action.get("history") or [])
@@ -452,11 +452,10 @@ async def reassign_corrective_action(
             status_code=400,
             detail="Archived, completed or review-pending actions cannot be reassigned",
         )
-    is_owner = action.get("assigned_user_id") == user.get("id")
-    if not is_owner and not legacy.is_action_admin(user):
+    if not legacy.is_action_admin(user):
         raise HTTPException(
             status_code=403,
-            detail="Only the current action owner or an administrator can reassign this action",
+            detail="Only an administrator can reassign corrective actions",
         )
     reason = update.reason.strip()
     if not reason:
@@ -532,6 +531,11 @@ async def submit_corrective_action_for_review(
         raise HTTPException(status_code=409, detail="This action has already been signed off")
     if action.get("status") == "awaiting_review":
         raise HTTPException(status_code=409, detail="This action is already awaiting owner review")
+    if action.get("assigned_user_id") != user.get("id") and not legacy.is_action_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the assigned action owner or an administrator can submit this action for review",
+        )
     owner = await _action_owner(action)
     if not owner:
         raise HTTPException(
