@@ -25,6 +25,15 @@ const RECURRENCE_LABELS = {
   quarterly: 'Every 3 months',
   six_monthly: 'Every 6 months',
   annually: 'Annually',
+  start_up: 'At each start-up',
+};
+const RISK_LABELS = {
+  no_risk: 'No Risk', very_low_risk: 'Very Low Risk', low_risk: 'Low Risk',
+  medium_risk: 'Medium Risk', high_risk: 'High Risk', very_high_risk: 'Very High Risk',
+};
+const RISK_RECURRENCE = {
+  no_risk: 'annually', very_low_risk: 'quarterly', low_risk: 'monthly',
+  medium_risk: 'weekly', high_risk: 'start_up', very_high_risk: 'start_up',
 };
 
 const Schedule = () => {
@@ -42,6 +51,7 @@ const Schedule = () => {
   const [notes, setNotes] = useState('');
   const [reminderDays, setReminderDays] = useState('1');
   const [recurrence, setRecurrence] = useState('none');
+  const [riskLevel, setRiskLevel] = useState('no_risk');
 
   useEffect(() => {
     fetchData();
@@ -84,6 +94,7 @@ const Schedule = () => {
         notes: notes || null,
         reminder_days: parseInt(reminderDays),
         recurrence,
+        risk_level: riskLevel,
       });
       toast.success('Audit scheduled successfully');
       setDialogOpen(false);
@@ -105,6 +116,46 @@ const Schedule = () => {
     }
   };
 
+  const seriesAction = async (schedule, action) => {
+    const reason = window.prompt(`Reason for ${action === 'active' ? 'resuming' : action} this schedule series:`);
+    if (!reason) return;
+    try {
+      await axios.put(`${API}/scheduled-audits/series/${schedule.series_id || schedule.id}/status`, { status: action, reason });
+      toast.success(`Schedule series ${action}`); fetchData();
+    } catch (error) { toast.error(error.response?.data?.detail || 'Could not update schedule series'); }
+  };
+
+  const skipOccurrence = async (schedule) => {
+    const reason = window.prompt('Reason for skipping this occurrence:');
+    if (!reason) return;
+    try { await axios.post(`${API}/scheduled-audits/${schedule.id}/skip`, { reason }); toast.success('Occurrence skipped'); fetchData(); }
+    catch (error) { toast.error(error.response?.data?.detail || 'Could not skip occurrence'); }
+  };
+
+  const triggerStartUp = async (schedule) => {
+    try { await axios.post(`${API}/scheduled-audits/series/${schedule.series_id || schedule.id}/trigger`); toast.success('Start-up audit added'); fetchData(); }
+    catch (error) { toast.error(error.response?.data?.detail || 'Could not trigger audit'); }
+  };
+
+  const showHistory = async (schedule) => {
+    try {
+      const response = await axios.get(`${API}/scheduled-audits/series/${schedule.series_id || schedule.id}`);
+      const lines = response.data.occurrences.map(item => `${formatDate(item.scheduled_date)} — ${item.status}${item.skip_reason ? ` (${item.skip_reason})` : ''}`);
+      window.alert(lines.join('\n') || 'No occurrences');
+    } catch (error) { toast.error(error.response?.data?.detail || 'Could not load history'); }
+  };
+
+  const editSeries = async (schedule) => {
+    const newDate = window.prompt('Next scheduled date (YYYY-MM-DD):', String(schedule.scheduled_date).slice(0, 10));
+    if (!newDate) return;
+    const newRecurrence = window.prompt('Repeat: weekly, fortnightly, monthly, quarterly, six_monthly, annually or start_up', schedule.recurrence || 'none');
+    if (!newRecurrence) return;
+    try {
+      await axios.put(`${API}/scheduled-audits/series/${schedule.series_id || schedule.id}`, { scheduled_date: newDate, recurrence: newRecurrence });
+      toast.success('Schedule series updated'); fetchData();
+    } catch (error) { toast.error(error.response?.data?.detail || 'Could not edit schedule series'); }
+  };
+
   const resetForm = () => {
     setAuditId('');
     setAssignedTo('');
@@ -113,6 +164,7 @@ const Schedule = () => {
     setNotes('');
     setReminderDays('1');
     setRecurrence('none');
+    setRiskLevel('no_risk');
   };
 
   const getStatusBadge = (status) => {
@@ -195,6 +247,15 @@ const Schedule = () => {
               </div>
 
               <div className="space-y-2">
+                <Label>Risk level</Label>
+                <Select value={riskLevel} onValueChange={(value) => { setRiskLevel(value); setRecurrence(RISK_RECURRENCE[value]); }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{Object.entries(RISK_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Suggested frequency: {RECURRENCE_LABELS[RISK_RECURRENCE[riskLevel]]}.</p>
+              </div>
+
+              <div className="space-y-2">
                 <Label>Repeat</Label>
                 <Select value={recurrence} onValueChange={setRecurrence}>
                   <SelectTrigger data-testid="schedule-recurrence"><SelectValue /></SelectTrigger>
@@ -206,6 +267,7 @@ const Schedule = () => {
                     <SelectItem value="quarterly">Every 3 months</SelectItem>
                     <SelectItem value="six_monthly">Every 6 months</SelectItem>
                     <SelectItem value="annually">Every year</SelectItem>
+                    <SelectItem value="start_up">At each start-up (manually triggered)</SelectItem>
                   </SelectContent>
                 </Select>
                 {recurrence !== 'none' && (
@@ -266,18 +328,27 @@ const Schedule = () => {
           ) : schedules.length > 0 ? (
             <div className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow><TableHead>Audit</TableHead><TableHead>Assigned To</TableHead><TableHead>Date</TableHead><TableHead>Repeat</TableHead><TableHead>Location</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Audit</TableHead><TableHead>Assigned To</TableHead><TableHead>Date</TableHead><TableHead>Risk</TableHead><TableHead>Repeat</TableHead><TableHead>Location</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {schedules.map((schedule) => (
                     <TableRow key={schedule.id} data-testid={`schedule-row-${schedule.id}`}>
                       <TableCell className="font-medium">{schedule.audit_name}</TableCell>
                       <TableCell><div className="flex items-center gap-2"><User className="w-4 h-4 text-muted-foreground" />{schedule.assigned_to_name}</div></TableCell>
                       <TableCell><div className="flex items-center gap-2"><CalendarIcon className="w-4 h-4 text-muted-foreground" />{formatDate(schedule.scheduled_date)}</div></TableCell>
+                      <TableCell><Badge variant="outline">{RISK_LABELS[schedule.risk_level] || 'No Risk'}</Badge></TableCell>
                       <TableCell>{!schedule.recurrence || schedule.recurrence === 'none' ? 'Once' : <Badge variant="outline">{RECURRENCE_LABELS[schedule.recurrence] || schedule.recurrence}</Badge>}</TableCell>
                       <TableCell>{schedule.location ? <div className="flex items-center gap-2"><MapPin className="w-4 h-4 text-muted-foreground" />{schedule.location}</div> : '-'}</TableCell>
                       <TableCell>{getStatusBadge(schedule.status)}</TableCell>
                       <TableCell className="text-right">
+                        <div className="flex justify-end gap-1 flex-wrap">
+                        <Button variant="ghost" size="sm" onClick={() => showHistory(schedule)}>History</Button>
+                        {schedule.series_status !== 'ended' && <Button variant="ghost" size="sm" onClick={() => editSeries(schedule)}>Edit</Button>}
+                        {schedule.recurrence === 'start_up' && schedule.series_status !== 'ended' && <Button variant="ghost" size="sm" onClick={() => triggerStartUp(schedule)}>Trigger</Button>}
+                        {['pending', 'overdue'].includes(schedule.status) && <Button variant="ghost" size="sm" onClick={() => skipOccurrence(schedule)}>Skip</Button>}
+                        {schedule.series_status === 'paused' ? <Button variant="ghost" size="sm" onClick={() => seriesAction(schedule, 'active')}>Resume</Button> : schedule.series_status !== 'ended' && <Button variant="ghost" size="sm" onClick={() => seriesAction(schedule, 'paused')}>Pause</Button>}
+                        {schedule.series_status !== 'ended' && <Button variant="ghost" size="sm" onClick={() => seriesAction(schedule, 'ended')}>End</Button>}
                         {schedule.status !== 'completed' && <Button variant="ghost" size="sm" onClick={() => handleDelete(schedule.id)} className="text-destructive hover:text-destructive" data-testid={`delete-schedule-${schedule.id}`}><Trash2 className="w-4 h-4" /></Button>}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
