@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 from datetime import timedelta
 from pathlib import Path
 
@@ -10,11 +11,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server import (  # noqa: E402
     AnswerSubmit,
+    CorrectiveActionReassign,
+    CorrectiveActionUpdate,
     corrective_action_status,
     get_uk_time,
     has_feature,
     normalise_feature_access,
 )
+from fastapi import HTTPException  # noqa: E402
+from app_core import actions  # noqa: E402
 
 
 def test_actions_are_universal_without_polluting_feature_toggle_map():
@@ -59,3 +64,65 @@ def test_audit_answer_preserves_legacy_corrective_action_fields():
     assert answer.action_required == "Replace the guard"
     assert answer.assigned_department == "Engineering"
     assert answer.action_due_date == "2026-08-30"
+
+
+class ActionCollection:
+    def __init__(self, action):
+        self.action = action
+
+    async def find_one(self, *_args, **_kwargs):
+        return dict(self.action)
+
+
+class ActionDatabase:
+    def __init__(self, action):
+        self.corrective_actions = ActionCollection(action)
+
+
+def action_record():
+    return {
+        "id": "action-1",
+        "company_id": "company-1",
+        "assigned_user_id": "owner",
+        "created_by_id": "raiser",
+        "reviewer_user_id": "reviewer",
+        "status": "open",
+        "archived": False,
+        "history": [],
+    }
+
+
+def assert_forbidden(coro):
+    try:
+        asyncio.run(coro)
+    except HTTPException as exc:
+        assert exc.status_code == 403
+    else:
+        raise AssertionError("Expected a 403 response")
+
+
+def test_non_admin_action_owner_cannot_reassign(monkeypatch):
+    monkeypatch.setattr(actions.legacy, "db", ActionDatabase(action_record()))
+    assert_forbidden(actions.reassign_corrective_action(
+        "action-1",
+        CorrectiveActionReassign(assigned_user_id="other", reason="Workload"),
+        {"id": "owner", "name": "Owner", "role": "user", "company_id": "company-1"},
+    ))
+
+
+def test_non_admin_action_raiser_cannot_change_approver(monkeypatch):
+    monkeypatch.setattr(actions.legacy, "db", ActionDatabase(action_record()))
+    assert_forbidden(actions.change_action_reviewer(
+        "action-1",
+        actions.ActionReviewerUpdate(reviewer_user_id="other"),
+        {"id": "raiser", "name": "Raiser", "role": "user", "company_id": "company-1"},
+    ))
+
+
+def test_non_owner_cannot_submit_someone_elses_action(monkeypatch):
+    monkeypatch.setattr(actions.legacy, "db", ActionDatabase(action_record()))
+    assert_forbidden(actions.submit_corrective_action_for_review(
+        "action-1",
+        CorrectiveActionUpdate(action_taken="Work completed"),
+        {"id": "reviewer", "name": "Reviewer", "role": "user", "company_id": "company-1"},
+    ))
