@@ -15,6 +15,7 @@ from app_core.actions import router as actions_router
 from app_core.audit_reports import router as audit_reports_router
 from app_core.audit_runs import router as audit_runs_router
 from app_core.company_activity import router as company_activity_router
+from app_core.compliance_operations import router as compliance_operations_router
 from app_core.disposal_routes import router as disposal_routes_router
 from app_core.documents import router as documents_router
 from app_core.hold_disposal import router as hold_disposal_router
@@ -36,6 +37,7 @@ app.include_router(actions_router)
 app.include_router(audit_reports_router)
 app.include_router(audit_runs_router)
 app.include_router(company_activity_router)
+app.include_router(compliance_operations_router)
 app.include_router(disposal_routes_router)
 app.include_router(documents_router)
 app.include_router(hold_disposal_router)
@@ -189,6 +191,11 @@ async def startup_event():
     await legacy.db.disposal_routes.create_index("id", unique=True)
     await legacy.db.hold_notices.create_index("id", unique=True)
     await legacy.db.disposal_notices.create_index("id", unique=True)
+    await legacy.db.training_records.create_index("id", unique=True)
+    await legacy.db.mock_recalls.create_index("id", unique=True)
+    await legacy.db.system_job_events.create_index("id", unique=True)
+    await legacy.db.email_delivery_events.create_index("company_id")
+    await legacy.db.scheduled_audits.create_index("series_id")
 
     enabled = os.environ.get("REMINDER_LOOP_ENABLED", "true").strip().lower() in {
         "1", "true", "yes", "on"
