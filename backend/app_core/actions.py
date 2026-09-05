@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,6 +22,11 @@ class ActionReviewDecision(BaseModel):
     comment: Optional[str] = None
 
 
+class ActionEffectivenessDecision(BaseModel):
+    effective: bool
+    evidence: str
+
+
 class CorrectiveActionCreate(BaseModel):
     title: str
     non_conformance: str
@@ -37,7 +42,7 @@ class ActionReviewerUpdate(BaseModel):
 
 def action_display_status(action: Dict[str, Any]) -> str:
     stored = action.get("status") or "open"
-    if stored in {"completed", "awaiting_review"}:
+    if stored in {"completed", "awaiting_review", "effectiveness_pending"}:
         return stored
     return legacy.corrective_action_status(action)
 
@@ -240,7 +245,7 @@ async def get_corrective_actions(
     user: dict = Depends(legacy.require_feature("actions")),
 ) -> List[Dict[str, Any]]:
     limit = max(1, min(int(limit), 500))
-    allowed_statuses = {"open", "overdue", "awaiting_review", "completed"}
+    allowed_statuses = {"open", "overdue", "awaiting_review", "effectiveness_pending", "completed"}
     if status and status not in allowed_statuses:
         raise HTTPException(status_code=400, detail="Unknown action status")
 
@@ -356,7 +361,7 @@ async def change_action_reviewer(
     user: dict = Depends(legacy.require_feature("actions")),
 ):
     action = await legacy.get_accessible_corrective_action(action_id, user)
-    if action.get("archived") or action.get("status") == "completed":
+    if action.get("archived") or action.get("status") in {"completed", "effectiveness_pending"}:
         raise HTTPException(status_code=400, detail="Archived or completed actions cannot change approver")
     if user.get("id") != action.get("created_by_id") and not legacy.is_action_admin(user):
         raise HTTPException(status_code=403, detail="Only the action raiser or an administrator can change the approver")
@@ -416,7 +421,7 @@ async def corrective_action_counts(
     actions = await legacy.db.corrective_actions.find(
         query, {"_id": 0, "history": 0, "action_taken": 0}
     ).to_list(5000)
-    counts = {"all": 0, "open": 0, "overdue": 0, "awaiting_review": 0, "completed": 0}
+    counts = {"all": 0, "open": 0, "overdue": 0, "awaiting_review": 0, "effectiveness_pending": 0, "completed": 0}
     for action in actions:
         if bool(action.get("archived")) != include_archived:
             continue
@@ -442,7 +447,7 @@ async def reassign_corrective_action(
     user: dict = Depends(legacy.require_feature("actions")),
 ):
     action = await legacy.get_accessible_corrective_action(action_id, user)
-    if action.get("archived") or action.get("status") in {"completed", "awaiting_review"}:
+    if action.get("archived") or action.get("status") in {"completed", "awaiting_review", "effectiveness_pending"}:
         raise HTTPException(
             status_code=400,
             detail="Archived, completed or review-pending actions cannot be reassigned",
@@ -523,7 +528,7 @@ async def submit_corrective_action_for_review(
     action = await legacy.get_accessible_corrective_action(action_id, user)
     if action.get("archived"):
         raise HTTPException(status_code=400, detail="Archived actions cannot be completed")
-    if action.get("status") == "completed":
+    if action.get("status") in {"completed", "effectiveness_pending"}:
         raise HTTPException(status_code=409, detail="This action has already been signed off")
     if action.get("status") == "awaiting_review":
         raise HTTPException(status_code=409, detail="This action is already awaiting owner review")
@@ -631,12 +636,14 @@ async def review_corrective_action(
             )
         )
         changes = {
-            "status": "completed",
+            "status": "effectiveness_pending",
             "review_status": "approved",
             "reviewed_by_id": user["id"],
             "reviewed_by_name": user["name"],
             "reviewed_at": now,
             "review_comment": comment,
+            "effectiveness_status": "pending",
+            "effectiveness_due_date": (legacy.get_uk_time().date() + timedelta(days=7)).isoformat(),
             "history": history,
             "updated_at": now,
         }
@@ -645,7 +652,7 @@ async def review_corrective_action(
         )
         await legacy.sync_action_to_audit(
             action,
-            action_status="completed",
+            action_status="effectiveness_pending",
             action_taken=action.get("action_taken"),
             action_completed_by=action.get("completed_by_name"),
             action_completed_at=action.get("completed_at"),
@@ -699,4 +706,69 @@ async def review_corrective_action(
     updated = await legacy.db.corrective_actions.find_one(
         {"id": action_id}, {"_id": 0}
     )
+    return action_payload(updated)
+
+
+@router.put("/actions/{action_id}/effectiveness")
+async def verify_action_effectiveness(
+    action_id: str,
+    decision: ActionEffectivenessDecision,
+    user: dict = Depends(legacy.require_feature("actions")),
+):
+    action = await legacy.db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
+    if not action:
+        raise HTTPException(status_code=404, detail="Corrective action not found")
+    if action.get("status") != "effectiveness_pending":
+        raise HTTPException(status_code=409, detail="This action is not awaiting effectiveness verification")
+    if action_reviewer_id(action) != user.get("id") and not legacy.is_admin(user):
+        raise HTTPException(status_code=403, detail="Only the approver or an administrator can verify effectiveness")
+    evidence = decision.evidence.strip()
+    if not evidence:
+        raise HTTPException(status_code=400, detail="Effectiveness evidence is required")
+    now = legacy.get_uk_time_iso()
+    history = list(action.get("history") or [])
+    if decision.effective:
+        status = "completed"
+        message = "Effectiveness verified; action closed"
+        event = "effectiveness_verified"
+    else:
+        status = "open"
+        message = "Action found ineffective and reopened"
+        event = "effectiveness_failed"
+    history.append(legacy.action_history_entry(event, user, message, comment=evidence))
+    changes = {
+        "status": status,
+        "effectiveness_status": "effective" if decision.effective else "ineffective",
+        "effectiveness_evidence": evidence,
+        "effectiveness_verified_by_id": user["id"],
+        "effectiveness_verified_by_name": user.get("name"),
+        "effectiveness_verified_at": now,
+        "history": history,
+        "updated_at": now,
+    }
+    if not decision.effective:
+        changes.update({
+            "due_date": (legacy.get_uk_time().date() + timedelta(days=7)).isoformat(),
+            "review_status": "rework_required",
+            "completed_at": None,
+        })
+    await legacy.db.corrective_actions.update_one({"id": action_id}, {"$set": changes})
+    await legacy.sync_action_to_audit(
+        action,
+        action_status=status,
+        action_taken=action.get("action_taken"),
+        action_completed_by=action.get("completed_by_name") if decision.effective else None,
+        action_completed_at=action.get("completed_at") if decision.effective else None,
+    )
+    if not decision.effective and action.get("assigned_user_id"):
+        await create_notification(
+            user_id=action["assigned_user_id"],
+            company_id=action.get("company_id"),
+            notification_type="action_ineffective",
+            title="Corrective action reopened",
+            message=f"{action.get('audit_name', 'Audit')}: {evidence}",
+            link=f"/actions?action={action_id}",
+            metadata={"action_id": action_id},
+        )
+    updated = await legacy.db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
     return action_payload(updated)
