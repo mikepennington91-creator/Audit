@@ -1,5 +1,6 @@
 import os
 import sys
+import asyncio
 from datetime import date
 from pathlib import Path
 
@@ -10,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app_core.compliance_operations import calculate_reconciliation
 from app_core.schedules import RISK_FREQUENCY, next_occurrence_date
 from main import app
+from app_core import compliance_operations
 
 
 def test_mock_recall_reconciliation_includes_waste_and_carryover():
@@ -40,3 +42,32 @@ def test_compliance_routes_are_registered():
     assert ("POST", "/api/email-deliveries/{event_id}/resend") in routes
     assert ("PUT", "/api/actions/{action_id}/effectiveness") in routes
     assert ("PUT", "/api/scheduled-audits/series/{series_id}/status") in routes
+
+
+class EmptyCursor:
+    def sort(self, *_args):
+        return self
+
+    async def to_list(self, _limit):
+        return []
+
+
+class EmptyCollection:
+    def find(self, *_args, **_kwargs):
+        return EmptyCursor()
+
+
+class EmptyDatabase:
+    def __getattr__(self, _name):
+        return EmptyCollection()
+
+
+def test_compliance_summary_returns_empty_counts(monkeypatch):
+    monkeypatch.setattr(compliance_operations.legacy, "db", EmptyDatabase())
+    result = asyncio.run(
+        compliance_operations.compliance_summary(
+            {"id": "admin", "role": "system_admin", "company_id": None}
+        )
+    )
+    assert result["counts"]["audits_due_this_week"] == 0
+    assert result["counts"]["open_actions"] == 0
