@@ -27,6 +27,7 @@ import DocumentList from "./pages/DocumentList";
 import DocumentDesigner from "./pages/DocumentDesigner";
 import DocumentFill from "./pages/DocumentFill";
 import DocumentView from "./pages/DocumentView";
+import Compliance from "./pages/Compliance";
 
 const LoadingScreen = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -83,6 +84,7 @@ function AppRoutes() {
       <Route path="/run-audit/:runId" element={<ProtectedRoute feature="audits"><RunAudit key="active-audit" /></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute feature="audits"><Reports /></ProtectedRoute>} />
       <Route path="/actions" element={<ProtectedRoute feature="actions"><Actions /></ProtectedRoute>} />
+      <Route path="/compliance" element={<ProtectedRoute><Compliance /></ProtectedRoute>} />
       <Route path="/traceability" element={<ProtectedRoute feature="traceability"><Traceability /></ProtectedRoute>} />
       <Route path="/hold-disposal" element={<ProtectedRoute feature="traceability"><HoldDisposal /></ProtectedRoute>} />
       <Route path="/documents" element={<ProtectedRoute feature="documents"><DocumentList /></ProtectedRoute>} />

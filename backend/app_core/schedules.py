@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 import server as legacy
 
@@ -16,7 +17,34 @@ RECURRENCE_MONTHS = {
     "six_monthly": 6,
     "annually": 12,
 }
-RECURRENCE_OPTIONS = {"none", "weekly", "fortnightly", *RECURRENCE_MONTHS}
+RECURRENCE_OPTIONS = {"none", "weekly", "fortnightly", "start_up", *RECURRENCE_MONTHS}
+RISK_FREQUENCY = {
+    "no_risk": "annually",
+    "very_low_risk": "quarterly",
+    "low_risk": "monthly",
+    "medium_risk": "weekly",
+    "high_risk": "start_up",
+    "very_high_risk": "start_up",
+}
+
+
+class ScheduleSeriesUpdate(BaseModel):
+    assigned_to: Optional[str] = None
+    scheduled_date: Optional[str] = None
+    recurrence: Optional[str] = None
+    risk_level: Optional[str] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+    reminder_days: Optional[int] = Field(default=None, ge=0, le=365)
+
+
+class ScheduleSeriesStatus(BaseModel):
+    status: str
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class ScheduleSkip(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
 
 SCHEDULE_MANAGER_ROLES = [
     legacy.UserRole.SYSTEM_ADMIN,
@@ -90,6 +118,8 @@ def run_satisfies_schedule(run: Dict[str, Any], schedule: Dict[str, Any]) -> boo
 
 
 async def _create_next_recurring_occurrence(schedule: Dict[str, Any]) -> None:
+    if schedule.get("series_status", "active") != "active":
+        return
     current_date = scheduled_date(schedule.get("scheduled_date"))
     if not current_date:
         return
@@ -121,6 +151,7 @@ async def _create_next_recurring_occurrence(schedule: Dict[str, Any]) -> None:
         "reminder_email_status": None,
         "reminder_last_attempt_at": None,
         "reminder_sent_at": None,
+        "overdue_escalation_sent_at": None,
     }
     await legacy.db.scheduled_audits.insert_one_if_absent(next_occurrence)
 
@@ -280,6 +311,9 @@ async def create_scheduled_audit(
     recurrence = str(schedule_data.recurrence or "none").lower()
     if recurrence not in RECURRENCE_OPTIONS:
         raise HTTPException(status_code=400, detail="Select a valid recurrence interval")
+    risk_level = str(schedule_data.risk_level or "no_risk").lower()
+    if risk_level not in RISK_FREQUENCY:
+        raise HTTPException(status_code=400, detail="Select a valid risk level")
 
     now = legacy.get_uk_time_iso()
     schedule_id = str(legacy.uuid.uuid4())
@@ -300,12 +334,16 @@ async def create_scheduled_audit(
         "created_at": now,
         "completed_run_id": None,
         "recurrence": recurrence,
+        "risk_level": risk_level,
+        "recommended_recurrence": RISK_FREQUENCY[risk_level],
         "series_id": schedule_id,
+        "series_status": "active",
         "recurrence_anchor_date": due_date.isoformat(),
         "occurrence_number": 0,
         "reminder_email_status": None,
         "reminder_last_attempt_at": None,
         "reminder_sent_at": None,
+        "overdue_escalation_sent_at": None,
     }
     await legacy.db.scheduled_audits.insert_one(schedule_doc)
     return legacy.ScheduledAuditResponse(**schedule_doc)
@@ -316,7 +354,7 @@ async def get_scheduled_audits(
     status: Optional[str] = None,
     user: dict = Depends(legacy.require_feature("audits")),
 ):
-    if status and status not in {"pending", "overdue", "completed"}:
+    if status and status not in {"pending", "overdue", "completed", "skipped", "paused", "cancelled"}:
         raise HTTPException(status_code=400, detail="Unknown scheduled audit status")
 
     if legacy.is_system_admin(user):
@@ -393,6 +431,129 @@ async def complete_scheduled_audit(
 
     await complete_matching_schedules(run)
     return {"message": "Scheduled audit marked as completed"}
+
+
+@router.get("/scheduled-audits/series/{series_id}")
+async def get_schedule_series(
+    series_id: str,
+    user: dict = Depends(legacy.require_feature("audits")),
+):
+    occurrences = await legacy.db.scheduled_audits.find(
+        {"$or": [{"series_id": series_id}, {"id": series_id}]}, {"_id": 0}
+    ).sort("scheduled_date", 1).to_list(1000)
+    if not occurrences:
+        raise HTTPException(status_code=404, detail="Schedule series not found")
+    if not schedule_access_allowed(occurrences[0], user, await _get_assigned_user(occurrences[0].get("assigned_to", ""))):
+        raise HTTPException(status_code=404, detail="Schedule series not found")
+    return {"series_id": series_id, "occurrences": occurrences}
+
+
+@router.put("/scheduled-audits/series/{series_id}")
+async def update_schedule_series(
+    series_id: str,
+    data: ScheduleSeriesUpdate,
+    user: dict = Depends(legacy.require_role(SCHEDULE_MANAGER_ROLES, "audits_edit")),
+):
+    series = await get_schedule_series(series_id, user)
+    current = series["occurrences"][-1]
+    changes = data.model_dump(exclude_unset=True)
+    if "recurrence" in changes and changes["recurrence"] not in RECURRENCE_OPTIONS:
+        raise HTTPException(status_code=400, detail="Select a valid recurrence interval")
+    if "risk_level" in changes:
+        if changes["risk_level"] not in RISK_FREQUENCY:
+            raise HTTPException(status_code=400, detail="Select a valid risk level")
+        changes["recommended_recurrence"] = RISK_FREQUENCY[changes["risk_level"]]
+    if "scheduled_date" in changes:
+        parsed = scheduled_date(changes["scheduled_date"])
+        if not parsed or parsed < legacy.get_uk_time().date():
+            raise HTTPException(status_code=400, detail="Enter a valid future scheduled date")
+        changes["scheduled_date"] = parsed.isoformat()
+        changes["recurrence_anchor_date"] = parsed.isoformat()
+        changes["occurrence_number"] = 0
+    if "assigned_to" in changes:
+        assignee = await _get_assigned_user(changes["assigned_to"])
+        if not assignee or (not legacy.is_system_admin(user) and assignee.get("company_id") != current.get("company_id")):
+            raise HTTPException(status_code=400, detail="Select a valid user from your company")
+        audit = await legacy.db.audits.find_one({"id": current.get("audit_id")}, {"_id": 0})
+        if audit and audit.get("company_id") is not None and audit.get("company_id") != assignee.get("company_id"):
+            raise HTTPException(status_code=400, detail="The audit and assigned user must belong to the same company")
+        changes.update({
+            "assigned_to_name": assignee.get("name") or assignee.get("email") or "User",
+            "assigned_to_email": assignee.get("email") or "",
+            "company_id": assignee.get("company_id"),
+        })
+    changes.update({"updated_at": legacy.get_uk_time_iso(), "updated_by": user["id"]})
+    result = await legacy.db.scheduled_audits.update_many(
+        {"$or": [{"series_id": series_id}, {"id": series_id}], "status": {"$in": ["pending", "overdue", "paused"]}},
+        {"$set": changes},
+    )
+    return {"message": "Schedule series updated", "updated": result.modified_count}
+
+
+@router.put("/scheduled-audits/series/{series_id}/status")
+async def set_schedule_series_status(
+    series_id: str,
+    data: ScheduleSeriesStatus,
+    user: dict = Depends(legacy.require_role(SCHEDULE_MANAGER_ROLES, "audits_edit")),
+):
+    if data.status not in {"active", "paused", "ended"}:
+        raise HTTPException(status_code=400, detail="Status must be active, paused or ended")
+    await get_schedule_series(series_id, user)
+    occurrence_status = "pending" if data.status == "active" else ("paused" if data.status == "paused" else "cancelled")
+    await legacy.db.scheduled_audits.update_many(
+        {"$or": [{"series_id": series_id}, {"id": series_id}], "status": {"$in": ["pending", "overdue", "paused"]}},
+        {"$set": {
+            "series_status": data.status,
+            "status": occurrence_status,
+            "series_status_reason": data.reason.strip(),
+            "series_status_changed_at": legacy.get_uk_time_iso(),
+            "series_status_changed_by": user["id"],
+        }},
+    )
+    return {"message": f"Schedule series {data.status}"}
+
+
+@router.post("/scheduled-audits/{schedule_id}/skip")
+async def skip_scheduled_audit(
+    schedule_id: str,
+    data: ScheduleSkip,
+    user: dict = Depends(legacy.require_role(SCHEDULE_MANAGER_ROLES, "audits_edit")),
+):
+    schedule = await _get_accessible_schedule(schedule_id, user)
+    if schedule.get("status") not in {"pending", "overdue"}:
+        raise HTTPException(status_code=409, detail="Only an open occurrence can be skipped")
+    await _create_next_recurring_occurrence(schedule)
+    await legacy.db.scheduled_audits.update_one(
+        {"id": schedule_id},
+        {"$set": {"status": "skipped", "skip_reason": data.reason.strip(), "skipped_at": legacy.get_uk_time_iso(), "skipped_by": user["id"]}},
+    )
+    return {"message": "Audit occurrence skipped"}
+
+
+@router.post("/scheduled-audits/series/{series_id}/trigger")
+async def trigger_start_up_audit(
+    series_id: str,
+    user: dict = Depends(legacy.require_role(SCHEDULE_MANAGER_ROLES, "audits_edit")),
+):
+    series = await get_schedule_series(series_id, user)
+    source = series["occurrences"][-1]
+    if source.get("recurrence") != "start_up" or source.get("series_status", "active") != "active":
+        raise HTTPException(status_code=409, detail="Only an active start-up series can be triggered")
+    now = legacy.get_uk_time_iso()
+    occurrence = {
+        **source,
+        "id": str(legacy.uuid.uuid4()),
+        "scheduled_date": legacy.get_uk_time().date().isoformat(),
+        "status": "pending",
+        "occurrence_number": int(source.get("occurrence_number") or 0) + 1,
+        "created_at": now,
+        "completed_run_id": None,
+        "completed_at": None,
+        "reminder_email_status": None,
+        "reminder_sent_at": None,
+    }
+    await legacy.db.scheduled_audits.insert_one(occurrence)
+    return occurrence
 
 
 @router.delete("/scheduled-audits/{schedule_id}")

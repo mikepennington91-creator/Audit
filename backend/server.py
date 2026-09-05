@@ -2234,6 +2234,7 @@ class ScheduledAuditCreate(BaseModel):
     notes: Optional[str] = None
     reminder_days: int = 1  # Days before to send reminder
     recurrence: str = "none"
+    risk_level: str = "no_risk"
 
 class ScheduledAuditResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -2253,6 +2254,8 @@ class ScheduledAuditResponse(BaseModel):
     completed_run_id: Optional[str] = None
     recurrence: str = "none"
     series_id: Optional[str] = None
+    series_status: str = "active"
+    risk_level: str = "no_risk"
 
 @api_router.post("/scheduled-audits", response_model=ScheduledAuditResponse)
 async def create_scheduled_audit(

@@ -24,7 +24,7 @@ const Actions = () => {
   const [assignees, setAssignees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
-  const [counts, setCounts] = useState({ all: 0, open: 0, overdue: 0, awaiting_review: 0, completed: 0 });
+  const [counts, setCounts] = useState({ all: 0, open: 0, overdue: 0, awaiting_review: 0, effectiveness_pending: 0, completed: 0 });
   const [actionLimit, setActionLimit] = useState(100);
   const [showArchived, setShowArchived] = useState(false);
   const [myActionsOnly, setMyActionsOnly] = useState(false);
@@ -42,6 +42,7 @@ const Actions = () => {
   const [decisionComment, setDecisionComment] = useState('');
   const [reviewComment, setReviewComment] = useState('');
   const [reviewerUserId, setReviewerUserId] = useState('');
+  const [effectivenessEvidence, setEffectivenessEvidence] = useState('');
 
   const fetchActions = async () => {
     try {
@@ -82,6 +83,7 @@ const Actions = () => {
   const statusBadge = (status) => {
     if (status === 'completed') return <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">Completed</Badge>;
     if (status === 'awaiting_review') return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">Awaiting Review</Badge>;
+    if (status === 'effectiveness_pending') return <Badge className="bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300">Effectiveness Review</Badge>;
     if (status === 'overdue') return <Badge variant="destructive">Overdue</Badge>;
     return <Badge variant="secondary">Open</Badge>;
   };
@@ -100,6 +102,7 @@ const Actions = () => {
     setExtensionReason('');
     setDecisionComment('');
     setReviewComment('');
+    setEffectivenessEvidence('');
     setReviewerUserId(action.reviewer_user_id || action.created_by_id || '');
     try {
       const response = await axios.get(`${API}/actions/${action.id}`);
@@ -186,6 +189,17 @@ const Actions = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const verifyEffectiveness = async (effective) => {
+    if (!effectivenessEvidence.trim()) return toast.error('Enter objective effectiveness evidence');
+    setSaving(true);
+    try {
+      const response = await axios.put(`${API}/actions/${selectedAction.id}/effectiveness`, { effective, evidence: effectivenessEvidence.trim() });
+      replaceAction(response.data); setEffectivenessEvidence('');
+      toast.success(effective ? 'Effectiveness verified and action closed' : 'Action reopened for further work');
+    } catch (error) { toast.error(error.response?.data?.detail || 'Could not record effectiveness'); }
+    finally { setSaving(false); }
   };
 
   const reassignAction = async () => {
@@ -293,19 +307,20 @@ const Actions = () => {
     { key: 'open', label: `Open (${counts.open})` },
     { key: 'overdue', label: `Overdue (${counts.overdue})` },
     { key: 'awaiting_review', label: `Awaiting Review (${counts.awaiting_review})` },
+    { key: 'effectiveness_pending', label: `Effectiveness (${counts.effectiveness_pending})` },
     { key: 'completed', label: `Completed (${counts.completed})` },
   ];
 
-  const canReassignSelected = selectedAction && !selectedAction.archived && !['completed', 'awaiting_review'].includes(selectedAction.status) && (isMine(selectedAction) || canAdmin);
-  const canRequestExtension = selectedAction && !selectedAction.archived && !['completed', 'awaiting_review'].includes(selectedAction.status) && isMine(selectedAction);
-  const canChangeReviewerSelected = selectedAction && !selectedAction.archived && selectedAction.status !== 'completed' && (selectedAction.created_by_id === user?.id || canAdmin);
+  const canReassignSelected = selectedAction && !selectedAction.archived && !['completed', 'awaiting_review', 'effectiveness_pending'].includes(selectedAction.status) && (isMine(selectedAction) || canAdmin);
+  const canRequestExtension = selectedAction && !selectedAction.archived && !['completed', 'awaiting_review', 'effectiveness_pending'].includes(selectedAction.status) && isMine(selectedAction);
+  const canChangeReviewerSelected = selectedAction && !selectedAction.archived && !['completed', 'effectiveness_pending'].includes(selectedAction.status) && (selectedAction.created_by_id === user?.id || canAdmin);
 
   return (
     <div className="space-y-6" data-testid="actions-page">
       <div className="flex items-start justify-between gap-4 flex-wrap"><div><h1 className="text-3xl font-bold tracking-tight">Corrective Actions</h1><p className="text-muted-foreground mt-1">Track actions from assignment through completion, approver review and final sign-off.</p></div><Button onClick={() => { setNewAction((current) => ({ ...current, reviewer_user_id: current.reviewer_user_id || user?.id || '' })); setShowCreateAction(true); }}><Plus className="w-4 h-4 mr-2" />Add Action</Button></div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[{ key: 'open', label: 'Open', count: counts.open, icon: Clock3, colour: 'text-amber-600' }, { key: 'overdue', label: 'Overdue', count: counts.overdue, icon: AlertTriangle, colour: 'text-red-600' }, { key: 'awaiting_review', label: 'Awaiting Review', count: counts.awaiting_review, icon: ShieldCheck, colour: 'text-blue-600' }, { key: 'completed', label: 'Completed', count: counts.completed, icon: CheckCircle2, colour: 'text-emerald-600' }].map((summary) => { const Icon = summary.icon; return <Card key={summary.key} className={`cursor-pointer transition-colors hover:bg-muted/50 ${statusFilter === summary.key ? 'ring-2 ring-primary' : ''}`} onClick={() => setStatusFilter(summary.key)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setStatusFilter(summary.key); }}><CardContent className="pt-6 flex items-center gap-4"><Icon className={`w-8 h-8 ${summary.colour}`} /><div><p className="text-2xl font-bold">{summary.count}</p><p className="text-sm text-muted-foreground">{summary.label}</p></div></CardContent></Card>; })}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {[{ key: 'open', label: 'Open', count: counts.open, icon: Clock3, colour: 'text-amber-600' }, { key: 'overdue', label: 'Overdue', count: counts.overdue, icon: AlertTriangle, colour: 'text-red-600' }, { key: 'awaiting_review', label: 'Awaiting Review', count: counts.awaiting_review, icon: ShieldCheck, colour: 'text-blue-600' }, { key: 'effectiveness_pending', label: 'Effectiveness', count: counts.effectiveness_pending, icon: ShieldCheck, colour: 'text-violet-600' }, { key: 'completed', label: 'Completed', count: counts.completed, icon: CheckCircle2, colour: 'text-emerald-600' }].map((summary) => { const Icon = summary.icon; return <Card key={summary.key} className={`cursor-pointer transition-colors hover:bg-muted/50 ${statusFilter === summary.key ? 'ring-2 ring-primary' : ''}`} onClick={() => setStatusFilter(summary.key)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setStatusFilter(summary.key); }}><CardContent className="pt-6 flex items-center gap-4"><Icon className={`w-8 h-8 ${summary.colour}`} /><div><p className="text-2xl font-bold">{summary.count}</p><p className="text-sm text-muted-foreground">{summary.label}</p></div></CardContent></Card>; })}
       </div>
 
       <Card>
@@ -386,6 +401,12 @@ const Actions = () => {
               <div className="space-y-3">
                 <div><Label>Action Taken</Label><p className="mt-1 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm dark:bg-emerald-950/20">{selectedAction.action_taken}</p><p className="text-xs text-muted-foreground mt-2">Submitted by {selectedAction.completed_by_name} on {formatDateTime(selectedAction.completed_at)}</p></div>
                 {selectedAction.reviewed_by_name && <div className="rounded-lg border border-emerald-300 bg-emerald-50/80 dark:bg-emerald-950/20 p-4"><p className="font-medium flex items-center gap-2"><ShieldCheck className="w-4 h-4" />Signed off by {selectedAction.reviewed_by_name}</p><p className="text-xs text-muted-foreground mt-1">{formatDateTime(selectedAction.reviewed_at)}</p>{selectedAction.review_comment && <p className="text-sm mt-2">{selectedAction.review_comment}</p>}</div>}
+                {selectedAction.effectiveness_evidence && <div className="rounded-lg border border-emerald-300 p-4"><p className="font-medium">Effectiveness verified</p><p className="text-sm mt-2">{selectedAction.effectiveness_evidence}</p><p className="text-xs text-muted-foreground mt-1">{selectedAction.effectiveness_verified_by_name} · {formatDateTime(selectedAction.effectiveness_verified_at)}</p></div>}
+              </div>
+            ) : selectedAction.status === 'effectiveness_pending' ? (
+              <div className="space-y-4 rounded-lg border border-violet-300 bg-violet-50/70 dark:bg-violet-950/20 p-4">
+                <div><p className="font-medium">Awaiting effectiveness verification</p><p className="text-sm mt-1">The completion was approved. Confirm with objective evidence that it prevented recurrence before final closure.</p><p className="text-xs text-muted-foreground mt-2">Review due {formatDate(selectedAction.effectiveness_due_date)}</p></div>
+                {(isMyReview(selectedAction) || canAdmin) ? <><Textarea value={effectivenessEvidence} onChange={e => setEffectivenessEvidence(e.target.value)} placeholder="Evidence checked, result observed, records sampled…" rows={3} /><div className="flex gap-2 flex-wrap"><Button onClick={() => verifyEffectiveness(true)} disabled={saving}>Effective — Close</Button><Button variant="outline" onClick={() => verifyEffectiveness(false)} disabled={saving}>Ineffective — Reopen</Button></div></> : <p className="text-sm text-muted-foreground">Waiting for the approver or an administrator.</p>}
               </div>
             ) : selectedAction.status === 'awaiting_review' ? (
               <div className="space-y-4 rounded-lg border border-blue-300 bg-blue-50/70 dark:bg-blue-950/20 p-4">

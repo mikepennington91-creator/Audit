@@ -315,6 +315,29 @@ class PostgresCollection:
         matched = 1 if result else 0
         return UpdateResult(matched_count=matched, modified_count=matched)
 
+    async def update_many(
+        self, query: Dict[str, Any], update: Dict[str, Any]
+    ) -> UpdateResult:
+        """Apply one JSON merge to every matching document."""
+        if set(update) != {"$set"}:
+            raise ValueError("Only $set updates are supported")
+        where = _WhereBuilder(start_at=3)
+        where_sql = where.build(query)
+        rows = await self.database.write(
+            "fetch",
+            f"""
+            UPDATE app_documents
+            SET data = data || $2::jsonb, updated_at = now()
+            WHERE collection = $1 AND {where_sql}
+            RETURNING id
+            """,
+            self.name,
+            json.dumps(update["$set"]),
+            *where.args,
+        )
+        count = len(rows)
+        return UpdateResult(matched_count=count, modified_count=count)
+
     async def delete_one(self, query: Dict[str, Any]) -> DeleteResult:
         where = _WhereBuilder()
         where_sql = where.build(query)

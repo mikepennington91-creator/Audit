@@ -4,6 +4,7 @@ import asyncio
 import html
 import logging
 import os
+import uuid
 from datetime import date, timedelta
 from typing import Dict, Optional
 
@@ -13,6 +14,8 @@ import server as legacy
 from app_core.email_service import email_is_configured, public_app_url, send_email
 from app_core.preferences import email_preference_enabled
 from app_core.audit_deadlines import process_open_audits
+from app_core.notifications import create_notification
+from app_core.schedules import schedule_window
 
 
 logger = logging.getLogger(__name__)
@@ -127,12 +130,85 @@ async def process_scheduled_audit_reminders() -> Dict[str, int | str]:
     }
 
 
+async def process_compliance_escalations() -> Dict[str, int]:
+    """Mark and escalate overdue schedule/action exceptions once."""
+    today = legacy.get_uk_time().date()
+    schedules = await legacy.db.scheduled_audits.find(
+        {"status": {"$in": ["pending", "overdue"]}}, {"_id": 0}
+    ).to_list(5000)
+    escalated_schedules = escalated_actions = 0
+    for schedule in schedules:
+        _, window_end = schedule_window(schedule)
+        if not window_end or window_end >= today:
+            continue
+        if schedule.get("status") == "pending":
+            await legacy.db.scheduled_audits.update_one(
+                {"id": schedule["id"]}, {"$set": {"status": "overdue"}}
+            )
+        if schedule.get("overdue_escalation_sent_at"):
+            continue
+        admins = await legacy.db.users.find(
+            {"company_id": schedule.get("company_id"), "role": {"$in": [legacy.UserRole.COMPANY_ADMIN, legacy.UserRole.ADMIN]}},
+            {"_id": 0, "password": 0},
+        ).to_list(100)
+        for admin in admins:
+            await create_notification(
+                user_id=admin["id"], company_id=schedule.get("company_id"),
+                notification_type="scheduled_audit_overdue", title="Scheduled audit overdue",
+                message=f"{schedule.get('audit_name', 'Audit')} was due in the week ending {window_end.strftime('%d/%m/%Y')}.",
+                link="/schedule", metadata={"schedule_id": schedule["id"]},
+            )
+            if admin.get("email") and email_is_configured():
+                await send_email(
+                    to_email=admin["email"], subject=f"Overdue audit: {schedule.get('audit_name', 'Scheduled audit')}",
+                    text_body=f"Hi {admin.get('name', '')},\n\nThe scheduled audit is overdue and requires attention.\n\nOpen Infinit Audit: {public_app_url()}/schedule",
+                    template="scheduled_audit_overdue",
+                )
+        await legacy.db.scheduled_audits.update_one(
+            {"id": schedule["id"]}, {"$set": {"overdue_escalation_sent_at": legacy.get_uk_time_iso()}}
+        )
+        escalated_schedules += 1
+
+    actions = await legacy.db.corrective_actions.find(
+        {"status": "effectiveness_pending"}, {"_id": 0}
+    ).to_list(5000)
+    for action in actions:
+        due = _scheduled_date(action.get("effectiveness_due_date"))
+        if not due or due >= today or action.get("effectiveness_escalation_sent_at"):
+            continue
+        recipients = {action.get("reviewer_user_id") or action.get("created_by_id")}
+        admins = await legacy.db.users.find(
+            {"company_id": action.get("company_id"), "role": {"$in": [legacy.UserRole.COMPANY_ADMIN, legacy.UserRole.ADMIN]}},
+            {"_id": 0, "password": 0},
+        ).to_list(100)
+        recipients.update(item.get("id") for item in admins)
+        for recipient_id in recipients - {None}:
+            await create_notification(
+                user_id=recipient_id, company_id=action.get("company_id"),
+                notification_type="action_effectiveness_overdue", title="Effectiveness review overdue",
+                message=f"{action.get('title') or action.get('audit_name', 'Corrective action')} requires effectiveness evidence.",
+                link=f"/actions?action={action['id']}", metadata={"action_id": action["id"]},
+            )
+        await legacy.db.corrective_actions.update_one(
+            {"id": action["id"]}, {"$set": {"effectiveness_escalation_sent_at": legacy.get_uk_time_iso()}}
+        )
+        escalated_actions += 1
+    return {"overdue_schedules": escalated_schedules, "effectiveness_reviews": escalated_actions}
+
+
 async def reminder_loop() -> None:
     interval_seconds = max(300, int(os.environ.get("REMINDER_CHECK_SECONDS", "900")))
     while True:
         try:
+            started_at = legacy.get_uk_time_iso()
             await process_open_audits()
-            await process_scheduled_audit_reminders()
+            reminders = await process_scheduled_audit_reminders()
+            escalations = await process_compliance_escalations()
+            await legacy.db.system_job_events.insert_one({
+                "id": str(uuid.uuid4()), "job": "compliance_reminders", "status": "completed",
+                "started_at": started_at, "created_at": legacy.get_uk_time_iso(),
+                "result": {"reminders": reminders, "escalations": escalations},
+            })
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -155,7 +231,13 @@ async def run_scheduled_audit_reminders(
     elif not expected or not x_job_secret or not secrets_compare(x_job_secret, expected):
         raise HTTPException(status_code=403, detail="Access denied")
     open_audits = await process_open_audits()
-    return {"open_audits": open_audits, "scheduled": await process_scheduled_audit_reminders()}
+    scheduled = await process_scheduled_audit_reminders()
+    escalations = await process_compliance_escalations()
+    await legacy.db.system_job_events.insert_one({
+        "id": str(uuid.uuid4()), "job": "compliance_reminders", "status": "completed",
+        "created_at": legacy.get_uk_time_iso(), "result": {"scheduled": scheduled, "escalations": escalations},
+    })
+    return {"open_audits": open_audits, "scheduled": scheduled, "escalations": escalations}
 
 
 def secrets_compare(left: str, right: str) -> bool:
