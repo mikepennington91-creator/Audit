@@ -640,11 +640,11 @@ const HoldDisposal = () => {
       </div>
 
       <Tabs defaultValue="hold" className="space-y-6">
-        <TabsList className={`grid w-full ${isAdminUser ? 'max-w-4xl grid-cols-4' : 'max-w-2xl grid-cols-3'}`}>
-          <TabsTrigger value="hold"><AlertTriangle className="mr-2 h-4 w-4" />Hold Notices</TabsTrigger>
-          <TabsTrigger value="disposal"><PackageX className="mr-2 h-4 w-4" />Disposal Notices</TabsTrigger>
-          <TabsTrigger value="lists"><Users className="mr-2 h-4 w-4" />Distribution Lists</TabsTrigger>
-          {isAdminUser && <TabsTrigger value="routes"><Settings className="mr-2 h-4 w-4" />Disposal Routes</TabsTrigger>}
+        <TabsList className={`grid h-auto w-full grid-cols-2 gap-1 p-1 ${isAdminUser ? 'max-w-4xl sm:grid-cols-4' : 'max-w-2xl sm:grid-cols-3'}`}>
+          <TabsTrigger value="hold" className="h-full min-w-0 whitespace-normal px-2 py-2 text-center leading-tight"><AlertTriangle className="mr-2 hidden h-4 w-4 shrink-0 sm:block" />Hold Notices</TabsTrigger>
+          <TabsTrigger value="disposal" className="h-full min-w-0 whitespace-normal px-2 py-2 text-center leading-tight"><PackageX className="mr-2 hidden h-4 w-4 shrink-0 sm:block" />Disposal Notices</TabsTrigger>
+          <TabsTrigger value="lists" className="h-full min-w-0 whitespace-normal px-2 py-2 text-center leading-tight"><Users className="mr-2 hidden h-4 w-4 shrink-0 sm:block" />Distribution Lists</TabsTrigger>
+          {isAdminUser && <TabsTrigger value="routes" className="h-full min-w-0 whitespace-normal px-2 py-2 text-center leading-tight"><Settings className="mr-2 hidden h-4 w-4 shrink-0 sm:block" />Disposal Routes</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="hold" className="space-y-6">
