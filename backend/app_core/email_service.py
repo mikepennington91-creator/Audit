@@ -178,17 +178,29 @@ def _send_message(message: EmailMessage) -> None:
 
 
 async def _record_delivery(
-    *, recipient: str, subject: str, template: str, status: str, error: Optional[str]
+    *,
+    recipient: str,
+    subject: str,
+    template: str,
+    status: str,
+    error: Optional[str],
+    resend_payload: Optional[dict] = None,
 ) -> None:
     try:
+        recipient_user = await legacy.db.users.find_one(
+            {"email": {"$ieq": recipient}}, {"_id": 0, "password": 0}
+        )
         await legacy.db.email_delivery_events.insert_one(
             {
                 "id": str(uuid.uuid4()),
                 "recipient": recipient,
+                "recipient_user_id": (recipient_user or {}).get("id"),
+                "company_id": (recipient_user or {}).get("company_id"),
                 "subject": subject,
                 "template": template,
                 "status": status,
                 "error": error,
+                "resend_payload": resend_payload,
                 "created_at": legacy.get_uk_time_iso(),
             }
         )
@@ -215,6 +227,16 @@ async def send_email(
     if not recipient:
         return EmailDeliveryResult(False, "skipped", "Recipient email is missing")
 
+    attachment_list = tuple(attachments or ())
+    secure_templates = {"password_reset", "new_user_welcome"}
+    resend_payload = None
+    if template not in secure_templates and not attachment_list:
+        resend_payload = {
+            "subject": subject,
+            "text_body": text_body,
+            "html_body": html_body,
+        }
+
     if not email_is_configured():
         await _record_delivery(
             recipient=recipient,
@@ -222,6 +244,7 @@ async def send_email(
             template=template,
             status="disabled",
             error="SMTP is not configured",
+            resend_payload=resend_payload,
         )
         logger.info("Email skipped because SMTP is not configured: %s", template)
         return EmailDeliveryResult(False, "disabled", "Email service is not configured")
@@ -231,7 +254,7 @@ async def send_email(
         subject=subject,
         text_body=text_body,
         html_body=html_body,
-        attachments=attachments or (),
+        attachments=attachment_list,
     )
     try:
         await asyncio.to_thread(_send_message, message)
@@ -241,6 +264,7 @@ async def send_email(
             template=template,
             status="sent",
             error=None,
+            resend_payload=resend_payload,
         )
         return EmailDeliveryResult(True, "sent")
     except Exception as exc:
@@ -251,5 +275,6 @@ async def send_email(
             template=template,
             status="failed",
             error=str(exc)[:500],
+            resend_payload=resend_payload,
         )
         return EmailDeliveryResult(False, "failed", "Email delivery failed")
