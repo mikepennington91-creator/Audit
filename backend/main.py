@@ -21,6 +21,7 @@ from app_core.documents import router as documents_router
 from app_core.hold_disposal import router as hold_disposal_router
 from app_core.notifications import router as notifications_router
 from app_core.performance import router as performance_router
+from app_core.quality_operations import router as quality_operations_router
 from app_core.reminders import reminder_loop, router as reminders_router
 from app_core.report_email import router as report_email_router
 from app_core.schedules import router as schedules_router
@@ -43,6 +44,7 @@ app.include_router(documents_router)
 app.include_router(hold_disposal_router)
 app.include_router(notifications_router)
 app.include_router(performance_router)
+app.include_router(quality_operations_router)
 app.include_router(reminders_router)
 app.include_router(report_email_router)
 app.include_router(schedules_router)
@@ -194,6 +196,10 @@ async def startup_event():
     await legacy.db.training_records.create_index("id", unique=True)
     await legacy.db.mock_recalls.create_index("id", unique=True)
     await legacy.db.system_job_events.create_index("id", unique=True)
+    await legacy.db.suppliers.create_index("id", unique=True)
+    await legacy.db.quality_events.create_index("id", unique=True)
+    await legacy.db.document_signoffs.create_index("id", unique=True)
+    await legacy.db.management_report_schedules.create_index("id", unique=True)
     await legacy.db.email_delivery_events.create_index("company_id")
     await legacy.db.scheduled_audits.create_index("series_id")
 
