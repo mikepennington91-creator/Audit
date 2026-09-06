@@ -21,6 +21,7 @@ const DEFAULT_ACCESS = {
   traceability_view: false, traceability_edit: false,
   traceability_release: false, traceability_dispatch: false,
   documents_view: false, documents_edit: false,
+  quality_view: false, quality_edit: false,
 };
 const FULL_ACCESS = Object.fromEntries(Object.keys(DEFAULT_ACCESS).map(key => [key, true]));
 const FEATURES = [
@@ -32,6 +33,8 @@ const FEATURES = [
   { key: 'traceability_dispatch', label: 'Dispatch Finished Product', description: 'Record where individual finished-product pallets have been sent.', parent: 'traceability_view' },
   { key: 'documents_view', label: 'Documents — View', description: 'View and complete controlled documents and production records.' },
   { key: 'documents_edit', label: 'Documents — Edit', description: 'Create and edit document templates and existing entries.', parent: 'documents_view' },
+  { key: 'quality_view', label: 'Quality Operations — View', description: 'View supplier approval records, incidents, complaints, NCRs and quality trends.' },
+  { key: 'quality_edit', label: 'Quality Operations — Edit', description: 'Create and manage supplier and quality-event records.', parent: 'quality_view' },
 ];
 
 const isAdminRole = (role) => ['system_admin', 'company_admin', 'admin'].includes(role);
