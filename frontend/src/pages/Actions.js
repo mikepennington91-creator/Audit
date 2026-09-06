@@ -311,9 +311,9 @@ const Actions = () => {
     { key: 'completed', label: `Completed (${counts.completed})` },
   ];
 
-  const canReassignSelected = selectedAction && !selectedAction.archived && !['completed', 'awaiting_review', 'effectiveness_pending'].includes(selectedAction.status) && (isMine(selectedAction) || canAdmin);
+  const canReassignSelected = selectedAction && !selectedAction.archived && !['completed', 'awaiting_review', 'effectiveness_pending'].includes(selectedAction.status) && canAdmin;
   const canRequestExtension = selectedAction && !selectedAction.archived && !['completed', 'awaiting_review', 'effectiveness_pending'].includes(selectedAction.status) && isMine(selectedAction);
-  const canChangeReviewerSelected = selectedAction && !selectedAction.archived && !['completed', 'effectiveness_pending'].includes(selectedAction.status) && (selectedAction.created_by_id === user?.id || canAdmin);
+  const canChangeReviewerSelected = selectedAction && !selectedAction.archived && !['completed', 'effectiveness_pending'].includes(selectedAction.status) && canAdmin;
 
   return (
     <div className="space-y-6" data-testid="actions-page">
@@ -415,7 +415,7 @@ const Actions = () => {
                   <div className="space-y-3 border-t border-blue-200 pt-4"><Label>Approver Review / Sign-Off</Label><Textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)} placeholder="Review comment (required if returning the action for more work)" rows={3} /><div className="flex flex-wrap gap-2"><Button onClick={() => reviewAction(true)} disabled={saving}><ShieldCheck className="w-4 h-4 mr-2" />Approve & Sign Off</Button><Button variant="outline" onClick={() => reviewAction(false)} disabled={saving}><XCircle className="w-4 h-4 mr-2" />Return for More Work</Button></div></div>
                 ) : <p className="text-sm text-muted-foreground border-t border-blue-200 pt-3">Waiting for {selectedAction.reviewer_user_name || selectedAction.created_by_name} to review and sign off this action.</p>}
               </div>
-            ) : !selectedAction.archived && isMine(selectedAction) ? (
+            ) : !selectedAction.archived && (isMine(selectedAction) || canAdmin) ? (
               <form onSubmit={submitActionForReview} className="space-y-3"><Label>Action Taken *</Label><Textarea value={actionTaken} onChange={(e) => setActionTaken(e.target.value)} rows={4} required /><Button type="submit" disabled={saving}><CheckCircle2 className="w-4 h-4 mr-2" />Submit for Approver Review</Button></form>
             ) : !selectedAction.archived && <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">This action is assigned to {assignedTo(selectedAction)} for completion.</p>}
 
