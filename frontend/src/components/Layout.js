@@ -1,21 +1,21 @@
-import { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
-import { useOffline } from '../context/OfflineContext';
-import { Button } from './ui/button';
-import NotificationBell from './NotificationBell';
-import TraceabilityEmailReports from './TraceabilityEmailReports';
-import { 
-  LayoutDashboard, 
-  Users, 
-  FilePlus, 
-  ClipboardCheck, 
-  BarChart3, 
-  Menu, 
-  X, 
-  LogOut, 
-  Sun, 
+import { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
+import { useOffline } from "../context/OfflineContext";
+import { Button } from "./ui/button";
+import NotificationBell from "./NotificationBell";
+import TraceabilityEmailReports from "./TraceabilityEmailReports";
+import {
+  LayoutDashboard,
+  Users,
+  FilePlus,
+  ClipboardCheck,
+  BarChart3,
+  Menu,
+  X,
+  LogOut,
+  Sun,
   Moon,
   ChevronRight,
   Calendar,
@@ -27,10 +27,12 @@ import {
   Settings,
   ListChecks,
   AlertTriangle,
-  ShieldCheck
-} from 'lucide-react';
+  ShieldCheck,
+  Factory,
+} from "lucide-react";
 
-const LOGO_URL = "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png";
+const LOGO_URL =
+  "https://customer-assets.emergentagent.com/job_c2cdf81f-38d8-495b-bbbc-bf9142927afb/artifacts/pll87efh_ChatGPT%20Image%20Jan%2013%2C%202026%2C%2007_06_32%20AM.png";
 
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -42,32 +44,98 @@ const Layout = ({ children }) => {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    navigate("/login");
   };
 
   const navItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, show: true },
-    { path: '/company-activity', label: 'Company Activity', icon: ClipboardList, show: isAdmin() },
-    { path: '/user-management', label: 'User Management', icon: Users, show: isAdmin() },
-    { path: '/configuration', label: 'Configuration', icon: Settings, show: isAdmin() || hasFeature('audits_edit') },
-    { path: '/create-audit', label: 'Create Audit', icon: FilePlus, show: isAuditCreator() },
-    { path: '/schedule', label: 'Schedule', icon: Calendar, show: isAuditCreator() },
-    { path: '/run-audit', label: 'Run Audit', icon: ClipboardCheck, show: hasFeature('audits') },
-    { path: '/reports', label: 'Reports', icon: BarChart3, show: hasFeature('audits') },
-    { path: '/actions', label: 'Actions', icon: ListChecks, show: hasFeature('actions') },
-    { path: '/compliance', label: 'Compliance', icon: ShieldCheck, show: true },
-    { path: '/traceability', label: 'Traceability', icon: ClipboardList, show: hasFeature('traceability') },
-    { path: '/hold-disposal', label: 'Hold & Disposal', icon: AlertTriangle, show: hasFeature('traceability') },
-    { path: '/documents', label: 'Documents', icon: FileText, show: hasFeature('documents') },
+    {
+      path: "/dashboard",
+      label: "Dashboard",
+      icon: LayoutDashboard,
+      show: true,
+    },
+    {
+      path: "/company-activity",
+      label: "Company Activity",
+      icon: ClipboardList,
+      show: isAdmin(),
+    },
+    {
+      path: "/user-management",
+      label: "User Management",
+      icon: Users,
+      show: isAdmin(),
+    },
+    {
+      path: "/configuration",
+      label: "Configuration",
+      icon: Settings,
+      show: isAdmin() || hasFeature("audits_edit"),
+    },
+    {
+      path: "/create-audit",
+      label: "Create Audit",
+      icon: FilePlus,
+      show: isAuditCreator(),
+    },
+    {
+      path: "/schedule",
+      label: "Schedule",
+      icon: Calendar,
+      show: isAuditCreator(),
+    },
+    {
+      path: "/run-audit",
+      label: "Run Audit",
+      icon: ClipboardCheck,
+      show: hasFeature("audits"),
+    },
+    {
+      path: "/reports",
+      label: "Reports",
+      icon: BarChart3,
+      show: hasFeature("audits"),
+    },
+    {
+      path: "/actions",
+      label: "Actions",
+      icon: ListChecks,
+      show: hasFeature("actions"),
+    },
+    { path: "/compliance", label: "Compliance", icon: ShieldCheck, show: true },
+    {
+      path: "/quality",
+      label: "Quality Operations",
+      icon: Factory,
+      show: hasFeature("quality"),
+    },
+    {
+      path: "/traceability",
+      label: "Traceability",
+      icon: ClipboardList,
+      show: hasFeature("traceability"),
+    },
+    {
+      path: "/hold-disposal",
+      label: "Hold & Disposal",
+      icon: AlertTriangle,
+      show: hasFeature("traceability"),
+    },
+    {
+      path: "/documents",
+      label: "Documents",
+      icon: FileText,
+      show: hasFeature("documents"),
+    },
   ];
 
-  const filteredNav = navItems.filter(item => item.show);
+  const filteredNav = navItems.filter((item) => item.show);
 
   return (
     <div className="min-h-screen bg-background">
       <header className="lg:hidden fixed top-0 left-0 right-0 z-50 glass border-b">
         <div className="flex items-center justify-between h-20 px-4">
-          <button 
+          <button
             onClick={() => setSidebarOpen(true)}
             className="p-2 hover:bg-muted rounded-lg transition-colors"
             data-testid="mobile-menu-btn"
@@ -85,34 +153,40 @@ const Layout = ({ children }) => {
           </div>
           <div className="flex items-center gap-1">
             {isOnline && <NotificationBell />}
-            <button 
+            <button
               onClick={toggleTheme}
               className="p-2 hover:bg-muted rounded-lg transition-colors"
               data-testid="theme-toggle-mobile"
             >
-              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              {theme === "dark" ? (
+                <Sun className="w-5 h-5" />
+              ) : (
+                <Moon className="w-5 h-5" />
+              )}
             </button>
           </div>
         </div>
       </header>
 
       {sidebarOpen && (
-        <div 
+        <div
           className="lg:hidden fixed inset-0 bg-black/50 z-50"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      <aside className={`
+      <aside
+        className={`
         fixed top-0 left-0 h-full w-64 bg-card border-r z-50 
         transform transition-transform duration-300 ease-in-out
         lg:translate-x-0
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
+        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+      `}
+      >
         <div className="flex flex-col h-full">
           <div className="py-6 flex items-center justify-between px-4 border-b">
             <img src={LOGO_URL} alt="Infinit-Audit" className="w-44" />
-            <button 
+            <button
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden p-2 hover:bg-muted rounded-lg transition-colors"
               data-testid="close-sidebar-btn"
@@ -127,20 +201,37 @@ const Layout = ({ children }) => {
                 <WifiOff className="w-4 h-4" />
                 <span className="text-sm font-medium">Offline Mode</span>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Changes will sync when back online</p>
-              {pendingCount > 0 && <p className="text-xs text-amber-500 mt-1">{pendingCount} item(s) pending sync</p>}
+              <p className="text-xs text-muted-foreground mt-1">
+                Changes will sync when back online
+              </p>
+              {pendingCount > 0 && (
+                <p className="text-xs text-amber-500 mt-1">
+                  {pendingCount} item(s) pending sync
+                </p>
+              )}
             </div>
           )}
-          
+
           {isOnline && pendingCount > 0 && (
             <div className="mx-4 mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-blue-500">
                   <Cloud className="w-4 h-4" />
-                  <span className="text-sm font-medium">{pendingCount} pending</span>
+                  <span className="text-sm font-medium">
+                    {pendingCount} pending
+                  </span>
                 </div>
-                <Button size="sm" variant="ghost" onClick={triggerSync} disabled={isSyncing} className="h-7 px-2" data-testid="sync-btn">
-                  <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={triggerSync}
+                  disabled={isSyncing}
+                  className="h-7 px-2"
+                  data-testid="sync-btn"
+                >
+                  <RefreshCw
+                    className={`w-3 h-3 ${isSyncing ? "animate-spin" : ""}`}
+                  />
                 </Button>
               </div>
             </div>
@@ -158,9 +249,10 @@ const Layout = ({ children }) => {
                   data-testid={`nav-${item.path.slice(1)}`}
                   className={`
                     flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200
-                    ${isActive 
-                      ? 'bg-primary text-primary-foreground shadow-sm' 
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    ${
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     }
                   `}
                 >
@@ -181,22 +273,44 @@ const Layout = ({ children }) => {
                 data-testid="account-link"
               >
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-primary font-semibold">{user?.name?.charAt(0)?.toUpperCase() || 'U'}</span>
+                  <span className="text-primary font-semibold">
+                    {user?.name?.charAt(0)?.toUpperCase() || "U"}
+                  </span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{user?.name}</p>
-                  <p className="text-xs text-muted-foreground capitalize">{user?.role?.replace('_', ' ')}</p>
+                  <p className="text-xs text-muted-foreground capitalize">
+                    {user?.role?.replace("_", " ")}
+                  </p>
                 </div>
               </Link>
-              <div className="hidden lg:block">{isOnline && <NotificationBell />}</div>
+              <div className="hidden lg:block">
+                {isOnline && <NotificationBell />}
+              </div>
             </div>
-            
+
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={toggleTheme} className="flex-1 hidden lg:flex" data-testid="theme-toggle-desktop">
-                {theme === 'dark' ? <Sun className="w-4 h-4 mr-2" /> : <Moon className="w-4 h-4 mr-2" />}
-                {theme === 'dark' ? 'Light' : 'Dark'}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleTheme}
+                className="flex-1 hidden lg:flex"
+                data-testid="theme-toggle-desktop"
+              >
+                {theme === "dark" ? (
+                  <Sun className="w-4 h-4 mr-2" />
+                ) : (
+                  <Moon className="w-4 h-4 mr-2" />
+                )}
+                {theme === "dark" ? "Light" : "Dark"}
               </Button>
-              <Button variant="ghost" size="sm" onClick={handleLogout} className="flex-1 text-destructive hover:text-destructive hover:bg-destructive/10" data-testid="logout-btn">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleLogout}
+                className="flex-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                data-testid="logout-btn"
+              >
                 <LogOut className="w-4 h-4 mr-2" />
                 Logout
               </Button>
@@ -207,7 +321,7 @@ const Layout = ({ children }) => {
 
       <main className="lg:ml-64 pt-20 lg:pt-0 min-h-screen">
         <div className="p-4 md:p-6 lg:p-8">
-          {location.pathname === '/traceability' && isOnline && (
+          {location.pathname === "/traceability" && isOnline && (
             <div className="mb-4 flex justify-end">
               <TraceabilityEmailReports />
             </div>

@@ -11,7 +11,7 @@ from typing import Dict, Optional
 from fastapi import APIRouter, Header, HTTPException
 
 import server as legacy
-from app_core.email_service import email_is_configured, public_app_url, send_email
+from app_core.email_service import EmailAttachment, email_is_configured, public_app_url, send_email
 from app_core.preferences import email_preference_enabled
 from app_core.audit_deadlines import process_open_audits
 from app_core.notifications import create_notification
@@ -136,7 +136,8 @@ async def process_compliance_escalations() -> Dict[str, int]:
     schedules = await legacy.db.scheduled_audits.find(
         {"status": {"$in": ["pending", "overdue"]}}, {"_id": 0}
     ).to_list(5000)
-    escalated_schedules = escalated_actions = 0
+    escalated_schedules = effectiveness_reviews = overdue_action_escalations = 0
+    escalated_training = escalated_documents = supplier_alerts = 0
     for schedule in schedules:
         _, window_end = schedule_window(schedule)
         if not window_end or window_end >= today:
@@ -192,8 +193,145 @@ async def process_compliance_escalations() -> Dict[str, int]:
         await legacy.db.corrective_actions.update_one(
             {"id": action["id"]}, {"$set": {"effectiveness_escalation_sent_at": legacy.get_uk_time_iso()}}
         )
-        escalated_actions += 1
-    return {"overdue_schedules": escalated_schedules, "effectiveness_reviews": escalated_actions}
+        effectiveness_reviews += 1
+
+    overdue_actions = await legacy.db.corrective_actions.find(
+        {"status": "open"}, {"_id": 0, "history": 0}
+    ).to_list(5000)
+    for action in overdue_actions:
+        due = _scheduled_date(action.get("due_date"))
+        if not due or due >= today or action.get("overdue_escalation_sent_at"):
+            continue
+        recipients = {action.get("assigned_user_id")}
+        admins = await legacy.db.users.find(
+            {"company_id": action.get("company_id"), "role": {"$in": [legacy.UserRole.COMPANY_ADMIN, legacy.UserRole.ADMIN]}},
+            {"_id": 0, "password": 0},
+        ).to_list(100)
+        recipients.update(item.get("id") for item in admins)
+        for recipient_id in recipients - {None}:
+            await create_notification(
+                user_id=recipient_id, company_id=action.get("company_id"),
+                notification_type="corrective_action_overdue", title="Corrective action overdue",
+                message=f"{action.get('title') or action.get('non_conformance', 'Corrective action')} was due {due.strftime('%d/%m/%Y')}.",
+                link=f"/actions?action={action['id']}", metadata={"action_id": action["id"]},
+            )
+        await legacy.db.corrective_actions.update_one({"id": action["id"]}, {"$set": {"overdue_escalation_sent_at": legacy.get_uk_time_iso()}})
+        overdue_action_escalations += 1
+
+    for collection, item_name, link, counter_name in [
+        (legacy.db.training_records, "Training", "/compliance?tab=training", "training"),
+        (legacy.db.document_signoffs, "Document acknowledgement", "/quality?tab=documents", "documents"),
+    ]:
+        records = await collection.find({"status": "assigned"}, {"_id": 0}).to_list(5000)
+        for record in records:
+            due = _scheduled_date(record.get("due_date"))
+            if not due or due >= today or record.get("overdue_escalation_sent_at"):
+                continue
+            await create_notification(
+                user_id=record.get("user_id"), company_id=record.get("company_id"),
+                notification_type=f"{counter_name}_overdue", title=f"{item_name} overdue",
+                message=f"{record.get('title') or record.get('document_title') or item_name} was due {due.strftime('%d/%m/%Y')}.",
+                link=link, metadata={f"{counter_name}_id": record["id"]},
+            )
+            admins = await legacy.db.users.find(
+                {"company_id": record.get("company_id"), "role": {"$in": [legacy.UserRole.COMPANY_ADMIN, legacy.UserRole.ADMIN]}},
+                {"_id": 0, "password": 0},
+            ).to_list(100)
+            for admin in admins:
+                await create_notification(
+                    user_id=admin["id"], company_id=record.get("company_id"),
+                    notification_type=f"{counter_name}_overdue_admin", title=f"{item_name} overdue",
+                    message=f"{record.get('user_name', 'A user')} has not completed {record.get('title') or record.get('document_title') or item_name}.",
+                    link=link, metadata={f"{counter_name}_id": record["id"]},
+                )
+            await collection.update_one({"id": record["id"]}, {"$set": {"overdue_escalation_sent_at": legacy.get_uk_time_iso()}})
+            if counter_name == "training": escalated_training += 1
+            else: escalated_documents += 1
+
+    suppliers = await legacy.db.suppliers.find({}, {"_id": 0, "history": 0}).to_list(5000)
+    warning_date = today + timedelta(days=30)
+    for supplier in suppliers:
+        target = min(filter(None, [supplier.get("approval_expiry"), supplier.get("next_review_date")]), default=None)
+        due = _scheduled_date(target)
+        alert_key = target
+        if not due or due > warning_date or supplier.get("expiry_alert_for") == alert_key:
+            continue
+        admins = await legacy.db.users.find(
+            {"company_id": supplier.get("company_id"), "role": {"$in": [legacy.UserRole.COMPANY_ADMIN, legacy.UserRole.ADMIN]}},
+            {"_id": 0, "password": 0},
+        ).to_list(100)
+        for admin in admins:
+            await create_notification(
+                user_id=admin["id"], company_id=supplier.get("company_id"),
+                notification_type="supplier_review_due", title="Supplier approval requires review",
+                message=f"{supplier.get('name', 'Supplier')} is due for review by {due.strftime('%d/%m/%Y')}.",
+                link="/quality?tab=suppliers", metadata={"supplier_id": supplier["id"]},
+            )
+        await legacy.db.suppliers.update_one({"id": supplier["id"]}, {"$set": {"expiry_alert_for": alert_key, "expiry_alert_sent_at": legacy.get_uk_time_iso()}})
+        supplier_alerts += 1
+    return {
+        "overdue_schedules": escalated_schedules,
+        # Preserve the original result key for callers that report effectiveness
+        # review escalations separately from ordinary overdue actions.
+        "effectiveness_reviews": effectiveness_reviews,
+        "action_escalations": effectiveness_reviews + overdue_action_escalations,
+        "training_escalations": escalated_training, "document_escalations": escalated_documents,
+        "supplier_alerts": supplier_alerts,
+    }
+
+
+async def process_management_report_emails() -> Dict[str, int]:
+    """Send each configured weekly/monthly management pack once per period."""
+    if not email_is_configured():
+        return {"sent": 0, "failed": 0, "skipped": 0}
+    from app_core.quality_operations import _management_data, build_management_summary_pdf
+
+    today = legacy.get_uk_time().date()
+    schedules = await legacy.db.management_report_schedules.find({"enabled": True}, {"_id": 0}).to_list(1000)
+    sent = failed = skipped = 0
+    for schedule in schedules:
+        frequency = schedule.get("frequency", "monthly")
+        due = today.weekday() == int(schedule.get("weekday", 0)) if frequency == "weekly" else today.day == int(schedule.get("month_day", 1))
+        period_key = f"{today.isocalendar().year}-W{today.isocalendar().week:02d}" if frequency == "weekly" else today.strftime("%Y-%m")
+        if not due or schedule.get("last_period_key") == period_key:
+            skipped += 1
+            continue
+        report_user = {
+            "id": schedule.get("updated_by_id"), "name": schedule.get("updated_by_name"),
+            "company_id": schedule.get("company_id"), "role": legacy.UserRole.COMPANY_ADMIN,
+        }
+        data = await _management_data(report_user, int(schedule.get("report_days", 30)))
+        company = await legacy.db.companies.find_one({"id": schedule.get("company_id")}, {"_id": 0}) if schedule.get("company_id") else None
+        attachment = EmailAttachment(
+            filename=f"management_report_{data['period']['end']}.pdf",
+            content=build_management_summary_pdf(data, company), subtype="pdf",
+        )
+        all_sent = True
+        for recipient in schedule.get("recipients") or []:
+            result = await send_email(
+                to_email=recipient.get("email", ""),
+                subject="Infinit Audit management report",
+                text_body=(
+                    f"Hi {recipient.get('name', '')},\n\n"
+                    f"Your {frequency} quality and compliance management report is attached.\n\n"
+                    f"Open Infinit Audit: {public_app_url()}/quality?tab=management"
+                ),
+                html_body=(
+                    f"<p>Hi {html.escape(recipient.get('name') or '')},</p>"
+                    f"<p>Your <strong>{html.escape(frequency)}</strong> quality and compliance management report is attached.</p>"
+                    f"<p><a href=\"{html.escape(public_app_url() + '/quality?tab=management', quote=True)}\">Open Quality Operations</a></p>"
+                ),
+                attachments=[attachment], template="management_report",
+            )
+            all_sent = all_sent and result.sent
+            sent += int(result.sent); failed += int(not result.sent)
+        if all_sent and schedule.get("recipients"):
+            await legacy.db.management_report_schedules.update_one(
+                {"id": schedule["id"]}, {"$set": {
+                    "last_period_key": period_key, "last_sent_at": legacy.get_uk_time_iso(),
+                }},
+            )
+    return {"sent": sent, "failed": failed, "skipped": skipped}
 
 
 async def reminder_loop() -> None:
@@ -204,10 +342,11 @@ async def reminder_loop() -> None:
             await process_open_audits()
             reminders = await process_scheduled_audit_reminders()
             escalations = await process_compliance_escalations()
+            management_reports = await process_management_report_emails()
             await legacy.db.system_job_events.insert_one({
                 "id": str(uuid.uuid4()), "job": "compliance_reminders", "status": "completed",
                 "started_at": started_at, "created_at": legacy.get_uk_time_iso(),
-                "result": {"reminders": reminders, "escalations": escalations},
+                "result": {"reminders": reminders, "escalations": escalations, "management_reports": management_reports},
             })
         except asyncio.CancelledError:
             raise
@@ -233,11 +372,12 @@ async def run_scheduled_audit_reminders(
     open_audits = await process_open_audits()
     scheduled = await process_scheduled_audit_reminders()
     escalations = await process_compliance_escalations()
+    management_reports = await process_management_report_emails()
     await legacy.db.system_job_events.insert_one({
         "id": str(uuid.uuid4()), "job": "compliance_reminders", "status": "completed",
-        "created_at": legacy.get_uk_time_iso(), "result": {"scheduled": scheduled, "escalations": escalations},
+        "created_at": legacy.get_uk_time_iso(), "result": {"scheduled": scheduled, "escalations": escalations, "management_reports": management_reports},
     })
-    return {"open_audits": open_audits, "scheduled": scheduled, "escalations": escalations}
+    return {"open_audits": open_audits, "scheduled": scheduled, "escalations": escalations, "management_reports": management_reports}
 
 
 def secrets_compare(left: str, right: str) -> bool:

@@ -28,6 +28,7 @@ import DocumentDesigner from "./pages/DocumentDesigner";
 import DocumentFill from "./pages/DocumentFill";
 import DocumentView from "./pages/DocumentView";
 import Compliance from "./pages/Compliance";
+import QualityOperations from "./pages/QualityOperations";
 
 const LoadingScreen = () => (
   <div className="min-h-screen flex items-center justify-center bg-background">
@@ -85,6 +86,7 @@ function AppRoutes() {
       <Route path="/reports" element={<ProtectedRoute feature="audits"><Reports /></ProtectedRoute>} />
       <Route path="/actions" element={<ProtectedRoute feature="actions"><Actions /></ProtectedRoute>} />
       <Route path="/compliance" element={<ProtectedRoute><Compliance /></ProtectedRoute>} />
+      <Route path="/quality" element={<ProtectedRoute feature="quality"><QualityOperations /></ProtectedRoute>} />
       <Route path="/traceability" element={<ProtectedRoute feature="traceability"><Traceability /></ProtectedRoute>} />
       <Route path="/hold-disposal" element={<ProtectedRoute feature="traceability"><HoldDisposal /></ProtectedRoute>} />
       <Route path="/documents" element={<ProtectedRoute feature="documents"><DocumentList /></ProtectedRoute>} />

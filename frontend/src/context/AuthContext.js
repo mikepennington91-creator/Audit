@@ -63,7 +63,7 @@ export const AuthProvider = ({ children }) => {
   const hasFeature = (feature) => {
     if (isAdmin()) return true;
     if (feature === 'actions') return true;
-    const aliases = { audits: 'audits_view', traceability: 'traceability_view', documents: 'documents_view' };
+    const aliases = { audits: 'audits_view', traceability: 'traceability_view', documents: 'documents_view', quality: 'quality_view' };
     const resolved = aliases[feature] || feature;
     const access = user?.feature_access || {};
     if (access[resolved] === true) return true;

@@ -43,6 +43,12 @@ create index if not exists app_documents_series_id_idx
 create index if not exists app_documents_user_id_idx
     on public.app_documents (collection, (data ->> 'user_id'));
 
+create index if not exists app_documents_owner_user_id_idx
+    on public.app_documents (collection, (data ->> 'owner_user_id'));
+
+create index if not exists app_documents_company_approval_expiry_idx
+    on public.app_documents (collection, (data ->> 'company_id'), (data ->> 'approval_expiry'));
+
 create index if not exists app_documents_company_status_date_idx
     on public.app_documents (collection, (data ->> 'company_id'), (data ->> 'status'), (data ->> 'scheduled_date'));
 
