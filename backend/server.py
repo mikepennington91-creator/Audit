@@ -100,12 +100,14 @@ FEATURE_KEYS = (
     "traceability_view", "traceability_edit",
     "traceability_release", "traceability_dispatch",
     "documents_view", "documents_edit",
+    "quality_view", "quality_edit",
 )
 DEFAULT_FEATURE_ACCESS = {key: False for key in FEATURE_KEYS}
 LEGACY_FEATURE_ALIASES = {
     "audits": "audits_view",
     "traceability": "traceability_view",
     "documents": "documents_view",
+    "quality": "quality_view",
 }
 ADMIN_FEATURE_ACCESS = {key: True for key in FEATURE_KEYS}
 
@@ -458,7 +460,7 @@ def normalise_feature_access(user: dict, requested: Optional[Dict[str, bool]] = 
             if resolved_key not in FEATURE_KEYS:
                 raise HTTPException(status_code=400, detail=f"Unknown feature: {key}")
             access[resolved_key] = bool(value)
-    for section in ("audits", "traceability", "documents"):
+    for section in ("audits", "traceability", "documents", "quality"):
         if access.get(f"{section}_edit"):
             access[f"{section}_view"] = True
     return access
