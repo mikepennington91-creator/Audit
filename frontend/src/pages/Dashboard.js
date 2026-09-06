@@ -1,22 +1,31 @@
-import { formatUKDate } from '../utils/dates';
-import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import axios from 'axios';
-import { useAuth } from '../context/AuthContext';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Button } from '../components/ui/button';
-import { Skeleton } from '../components/ui/skeleton';
-import { 
-  ClipboardCheck, 
-  FileCheck, 
-  Users, 
+import { formatUKDate } from "../utils/dates";
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
+import axios from "axios";
+import { useAuth } from "../context/AuthContext";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { Skeleton } from "../components/ui/skeleton";
+import {
+  ClipboardCheck,
+  FileCheck,
+  Users,
   TrendingUp,
   ArrowRight,
   Plus,
   Play,
   ClipboardList,
-  FileText
-} from 'lucide-react';
+  FileText,
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+} from "lucide-react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -24,15 +33,26 @@ const Dashboard = () => {
   const { user, isAdmin, isAuditCreator, hasFeature } = useAuth();
   const [stats, setStats] = useState(null);
   const [recentRuns, setRecentRuns] = useState([]);
+  const [myWork, setMyWork] = useState({ items: [], counts: {} });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (hasFeature('audits')) {
+    fetchMyWork();
+    if (hasFeature("audits")) {
       fetchData();
     } else {
       setLoading(false);
     }
   }, []);
+
+  const fetchMyWork = async () => {
+    try {
+      const response = await axios.get(`${API}/my-work`);
+      setMyWork(response.data);
+    } catch (error) {
+      console.error("Failed to fetch personal workload:", error);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -40,71 +60,175 @@ const Dashboard = () => {
       setStats(response.data.stats);
       setRecentRuns(response.data.recent_runs);
     } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
+      console.error("Failed to fetch dashboard data:", error);
     } finally {
       setLoading(false);
     }
   };
 
   const statCards = [
-    { 
-      label: 'Total Audits', 
-      value: stats?.total_audits || 0, 
-      icon: FileCheck, 
-      color: 'text-primary',
-      bg: 'bg-primary/10'
+    {
+      label: "Total Audits",
+      value: stats?.total_audits || 0,
+      icon: FileCheck,
+      color: "text-primary",
+      bg: "bg-primary/10",
     },
-    { 
-      label: 'Completed Runs', 
-      value: stats?.completed_runs || 0, 
-      icon: ClipboardCheck, 
-      color: 'text-secondary',
-      bg: 'bg-secondary/10'
+    {
+      label: "Completed Runs",
+      value: stats?.completed_runs || 0,
+      icon: ClipboardCheck,
+      color: "text-secondary",
+      bg: "bg-secondary/10",
     },
-    { 
-      label: 'Pass Rate', 
-      value: `${stats?.pass_rate || 0}%`, 
-      icon: TrendingUp, 
-      color: 'text-emerald-600 dark:text-emerald-400',
-      bg: 'bg-emerald-100 dark:bg-emerald-900/20'
+    {
+      label: "Pass Rate",
+      value: `${stats?.pass_rate || 0}%`,
+      icon: TrendingUp,
+      color: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-100 dark:bg-emerald-900/20",
     },
-    { 
-      label: 'Total Users', 
-      value: stats?.total_users || 0, 
-      icon: Users, 
-      color: 'text-amber-600 dark:text-amber-400',
-      bg: 'bg-amber-100 dark:bg-amber-900/20',
-      show: isAdmin()
+    {
+      label: "Total Users",
+      value: stats?.total_users || 0,
+      icon: Users,
+      color: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-100 dark:bg-amber-900/20",
+      show: isAdmin(),
     },
   ];
 
-  if (!hasFeature('audits')) {
+  const myWorkPanel = (
+    <Card className={myWork.counts?.overdue ? "border-amber-500/60" : ""}>
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <div>
+          <CardTitle className="text-lg">My Work</CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">
+            Everything assigned to you, in due-date order.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Badge variant="outline">{myWork.counts?.total || 0} open</Badge>
+          {myWork.counts?.overdue > 0 && (
+            <Badge variant="destructive">{myWork.counts.overdue} overdue</Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {myWork.items?.slice(0, 8).map((item) => (
+          <Button
+            key={`${item.type}-${item.id}`}
+            variant="ghost"
+            asChild
+            className="w-full h-auto min-h-12 justify-start px-3 py-2 text-left"
+          >
+            <Link to={item.link}>
+              <div
+                className={`w-8 h-8 rounded-full flex shrink-0 items-center justify-center ${item.status === "overdue" ? "bg-red-100 text-red-700 dark:bg-red-950" : "bg-primary/10 text-primary"}`}
+              >
+                {item.status === "overdue" ? (
+                  <AlertTriangle className="w-4 h-4" />
+                ) : (
+                  <CalendarClock className="w-4 h-4" />
+                )}
+              </div>
+              <div className="min-w-0 ml-3">
+                <p className="font-medium truncate">{item.title}</p>
+                <p className="text-xs text-muted-foreground capitalize">
+                  {item.type} ·{" "}
+                  {item.due_date ? formatUKDate(item.due_date) : "No due date"}{" "}
+                  · {String(item.status).replaceAll("_", " ")}
+                </p>
+              </div>
+            </Link>
+          </Button>
+        ))}
+        {!myWork.items?.length && (
+          <div className="py-6 text-center text-muted-foreground">
+            <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-600" />
+            <p className="mt-2">Nothing is currently assigned to you.</p>
+          </div>
+        )}
+        {myWork.items?.length > 8 && (
+          <p className="text-xs text-center text-muted-foreground">
+            Showing the next 8 of {myWork.items.length} items.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  if (!hasFeature("audits")) {
     const enabledModules = [
-      { key: 'traceability', label: 'Traceability', description: 'Record and search material traceability information.', path: '/traceability', icon: ClipboardList },
-      { key: 'documents', label: 'Documents', description: 'Complete and view your company paperwork.', path: '/documents', icon: FileText },
-      { key: 'actions', label: 'Actions', description: 'Review and complete corrective actions raised from audits.', path: '/actions', icon: ClipboardCheck },
+      {
+        key: "traceability",
+        label: "Traceability",
+        description: "Record and search material traceability information.",
+        path: "/traceability",
+        icon: ClipboardList,
+      },
+      {
+        key: "documents",
+        label: "Documents",
+        description: "Complete and view your company paperwork.",
+        path: "/documents",
+        icon: FileText,
+      },
+      {
+        key: "actions",
+        label: "Actions",
+        description:
+          "Review and complete corrective actions raised from audits.",
+        path: "/actions",
+        icon: ClipboardCheck,
+      },
     ].filter((module) => hasFeature(module.key));
 
     return (
       <div className="space-y-8" data-testid="dashboard">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Welcome back, {user?.name?.split(' ')[0]}</h1>
-          <p className="text-muted-foreground mt-1">Choose one of the areas enabled for your account.</p>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Welcome back, {user?.name?.split(" ")[0]}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Choose one of the areas enabled for your account.
+          </p>
         </div>
         {enabledModules.length ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {enabledModules.map((module) => (
               <Card key={module.key}>
                 <CardContent className="p-6 flex items-start gap-4">
-                  <div className="w-11 h-11 rounded-lg bg-primary/10 flex items-center justify-center"><module.icon className="w-5 h-5 text-primary" /></div>
-                  <div className="flex-1"><h2 className="font-semibold text-lg">{module.label}</h2><p className="text-sm text-muted-foreground mt-1 mb-4">{module.description}</p><Button asChild size="sm"><Link to={module.path}>Open {module.label}<ArrowRight className="w-4 h-4 ml-2" /></Link></Button></div>
+                  <div className="w-11 h-11 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <module.icon className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1">
+                    <h2 className="font-semibold text-lg">{module.label}</h2>
+                    <p className="text-sm text-muted-foreground mt-1 mb-4">
+                      {module.description}
+                    </p>
+                    <Button asChild size="sm">
+                      <Link to={module.path}>
+                        Open {module.label}
+                        <ArrowRight className="w-4 h-4 ml-2" />
+                      </Link>
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
           </div>
         ) : (
-          <Card><CardContent className="p-8 text-center"><h2 className="font-semibold">No features enabled</h2><p className="text-sm text-muted-foreground mt-2">Ask your company administrator to enable the areas you need.</p></CardContent></Card>
+          <Card>
+            <CardContent className="p-8 text-center">
+              <h2 className="font-semibold">No features enabled</h2>
+              <p className="text-sm text-muted-foreground mt-2">
+                Ask your company administrator to enable the areas you need.
+              </p>
+            </CardContent>
+          </Card>
         )}
+        {myWorkPanel}
       </div>
     );
   }
@@ -115,7 +239,7 @@ const Dashboard = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            Welcome back, {user?.name?.split(' ')[0]}
+            Welcome back, {user?.name?.split(" ")[0]}
           </h1>
           <p className="text-muted-foreground mt-1">
             Here&apos;s an overview of your audit activity
@@ -140,32 +264,40 @@ const Dashboard = () => {
       </div>
 
       {/* Stats Grid */}
+      {myWorkPanel}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.filter(s => s.show !== false).map((stat, index) => (
-          <Card 
-            key={stat.label} 
-            className={`animate-fadeIn stagger-${index + 1}`}
-            data-testid={`stat-${stat.label.toLowerCase().replace(' ', '-')}`}
-          >
-            <CardContent className="p-6">
-              {loading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-10 w-10 rounded-lg" />
-                  <Skeleton className="h-8 w-20" />
-                  <Skeleton className="h-4 w-24" />
-                </div>
-              ) : (
-                <>
-                  <div className={`w-10 h-10 rounded-lg ${stat.bg} flex items-center justify-center mb-3`}>
-                    <stat.icon className={`w-5 h-5 ${stat.color}`} />
+        {statCards
+          .filter((s) => s.show !== false)
+          .map((stat, index) => (
+            <Card
+              key={stat.label}
+              className={`animate-fadeIn stagger-${index + 1}`}
+              data-testid={`stat-${stat.label.toLowerCase().replace(" ", "-")}`}
+            >
+              <CardContent className="p-6">
+                {loading ? (
+                  <div className="space-y-3">
+                    <Skeleton className="h-10 w-10 rounded-lg" />
+                    <Skeleton className="h-8 w-20" />
+                    <Skeleton className="h-4 w-24" />
                   </div>
-                  <p className="text-3xl font-bold">{stat.value}</p>
-                  <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+                ) : (
+                  <>
+                    <div
+                      className={`w-10 h-10 rounded-lg ${stat.bg} flex items-center justify-center mb-3`}
+                    >
+                      <stat.icon className={`w-5 h-5 ${stat.color}`} />
+                    </div>
+                    <p className="text-3xl font-bold">{stat.value}</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {stat.label}
+                    </p>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          ))}
       </div>
 
       {/* Quick Actions */}
@@ -173,7 +305,9 @@ const Dashboard = () => {
         {/* Recent Completed Audits */}
         <Card className="animate-fadeIn stagger-4">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg font-semibold">Recent Audit Runs</CardTitle>
+            <CardTitle className="text-lg font-semibold">
+              Recent Audit Runs
+            </CardTitle>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/reports">
                 View All <ArrowRight className="w-4 h-4 ml-1" />
@@ -183,7 +317,7 @@ const Dashboard = () => {
           <CardContent>
             {loading ? (
               <div className="space-y-4">
-                {[1, 2, 3].map(i => (
+                {[1, 2, 3].map((i) => (
                   <div key={i} className="flex items-center gap-4">
                     <Skeleton className="h-10 w-10 rounded-full" />
                     <div className="flex-1 space-y-2">
@@ -196,25 +330,29 @@ const Dashboard = () => {
             ) : recentRuns.length > 0 ? (
               <div className="space-y-4">
                 {recentRuns.map((run) => (
-                  <div 
-                    key={run.id} 
+                  <div
+                    key={run.id}
                     className="flex items-center gap-4 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
                     data-testid={`recent-run-${run.id}`}
                   >
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      run.pass_status === 'pass' 
-                        ? 'bg-emerald-100 dark:bg-emerald-900/30' 
-                        : run.pass_status === 'fail'
-                        ? 'bg-red-100 dark:bg-red-900/30'
-                        : 'bg-slate-100 dark:bg-slate-800'
-                    }`}>
-                      <ClipboardCheck className={`w-5 h-5 ${
-                        run.pass_status === 'pass' 
-                          ? 'text-emerald-600 dark:text-emerald-400' 
-                          : run.pass_status === 'fail'
-                          ? 'text-red-600 dark:text-red-400'
-                          : 'text-slate-600 dark:text-slate-400'
-                      }`} />
+                    <div
+                      className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        run.pass_status === "pass"
+                          ? "bg-emerald-100 dark:bg-emerald-900/30"
+                          : run.pass_status === "fail"
+                            ? "bg-red-100 dark:bg-red-900/30"
+                            : "bg-slate-100 dark:bg-slate-800"
+                      }`}
+                    >
+                      <ClipboardCheck
+                        className={`w-5 h-5 ${
+                          run.pass_status === "pass"
+                            ? "text-emerald-600 dark:text-emerald-400"
+                            : run.pass_status === "fail"
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-slate-600 dark:text-slate-400"
+                        }`}
+                      />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{run.audit_name}</p>
@@ -223,9 +361,13 @@ const Dashboard = () => {
                       </p>
                     </div>
                     {run.total_score !== null && (
-                      <div className={`text-sm font-semibold px-2.5 py-1 rounded-full ${
-                        run.pass_status === 'pass' ? 'badge-pass' : 'badge-fail'
-                      }`}>
+                      <div
+                        className={`text-sm font-semibold px-2.5 py-1 rounded-full ${
+                          run.pass_status === "pass"
+                            ? "badge-pass"
+                            : "badge-fail"
+                        }`}
+                      >
                         {Math.round(run.total_score)}%
                       </div>
                     )}
@@ -247,10 +389,12 @@ const Dashboard = () => {
         {/* Quick Links */}
         <Card className="animate-fadeIn stagger-5">
           <CardHeader>
-            <CardTitle className="text-lg font-semibold">Quick Actions</CardTitle>
+            <CardTitle className="text-lg font-semibold">
+              Quick Actions
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Link 
+            <Link
               to="/run-audit"
               className="flex items-center gap-4 p-4 rounded-lg border hover:border-primary hover:bg-primary/5 transition-all group"
               data-testid="quick-run-audit"
@@ -260,13 +404,15 @@ const Dashboard = () => {
               </div>
               <div>
                 <p className="font-medium">Run an Audit</p>
-                <p className="text-sm text-muted-foreground">Select and execute an audit template</p>
+                <p className="text-sm text-muted-foreground">
+                  Select and execute an audit template
+                </p>
               </div>
               <ArrowRight className="w-5 h-5 ml-auto text-muted-foreground group-hover:text-primary transition-colors" />
             </Link>
 
             {isAuditCreator() && (
-              <Link 
+              <Link
                 to="/create-audit"
                 className="flex items-center gap-4 p-4 rounded-lg border hover:border-secondary hover:bg-secondary/5 transition-all group"
                 data-testid="quick-create-audit"
@@ -276,13 +422,15 @@ const Dashboard = () => {
                 </div>
                 <div>
                   <p className="font-medium">Create New Audit</p>
-                  <p className="text-sm text-muted-foreground">Build a custom audit template</p>
+                  <p className="text-sm text-muted-foreground">
+                    Build a custom audit template
+                  </p>
                 </div>
                 <ArrowRight className="w-5 h-5 ml-auto text-muted-foreground group-hover:text-secondary transition-colors" />
               </Link>
             )}
 
-            <Link 
+            <Link
               to="/groups"
               className="flex items-center gap-4 p-4 rounded-lg border hover:border-emerald-500 hover:bg-emerald-500/5 transition-all group"
               data-testid="quick-groups"
@@ -292,7 +440,9 @@ const Dashboard = () => {
               </div>
               <div>
                 <p className="font-medium">Manage Groups</p>
-                <p className="text-sm text-muted-foreground">Response sets and audit types</p>
+                <p className="text-sm text-muted-foreground">
+                  Response sets and audit types
+                </p>
               </div>
               <ArrowRight className="w-5 h-5 ml-auto text-muted-foreground group-hover:text-emerald-500 transition-colors" />
             </Link>
