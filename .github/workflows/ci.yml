@@ -41,6 +41,7 @@ jobs:
           tests/test_database.py
           tests/test_audit_deadlines_activity.py
           tests/test_pdf_exports.py
+          tests/test_quality_operations.py
 
   frontend-build:
     runs-on: ubuntu-latest
