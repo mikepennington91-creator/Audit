@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server as legacy
 from app_core.disposal_routes import ensure_default_disposal_routes
 from app_core.factory_notice_pdf import _boxed_section, notice_pdf_bytes
+from app_core.hold_disposal import NoticeUpdate, get_hold_notice, update_hold_notice
 from database import PostgresCollection
 
 
@@ -49,6 +50,42 @@ class PrimaryKeyPool:
             return None
         self.records[key] = record
         return {"id": record_id}
+
+
+class NoticeCollection:
+    def __init__(self, record):
+        self.record = record.copy()
+
+    async def find_one(self, query, *_args):
+        return self.record.copy() if query.get("id") == self.record.get("id") else None
+
+    async def update_one(self, query, update):
+        current_version = self.record.get("record_version")
+        if query.get("id") != self.record.get("id") or query.get("record_version") != current_version:
+            return SimpleNamespace(matched_count=0)
+        self.record.update(update["$set"])
+        return SimpleNamespace(matched_count=1)
+
+
+def notice_update(**changes):
+    values = {
+        "reference": "HOLD-TEST",
+        "rm_number": "RM100",
+        "quantity": "50 kg",
+        "ingredient_name": "Chocolate",
+        "reason": "Packaging damage with further investigation detail",
+        "action_required": "Inspect and segregate affected stock",
+        "event_date": "2026-09-07",
+        "event_time": "09:15",
+        "line_area": "Warehouse",
+        "our_batch": "B100",
+        "vendor_batch": "V200",
+        "date_delivered": "2026-09-06",
+        "quantity_delivered": "500 kg",
+        "expected_version": 0,
+        "change_reason": "Added investigation details",
+    }
+    return NoticeUpdate(**{**values, **changes})
 
 
 def setup_routes(monkeypatch):
@@ -97,6 +134,89 @@ def test_conflicting_seed_does_not_overwrite_saved_configuration():
     assert asyncio.run(collection.insert_one_if_absent(saved)) is True
     assert asyncio.run(collection.insert_one_if_absent({**saved, "name": "Default"})) is False
     assert pool.records[("disposal_routes", "stable-id")] == saved
+
+
+def test_notice_can_be_viewed_in_app_within_company(monkeypatch):
+    record = {
+        "id": "hold-1", "company_id": "company-a", "created_by_id": "creator-1",
+        "notice_type": "hold", "reference": "HOLD-TEST",
+    }
+    collection = NoticeCollection(record)
+    monkeypatch.setattr(legacy, "db", SimpleNamespace(hold_notices=collection))
+    result = asyncio.run(get_hold_notice(
+        "hold-1", {"id": "viewer-1", "role": "user", "company_id": "company-a"}
+    ))
+    assert result["reference"] == "HOLD-TEST"
+    assert result["record_version"] == 0
+
+
+def test_notice_cannot_be_viewed_across_companies(monkeypatch):
+    record = {
+        "id": "hold-1", "company_id": "company-a", "created_by_id": "creator-1",
+        "notice_type": "hold", "reference": "HOLD-TEST",
+    }
+    monkeypatch.setattr(legacy, "db", SimpleNamespace(hold_notices=NoticeCollection(record)))
+    with pytest.raises(legacy.HTTPException) as error:
+        asyncio.run(get_hold_notice(
+            "hold-1", {"id": "viewer-2", "role": "user", "company_id": "company-b"}
+        ))
+    assert error.value.status_code == 404
+
+
+def test_non_creator_cannot_edit_another_users_notice(monkeypatch):
+    record = {
+        "id": "hold-1", "company_id": "company-a", "created_by_id": "creator-1",
+        "notice_type": "hold", "reference": "HOLD-TEST", "record_version": 0,
+    }
+    monkeypatch.setattr(legacy, "db", SimpleNamespace(hold_notices=NoticeCollection(record)))
+    with pytest.raises(legacy.HTTPException) as error:
+        asyncio.run(update_hold_notice(
+            "hold-1", notice_update(),
+            {"id": "viewer-1", "role": "user", "company_id": "company-a"},
+        ))
+    assert error.value.status_code == 403
+
+
+def test_creator_edit_records_reason_and_field_history(monkeypatch):
+    record = {
+        "id": "hold-1", "company_id": "company-a", "created_by_id": "creator-1",
+        "created_by_name": "Creator", "notice_type": "hold", "reference": "HOLD-TEST",
+        "rm_number": "RM100", "quantity": "40 kg", "ingredient_name": "Chocolate",
+        "reason": "Packaging damage", "action_required": "Segregate stock",
+        "event_date": "2026-09-07", "event_time": "09:15", "line_area": "Warehouse",
+        "our_batch": "B100", "vendor_batch": "V200", "date_delivered": "2026-09-06",
+        "quantity_delivered": "500 kg", "record_version": 0, "edit_history": [],
+    }
+    collection = NoticeCollection(record)
+    monkeypatch.setattr(legacy, "db", SimpleNamespace(hold_notices=collection))
+    result = asyncio.run(update_hold_notice(
+        "hold-1", notice_update(),
+        {"id": "creator-1", "name": "Creator", "role": "user", "company_id": "company-a"},
+    ))
+    assert result["quantity"] == "50 kg"
+    assert result["record_version"] == 1
+    assert result["edit_history"][0]["reason"] == "Added investigation details"
+    assert result["edit_history"][0]["changes"]["quantity"] == {"before": "40 kg", "after": "50 kg"}
+
+
+def test_admin_can_edit_notice_created_by_another_user(monkeypatch):
+    record = {
+        "id": "hold-1", "company_id": "company-a", "created_by_id": "creator-1",
+        "created_by_name": "Creator", "notice_type": "hold", "reference": "HOLD-TEST",
+        "rm_number": "RM100", "quantity": "40 kg", "ingredient_name": "Chocolate",
+        "reason": "Packaging damage", "action_required": "Segregate stock",
+        "event_date": "2026-09-07", "event_time": "09:15", "line_area": "Warehouse",
+        "our_batch": "B100", "vendor_batch": "V200", "date_delivered": "2026-09-06",
+        "quantity_delivered": "500 kg", "record_version": 0, "edit_history": [],
+    }
+    collection = NoticeCollection(record)
+    monkeypatch.setattr(legacy, "db", SimpleNamespace(hold_notices=collection))
+    result = asyncio.run(update_hold_notice(
+        "hold-1", notice_update(change_reason="Admin added confirmed quantity"),
+        {"id": "admin-1", "name": "Administrator", "role": "company_admin", "company_id": "company-a"},
+    ))
+    assert result["record_version"] == 1
+    assert result["edit_history"][0]["updated_by_name"] == "Administrator"
 
 
 @pytest.mark.parametrize("value", ["Short reason", "Reason with wrapping text. " * 110, "W" * 3000])
