@@ -18,6 +18,7 @@ from date_formats import format_uk_date
 
 
 HOLD_RED = "#E30613"
+DISPOSAL_BLUE = "#2563EB"
 BORDER = HexColor("#111111")
 MUTED = HexColor("#5B616B")
 
@@ -226,8 +227,10 @@ async def notice_pdf_bytes(record: dict) -> bytes:
         route_style = None
     else:
         route_style = route_style_from_notice(record)
-        banner_colour = route_style["color_hex"]
-        banner_text_colour = route_style["text_color"]
+        # The disposal form identity is always blue. Route colours are reserved
+        # for the route and reason sections below, where they convey meaning.
+        banner_colour = DISPOSAL_BLUE
+        banner_text_colour = "#FFFFFF"
 
     story = [
         _banner(company, notice_type, banner_colour, banner_text_colour, styles),

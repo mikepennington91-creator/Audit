@@ -16,8 +16,9 @@ os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import server as legacy
+import app_core.factory_notice_pdf as factory_notice_pdf
 from app_core.disposal_routes import ensure_default_disposal_routes
-from app_core.factory_notice_pdf import _boxed_section, notice_pdf_bytes
+from app_core.factory_notice_pdf import DISPOSAL_BLUE, _boxed_section, notice_pdf_bytes
 from app_core.hold_disposal import NoticeUpdate, get_hold_notice, update_hold_notice
 from database import PostgresCollection
 
@@ -239,3 +240,25 @@ def test_valid_notice_text_can_render_across_pages(notice_type, value):
     pdf = asyncio.run(notice_pdf_bytes(record))
     assert pdf.startswith(b"%PDF-")
     assert pdf.rstrip().endswith(b"%%EOF")
+
+
+def test_disposal_pdf_banner_is_always_blue(monkeypatch):
+    captured = []
+    original_banner = factory_notice_pdf._banner
+
+    def capture_banner(company, notice_type, colour, text_colour, styles):
+        captured.append((notice_type, colour, text_colour))
+        return original_banner(company, notice_type, colour, text_colour, styles)
+
+    monkeypatch.setattr(factory_notice_pdf, "_banner", capture_banner)
+    record = {
+        "notice_type": "disposal", "reference": "DISPOSAL-TEST",
+        "ingredient_name": "Test material", "reason": "Routine disposal",
+        "action_required": "Remove through approved route",
+        "disposal_route": "general_waste", "disposal_route_color": "#DC2626",
+        "disposal_route_text_color": "#FFFFFF",
+    }
+
+    asyncio.run(notice_pdf_bytes(record))
+
+    assert captured[0] == ("disposal", DISPOSAL_BLUE, "#FFFFFF")

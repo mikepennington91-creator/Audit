@@ -109,13 +109,11 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
   };
 
   return (
-    <Card className={!isDisposal ? 'border-red-300' : undefined}>
+    <Card className={isDisposal ? 'border-blue-300' : 'border-red-300'}>
       <CardHeader>
-        {!isDisposal && (
-          <div className="mb-3 rounded-md bg-red-600 px-4 py-3 text-center text-2xl font-black tracking-[0.2em] text-white">
-            HOLD
-          </div>
-        )}
+        <div className={`mb-3 rounded-md px-4 py-3 text-center text-2xl font-black tracking-[0.2em] text-white ${isDisposal ? 'bg-blue-600' : 'bg-red-600'}`}>
+          {isDisposal ? 'DISPOSAL' : 'HOLD'}
+        </div>
         <CardTitle className="flex items-center gap-2">
           {isDisposal ? <PackageX className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5 text-red-600" />}
           {isEditing ? `Edit ${isDisposal ? 'Disposal' : 'Hold'} Notice ${editNotice.reference}` : sourceHold ? `Dispose Hold ${sourceHold.reference}` : `New ${isDisposal ? 'Disposal' : 'Hold'} Notice`}
