@@ -16,6 +16,7 @@ import { Badge } from '../components/ui/badge';
 import { AlertTriangle, Download, Eye, Mail, PackageX, Pencil, Plus, Save, Send, Settings, Trash2, Users } from 'lucide-react';
 
 import { formatUKDate, formatUKDateTime, ukToday, ukNowTime } from '../utils/dates';
+import { disposalRoutesForNotice } from '../utils/disposalRoutes';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api/hold-disposal`;
 
@@ -48,10 +49,12 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
 
   const availableRoutes = useMemo(() => {
     if (!isDisposal) return [];
-    if (!isSystemAdmin) return disposalRoutes;
-    if (!form.company_id) return [];
-    return disposalRoutes.filter((route) => route.company_id === form.company_id);
-  }, [isDisposal, isSystemAdmin, form.company_id, disposalRoutes]);
+    return disposalRoutesForNotice(disposalRoutes, {
+      isSystemAdmin,
+      companyId: form.company_id,
+      fromHold: !!sourceHold,
+    });
+  }, [isDisposal, isSystemAdmin, form.company_id, disposalRoutes, sourceHold]);
 
   const selectedRoute = availableRoutes.find((route) => route.key === form.disposal_route);
   const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
@@ -198,9 +201,9 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
               <Select
                 value={form.disposal_route}
                 onValueChange={(value) => update('disposal_route', value)}
-                disabled={isSystemAdmin && !form.company_id}
+                disabled={isSystemAdmin && !form.company_id && !sourceHold}
               >
-                <SelectTrigger><SelectValue placeholder={isSystemAdmin && !form.company_id ? 'Select company first' : 'Select disposal route'} /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={isSystemAdmin && !form.company_id && !sourceHold ? 'Select company first' : 'Select disposal route'} /></SelectTrigger>
                 <SelectContent>
                   {availableRoutes.map((route) => (
                     <SelectItem key={route.id || route.key} value={route.key}>
