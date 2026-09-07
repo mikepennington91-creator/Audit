@@ -80,6 +80,12 @@ class DisposalNoticeCreate(NoticeCreate):
     disposal_route: str
 
 
+class NoticeUpdate(NoticeCreate):
+    expected_version: int = Field(ge=0)
+    change_reason: str = Field(min_length=3, max_length=1000)
+    disposal_route: Optional[str] = None
+
+
 class HoldDisposalCreate(NoticeEvent):
     disposal_route: str
     quantity: Optional[str] = Field(default=None, min_length=1, max_length=120)
@@ -132,6 +138,8 @@ def _notice_reference(prefix: str) -> str:
 
 def _notice_payload(record: dict) -> dict:
     return {**{k: v for k, v in record.items() if k != "_id"},
+            "record_version": record.get("record_version", 0),
+            "edit_history": record.get("edit_history") or [],
             "outcome_version": record.get("outcome_version", 0), "pdf_filename": notice_filename(record)}
 
 
@@ -253,6 +261,8 @@ async def _create_notice(
         "created_by_id": user.get("id"),
         "created_by_name": user.get("name"),
         "created_at": now,
+        "record_version": 0,
+        "edit_history": [],
         "last_emailed_at": None,
         "last_distribution_list_id": None,
     }
@@ -339,6 +349,109 @@ async def _get_notice(notice_type: str, notice_id: str, user: dict) -> dict:
     if not record or not _same_company(record, user):
         raise HTTPException(status_code=404, detail="Notice not found")
     return record
+
+
+@router.get("/hold-notices/{notice_id}")
+async def get_hold_notice(notice_id: str, user: dict = Depends(legacy.get_current_user)):
+    return _notice_payload(await _get_notice("hold", notice_id, user))
+
+
+@router.get("/disposal-notices/{notice_id}")
+async def get_disposal_notice(notice_id: str, user: dict = Depends(legacy.get_current_user)):
+    return _notice_payload(await _get_notice("disposal", notice_id, user))
+
+
+async def _update_notice(notice_type: str, notice_id: str, data: NoticeUpdate, user: dict) -> dict:
+    record = await _get_notice(notice_type, notice_id, user)
+    if not legacy.is_admin(user) and record.get("created_by_id") != user.get("id"):
+        raise HTTPException(status_code=403, detail="Only the notice creator or an administrator can edit this notice")
+
+    version = record.get("record_version", 0)
+    if data.expected_version != version:
+        raise HTTPException(status_code=409, detail="This notice was updated by another user. Close and reopen it before saving.")
+
+    route = None
+    if notice_type == "disposal":
+        route = await resolve_disposal_route(record.get("company_id"), data.disposal_route or "")
+        if not route:
+            raise HTTPException(status_code=400, detail="Select a valid disposal route")
+
+    values = {
+        "reference": data.reference or record.get("reference"),
+        "rm_number": data.rm_number.strip(),
+        "quantity": data.quantity.strip(),
+        "ingredient_name": data.ingredient_name.strip(),
+        "reason": data.reason.strip(),
+        "action_required": data.action_required.strip(),
+        "event_date": data.event_date,
+        "event_time": data.event_time,
+        "line_area": data.line_area.strip(),
+        "our_batch": data.our_batch.strip(),
+        "vendor_batch": data.vendor_batch.strip(),
+        "date_delivered": data.date_delivered,
+        "quantity_delivered": data.quantity_delivered.strip(),
+    }
+    if route:
+        values.update({
+            "disposal_route": route.get("key"),
+            "disposal_route_id": route.get("id"),
+            "disposal_route_label": route.get("name"),
+            "disposal_route_color": route.get("color_hex"),
+            "disposal_route_text_color": route.get("text_color"),
+        })
+
+    changes = {
+        field: {"before": record.get(field) or "", "after": value or ""}
+        for field, value in values.items()
+        if (record.get(field) or "") != (value or "")
+    }
+    if not changes:
+        return _notice_payload(record)
+
+    now = legacy.get_uk_time_iso()
+    history = list(record.get("edit_history") or [])
+    history.append({
+        "id": str(uuid.uuid4()),
+        "updated_at": now,
+        "updated_by_id": user.get("id"),
+        "updated_by_name": user.get("name"),
+        "reason": data.change_reason.strip(),
+        "changes": changes,
+    })
+    update = {
+        **values,
+        "record_version": version + 1,
+        "edit_history": history,
+        "updated_at": now,
+        "updated_by_id": user.get("id"),
+        "updated_by_name": user.get("name"),
+    }
+    collection = legacy.db.disposal_notices if notice_type == "disposal" else legacy.db.hold_notices
+    result = await collection.update_one(
+        {"id": notice_id, "record_version": record.get("record_version")},
+        {"$set": update},
+    )
+    if not result.matched_count:
+        raise HTTPException(status_code=409, detail="This notice was updated by another user. Close and reopen it before saving.")
+    return _notice_payload({**record, **update})
+
+
+@router.put("/hold-notices/{notice_id}")
+async def update_hold_notice(
+    notice_id: str,
+    data: NoticeUpdate,
+    user: dict = Depends(legacy.get_current_user),
+):
+    return await _update_notice("hold", notice_id, data, user)
+
+
+@router.put("/disposal-notices/{notice_id}")
+async def update_disposal_notice(
+    notice_id: str,
+    data: NoticeUpdate,
+    user: dict = Depends(legacy.get_current_user),
+):
+    return await _update_notice("disposal", notice_id, data, user)
 
 
 async def _pdf_response(record: dict) -> StreamingResponse:
