@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
-import { AlertTriangle, Download, Mail, PackageX, Plus, Save, Send, Settings, Trash2, Users } from 'lucide-react';
+import { AlertTriangle, Download, Eye, Mail, PackageX, Pencil, Plus, Save, Send, Settings, Trash2, Users } from 'lucide-react';
 
 import { formatUKDate, formatUKDateTime, ukToday, ukNowTime } from '../utils/dates';
 
@@ -37,12 +37,14 @@ const blankNotice = () => ({
   company_id: '',
 });
 
-const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated, sourceHold, onCancel }) => {
-  const [form, setForm] = useState(() => sourceHold ? {
+const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated, onUpdated, sourceHold, editNotice, onCancel }) => {
+  const [form, setForm] = useState(() => editNotice ? { ...blankNotice(), ...editNotice } : sourceHold ? {
     ...blankNotice(), ...sourceHold, quantity: sourceHold.quantity_discarded || sourceHold.quantity, event_date: ukToday(), event_time: ukNowTime(), disposal_route: '',
   } : blankNotice());
+  const [changeReason, setChangeReason] = useState('');
   const [saving, setSaving] = useState(false);
   const isDisposal = type === 'disposal';
+  const isEditing = !!editNotice;
 
   const availableRoutes = useMemo(() => {
     if (!isDisposal) return [];
@@ -60,7 +62,7 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
 
   const submit = async (event) => {
     event.preventDefault();
-    if (isSystemAdmin && !form.company_id && !sourceHold) {
+    if (isSystemAdmin && !form.company_id && !sourceHold && !isEditing) {
       toast.error('Select a company for this notice');
       return;
     }
@@ -70,6 +72,19 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
     }
     setSaving(true);
     try {
+      if (isEditing) {
+        const endpoint = isDisposal ? 'disposal-notices' : 'hold-notices';
+        const payload = {
+          ...form,
+          expected_version: editNotice.record_version || 0,
+          change_reason: changeReason,
+        };
+        delete payload.company_id;
+        const response = await axios.put(`${API}/${endpoint}/${editNotice.id}`, payload);
+        toast.success(`${isDisposal ? 'Disposal' : 'Hold'} notice ${response.data.reference} updated`);
+        onUpdated(response.data);
+        return;
+      }
       const endpoint = sourceHold ? `hold-notices/${sourceHold.id}/disposal` : isDisposal ? 'disposal-notices' : 'hold-notices';
       const payload = sourceHold ? {
         event_date: form.event_date, event_time: form.event_time, disposal_route: form.disposal_route,
@@ -100,15 +115,15 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
         )}
         <CardTitle className="flex items-center gap-2">
           {isDisposal ? <PackageX className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5 text-red-600" />}
-          {sourceHold ? `Dispose Hold ${sourceHold.reference}` : `New ${isDisposal ? 'Disposal' : 'Hold'} Notice`}
+          {isEditing ? `Edit ${isDisposal ? 'Disposal' : 'Hold'} Notice ${editNotice.reference}` : sourceHold ? `Dispose Hold ${sourceHold.reference}` : `New ${isDisposal ? 'Disposal' : 'Hold'} Notice`}
         </CardTitle>
         <CardDescription>
-          {sourceHold ? 'The hold reference and material details are retained. Confirm the quantity being discarded, disposal date, route, reason and action.' : 'Enter the information once; Infinit Audit stores the controlled record and generates the factory PDF from it.'}
+          {isEditing ? 'Add or correct details below. Every change is retained in the notice history.' : sourceHold ? 'The hold reference and material details are retained. Confirm the quantity being discarded, disposal date, route, reason and action.' : 'Enter the information once; Infinit Audit stores the controlled record and generates the factory PDF from it.'}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="space-y-5">
-          {isSystemAdmin && !sourceHold && (
+          {isSystemAdmin && !sourceHold && !isEditing && (
             <div className="space-y-2">
               <Label>Company</Label>
               <Select value={form.company_id} onValueChange={changeCompany}>
@@ -218,10 +233,18 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
             <Textarea id={`${type}-action`} value={form.action_required} onChange={(e) => update('action_required', e.target.value)} rows={4} maxLength={3000} required />
           </div>
 
+          {isEditing && (
+            <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-4 text-slate-900 dark:border-amber-800 dark:bg-amber-950 dark:text-slate-100">
+              <Label htmlFor={`${type}-change-reason`}>Reason for Change *</Label>
+              <Textarea id={`${type}-change-reason`} value={changeReason} onChange={(e) => setChangeReason(e.target.value)} rows={3} maxLength={1000} placeholder="Explain what was added or corrected and why" required />
+              <p className="text-xs opacity-75">Your name, the date, reason and each changed field will be retained.</p>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2">
             {onCancel && <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>}
             <Button type="submit" disabled={saving}>
-              <Save className="mr-2 h-4 w-4" />{saving ? 'Creating...' : `Create ${isDisposal ? 'Disposal' : 'Hold'} Notice`}
+              <Save className="mr-2 h-4 w-4" />{saving ? 'Saving...' : isEditing ? 'Save Changes' : `Create ${isDisposal ? 'Disposal' : 'Hold'} Notice`}
             </Button>
           </div>
         </form>
@@ -230,13 +253,13 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
   );
 };
 
-const NoticeHistory = ({ type, notices, onDownload, onEmail, onDispose, onOutcome, disposals = [] }) => {
+const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onDispose, onOutcome, disposals = [], user, isAdminUser }) => {
   const isDisposal = type === 'disposal';
   return (
     <Card>
       <CardHeader>
         <CardTitle>Recent {isDisposal ? 'Disposal' : 'Hold'} Notices</CardTitle>
-        <CardDescription>Download the generated form or send it to a saved distribution list.</CardDescription>
+        <CardDescription>Open a notice in the website, or download and distribute its factory PDF.</CardDescription>
       </CardHeader>
       <CardContent>
         {notices.length === 0 ? (
@@ -269,6 +292,8 @@ const NoticeHistory = ({ type, notices, onDownload, onEmail, onDispose, onOutcom
                       </TableCell>
                     )}
                     <TableCell className="text-right whitespace-nowrap">
+                      <Button variant="outline" size="sm" onClick={() => onView(type, notice)}><Eye className="mr-1 h-4 w-4" />View</Button>
+                      {(isAdminUser || notice.created_by_id === user?.id) && <Button variant="ghost" size="sm" onClick={() => onEdit(type, notice)} title="Edit notice"><Pencil className="h-4 w-4" /></Button>}
                       {!isDisposal && <Button variant="outline" size="sm" onClick={() => onOutcome(notice)}>Record Outcome</Button>}
                       {!isDisposal && (disposals.some((item) => item.source_hold_id === notice.id)
                         ? <Badge variant="secondary">Disposal notice raised</Badge>
@@ -285,6 +310,64 @@ const NoticeHistory = ({ type, notices, onDownload, onEmail, onDispose, onOutcom
       </CardContent>
     </Card>
   );
+};
+
+const NOTICE_FIELD_LABELS = {
+  reference: 'Notice Reference', event_date: 'Date', event_time: 'Time', ingredient_name: 'Ingredient / Material',
+  rm_number: 'RM Number', our_batch: 'Our Batch', vendor_batch: 'Vendor Batch', date_delivered: 'Date Delivered',
+  quantity_delivered: 'Quantity Delivered', quantity: 'Notice Quantity', line_area: 'Line / Factory Area',
+  disposal_route: 'Disposal Route', disposal_route_label: 'Disposal Route', reason: 'Issue / Reason', action_required: 'Action Required',
+};
+
+const NoticeViewer = ({ type, notice, canEdit, onEdit, onClose }) => {
+  const isDisposal = type === 'disposal';
+  const detailRows = [
+    ['Reference', notice.reference],
+    [isDisposal ? 'Disposal date' : 'Hold date', `${formatUKDate(notice.event_date)} ${notice.event_time || ''}`],
+    ['Ingredient / Material', notice.ingredient_name],
+    ['RM number', notice.rm_number],
+    ['Our batch', notice.our_batch],
+    ['Vendor batch', notice.vendor_batch],
+    ['Delivered', `${notice.quantity_delivered || '-'}${notice.date_delivered ? ` on ${formatUKDate(notice.date_delivered)}` : ''}`],
+    [isDisposal ? 'Quantity for disposal' : 'Quantity on hold', notice.quantity],
+    ['Line / factory area', notice.line_area],
+    ...(isDisposal ? [['Disposal route', notice.disposal_route_label || notice.disposal_route]] : []),
+    ['Created by', notice.created_by_name],
+    ['Created', formatUKDateTime(notice.created_at)],
+  ];
+  return <div className="space-y-5">
+    <div className="grid gap-3 sm:grid-cols-2">
+      {detailRows.map(([label, value]) => <div key={label} className="rounded-md border bg-muted/30 p-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+        <p className="mt-1 whitespace-pre-wrap break-words font-medium">{value || '-'}</p>
+      </div>)}
+    </div>
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div className="rounded-md border p-4"><p className="font-semibold">{isDisposal ? 'Disposal reason' : 'Issue / reason'}</p><p className="mt-2 whitespace-pre-wrap break-words text-sm">{notice.reason}</p></div>
+      <div className="rounded-md border p-4"><p className="font-semibold">Action required</p><p className="mt-2 whitespace-pre-wrap break-words text-sm">{notice.action_required}</p></div>
+    </div>
+    {!isDisposal && <div className="rounded-md border p-4">
+      <p className="font-semibold">Hold outcome</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <p><span className="text-muted-foreground">Released:</span> {notice.quantity_released || '-'}</p>
+        <p><span className="text-muted-foreground">Discarded:</span> {notice.quantity_discarded || '-'}</p>
+        <p className="whitespace-pre-wrap break-words sm:col-span-2"><span className="text-muted-foreground">Root cause:</span> {notice.root_cause || '-'}</p>
+        <p className="whitespace-pre-wrap break-words sm:col-span-2"><span className="text-muted-foreground">Corrective action:</span> {notice.corrective_action || '-'}</p>
+      </div>
+    </div>}
+    {!!notice.edit_history?.length && <details className="rounded-md border p-4 text-sm">
+      <summary className="cursor-pointer font-semibold">Notice edit history ({notice.edit_history.length})</summary>
+      <div className="mt-3 space-y-4">{[...notice.edit_history].reverse().map((entry) => <div key={entry.id} className="border-t pt-3">
+        <p className="font-medium">{entry.updated_by_name || 'User'} · {formatUKDateTime(entry.updated_at)}</p>
+        <p className="mt-1 text-muted-foreground">Reason: {entry.reason}</p>
+        <div className="mt-2 space-y-1">{Object.entries(entry.changes || {}).map(([field, change]) => <p key={field} className="whitespace-pre-wrap break-words"><strong>{NOTICE_FIELD_LABELS[field] || field}:</strong> {change.before || '(blank)'} → {change.after || '(blank)'}</p>)}</div>
+      </div>)}</div>
+    </details>}
+    <DialogFooter>
+      <Button variant="outline" onClick={onClose}>Close</Button>
+      {canEdit && <Button onClick={onEdit}><Pencil className="mr-2 h-4 w-4" />Edit Notice</Button>}
+    </DialogFooter>
+  </div>;
 };
 
 const OUTCOME_LABELS = {
@@ -545,6 +628,8 @@ const HoldDisposal = () => {
   const [disposalRoutes, setDisposalRoutes] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [viewTarget, setViewTarget] = useState(null);
+  const [editTarget, setEditTarget] = useState(null);
   const [outcomeTarget, setOutcomeTarget] = useState(null);
   const [sourceHold, setSourceHold] = useState(null);
   const [emailTarget, setEmailTarget] = useState(null);
@@ -582,6 +667,22 @@ const HoldDisposal = () => {
   const created = (type) => (notice) => {
     if (type === 'hold') setHolds((current) => [notice, ...current]);
     else setDisposals((current) => [notice, ...current]);
+  };
+
+  const updateNoticeInList = (type, notice) => {
+    const setter = type === 'hold' ? setHolds : setDisposals;
+    setter((current) => current.map((item) => item.id === notice.id ? notice : item));
+  };
+
+  const loadNotice = async (type, notice, mode) => {
+    const endpoint = type === 'hold' ? 'hold-notices' : 'disposal-notices';
+    try {
+      const response = await axios.get(`${API}/${endpoint}/${notice.id}`);
+      if (mode === 'edit') setEditTarget({ type, notice: response.data });
+      else setViewTarget({ type, notice: response.data });
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Unable to open notice');
+    }
   };
 
   const downloadPdf = async (type, notice) => {
@@ -649,12 +750,12 @@ const HoldDisposal = () => {
 
         <TabsContent value="hold" className="space-y-6">
           <NoticeForm type="hold" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('hold')} />
-          <NoticeHistory type="hold" notices={holds} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} disposals={disposals} />
+          <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} disposals={disposals} user={user} isAdminUser={isAdminUser} />
         </TabsContent>
 
         <TabsContent value="disposal" className="space-y-6">
           <NoticeForm type="disposal" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('disposal')} />
-          <NoticeHistory type="disposal" notices={disposals} onDownload={downloadPdf} onEmail={openEmail} />
+          <NoticeHistory type="disposal" notices={disposals} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} user={user} isAdminUser={isAdminUser} />
         </TabsContent>
 
         <TabsContent value="lists">
@@ -667,6 +768,39 @@ const HoldDisposal = () => {
           </TabsContent>
         )}
       </Tabs>
+
+      <Dialog open={!!viewTarget} onOpenChange={(open) => !open && setViewTarget(null)}>
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+          <DialogHeader><DialogTitle>{viewTarget?.type === 'disposal' ? 'Disposal' : 'Hold'} Notice — {viewTarget?.notice?.reference}</DialogTitle><DialogDescription>Complete controlled notice record. No download or email is required.</DialogDescription></DialogHeader>
+          {viewTarget && <NoticeViewer
+            type={viewTarget.type}
+            notice={viewTarget.notice}
+            canEdit={isAdminUser || viewTarget.notice.created_by_id === user?.id}
+            onClose={() => setViewTarget(null)}
+            onEdit={() => { setEditTarget(viewTarget); setViewTarget(null); }}
+          />}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto p-0">
+          <DialogHeader className="sr-only"><DialogTitle>Edit {editTarget?.type === 'disposal' ? 'Disposal' : 'Hold'} Notice</DialogTitle><DialogDescription>Update the controlled notice and record the reason for the change.</DialogDescription></DialogHeader>
+          {editTarget && <NoticeForm
+            key={`${editTarget.notice.id}-${editTarget.notice.record_version || 0}`}
+            type={editTarget.type}
+            editNotice={editTarget.notice}
+            companies={companies}
+            isSystemAdmin={isSystemAdmin}
+            disposalRoutes={disposalRoutes}
+            onCancel={() => setEditTarget(null)}
+            onUpdated={(notice) => {
+              updateNoticeInList(editTarget.type, notice);
+              setEditTarget(null);
+              setViewTarget({ type: editTarget.type, notice });
+            }}
+          />}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!outcomeTarget} onOpenChange={(open) => !open && setOutcomeTarget(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
