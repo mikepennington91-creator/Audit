@@ -319,7 +319,30 @@ const NOTICE_FIELD_LABELS = {
   disposal_route: 'Disposal Route', disposal_route_label: 'Disposal Route', reason: 'Issue / Reason', action_required: 'Action Required',
 };
 
-const NoticeViewer = ({ type, notice, canEdit, onEdit, onClose }) => {
+const DisposalFromHoldCard = ({ holds, disposals, onStart }) => {
+  const [holdId, setHoldId] = useState('');
+  const availableHolds = holds.filter((hold) => !disposals.some((notice) => notice.source_hold_id === hold.id));
+  if (!availableHolds.length) return null;
+  const selected = availableHolds.find((hold) => hold.id === holdId);
+  return <Card className="border-amber-300 dark:border-amber-800">
+    <CardHeader>
+      <CardTitle className="flex items-center gap-2"><PackageX className="h-5 w-5" />Start Disposal from a Hold Notice</CardTitle>
+      <CardDescription>Select the hold reference. Its material, RM, batch, delivery, quantity and factory-area details will be copied automatically.</CardDescription>
+    </CardHeader>
+    <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <div className="min-w-0 flex-1 space-y-2">
+        <Label>Hold Reference</Label>
+        <Select value={holdId} onValueChange={setHoldId}>
+          <SelectTrigger><SelectValue placeholder="Select a hold notice" /></SelectTrigger>
+          <SelectContent>{availableHolds.map((hold) => <SelectItem key={hold.id} value={hold.id}>{hold.reference} — {hold.ingredient_name} ({hold.quantity_discarded || hold.quantity})</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <Button type="button" disabled={!selected} onClick={() => onStart(selected)}><PackageX className="mr-2 h-4 w-4" />Start Disposal</Button>
+    </CardContent>
+  </Card>;
+};
+
+const NoticeViewer = ({ type, notice, canEdit, onEdit, onDispose, onClose }) => {
   const isDisposal = type === 'disposal';
   const detailRows = [
     ['Reference', notice.reference],
@@ -365,6 +388,7 @@ const NoticeViewer = ({ type, notice, canEdit, onEdit, onClose }) => {
     </details>}
     <DialogFooter>
       <Button variant="outline" onClick={onClose}>Close</Button>
+      {!isDisposal && onDispose && <Button variant="outline" onClick={onDispose}><PackageX className="mr-2 h-4 w-4" />Start Disposal</Button>}
       {canEdit && <Button onClick={onEdit}><Pencil className="mr-2 h-4 w-4" />Edit Notice</Button>}
     </DialogFooter>
   </div>;
@@ -681,6 +705,12 @@ const HoldDisposal = () => {
       if (mode === 'edit') setEditTarget({ type, notice: response.data });
       else setViewTarget({ type, notice: response.data });
     } catch (error) {
+      if (error.response?.status === 404 && notice?.id) {
+        if (mode === 'edit') setEditTarget({ type, notice });
+        else setViewTarget({ type, notice });
+        toast.info('Opened the loaded notice while the server update completes');
+        return;
+      }
       toast.error(error.response?.data?.detail || 'Unable to open notice');
     }
   };
@@ -754,6 +784,7 @@ const HoldDisposal = () => {
         </TabsContent>
 
         <TabsContent value="disposal" className="space-y-6">
+          <DisposalFromHoldCard holds={holds} disposals={disposals} onStart={setSourceHold} />
           <NoticeForm type="disposal" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('disposal')} />
           <NoticeHistory type="disposal" notices={disposals} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} user={user} isAdminUser={isAdminUser} />
         </TabsContent>
@@ -778,6 +809,7 @@ const HoldDisposal = () => {
             canEdit={isAdminUser || viewTarget.notice.created_by_id === user?.id}
             onClose={() => setViewTarget(null)}
             onEdit={() => { setEditTarget(viewTarget); setViewTarget(null); }}
+            onDispose={viewTarget.type === 'hold' && !disposals.some((notice) => notice.source_hold_id === viewTarget.notice.id) ? () => { setSourceHold(viewTarget.notice); setViewTarget(null); } : null}
           />}
         </DialogContent>
       </Dialog>
