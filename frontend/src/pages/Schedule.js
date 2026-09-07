@@ -200,7 +200,7 @@ const Schedule = () => {
           <DialogTrigger asChild>
             <Button data-testid="schedule-audit-btn"><Plus className="w-4 h-4 mr-2" />Schedule Audit</Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-lg overflow-y-auto">
             <DialogHeader><DialogTitle>Schedule an Audit</DialogTitle></DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
