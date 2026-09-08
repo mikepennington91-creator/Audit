@@ -19,7 +19,7 @@ const PrivacyPolicy = () => {
           <img src={LOGO_URL} alt="Infinit Audit" className="mx-auto h-20 w-auto" />
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Privacy Policy</h1>
-            <p className="mt-2 text-sm text-muted-foreground">Last updated: 30 August 2026</p>
+            <p className="mt-2 text-sm text-muted-foreground">Last updated: 8 September 2026</p>
           </div>
         </div>
 
@@ -36,7 +36,7 @@ const PrivacyPolicy = () => {
 
             <Section title="2. Information we collect">
               <p>We may process account information such as your name, work email address, organisation, role and access permissions.</p>
-              <p>When you use the service, we may also process audit records, corrective actions, traceability records, documents, comments, signatures, photographs or other evidence that you or your organisation choose to upload.</p>
+              <p>When you use the service, we may also process audit records, corrective actions, traceability records, documents, scanned production paperwork, comments, signatures, photographs or other evidence that you or your organisation choose to upload.</p>
               <p>We may retain limited technical and security information needed to operate the service, such as authentication information, service logs, notification records and email-delivery records.</p>
             </Section>
 
@@ -48,6 +48,9 @@ const PrivacyPolicy = () => {
             <Section title="4. Who information is shared with">
               <p>
                 We use service providers to host and operate Infinit Audit, including providers for application hosting, database infrastructure and email delivery. They process information only as required to provide those services and are subject to their own security and data-protection obligations.
+              </p>
+              <p>
+                If you choose the AI paperwork-extraction feature, the selected scan and the relevant form-field instructions are sent to our configured AI service provider to produce a draft record. The draft is not published automatically and must be reviewed by an authorised Infinit Audit user. Organisations should only use this feature for paperwork they are permitted to process in this way.
               </p>
               <p>We do not sell personal information to advertisers.</p>
             </Section>

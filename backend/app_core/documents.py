@@ -106,7 +106,23 @@ async def update_traceability_document(
     document = await _get_accessible_document(doc_id, user)
     if document.get("completed"):
         raise HTTPException(status_code=409, detail="Completed documents cannot be edited")
-    return await legacy.update_traceability_document(doc_id, data, user)
+    updated = await legacy.update_traceability_document(doc_id, data, user)
+    if data.completed and document.get("imported_draft"):
+        review = {
+            "import_status": "published",
+            "import_reviewed_by": user["id"],
+            "import_reviewed_by_name": user["name"],
+            "import_reviewed_at": legacy.get_uk_time_iso(),
+        }
+        await legacy.db.traceability_documents.update_one({"id": doc_id}, {"$set": review})
+        updated.update(review)
+        source_item = (document.get("import_source") or {}).get("import_item_id")
+        if source_item:
+            await legacy.db.document_import_items.update_one(
+                {"id": source_item},
+                {"$set": {"status": "published", **review}},
+            )
+    return updated
 
 
 @router.get("/traceability/documents/{doc_id}/pdf")
@@ -116,6 +132,23 @@ async def export_traceability_document_pdf(
 ):
     await _get_accessible_document(doc_id, user)
     return await legacy.export_traceability_document_pdf(doc_id, user)
+
+
+@router.put("/traceability/documents/{doc_id}/close-out")
+async def close_out_traceability_document(
+    doc_id: str,
+    user: dict = Depends(legacy.require_role(
+        [legacy.UserRole.SYSTEM_ADMIN, legacy.UserRole.COMPANY_ADMIN, legacy.UserRole.ADMIN],
+        "documents_edit",
+    )),
+):
+    document = await _get_accessible_document(doc_id, user)
+    if document.get("imported_draft"):
+        raise HTTPException(
+            status_code=409,
+            detail="Imported paperwork must be reviewed on screen before it can be completed",
+        )
+    return await legacy.close_out_traceability_document(doc_id, user)
 
 
 @router.post("/traceability/documents/batch-pdf")

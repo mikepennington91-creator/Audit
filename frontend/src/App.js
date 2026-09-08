@@ -27,6 +27,7 @@ import DocumentList from "./pages/DocumentList";
 import DocumentDesigner from "./pages/DocumentDesigner";
 import DocumentFill from "./pages/DocumentFill";
 import DocumentView from "./pages/DocumentView";
+import PaperworkImport from "./pages/PaperworkImport";
 import Compliance from "./pages/Compliance";
 import QualityOperations from "./pages/QualityOperations";
 
@@ -90,6 +91,7 @@ function AppRoutes() {
       <Route path="/traceability" element={<ProtectedRoute feature="traceability"><Traceability /></ProtectedRoute>} />
       <Route path="/hold-disposal" element={<ProtectedRoute feature="traceability"><HoldDisposal /></ProtectedRoute>} />
       <Route path="/documents" element={<ProtectedRoute feature="documents"><DocumentList /></ProtectedRoute>} />
+      <Route path="/documents/import" element={<ProtectedRoute feature="documents"><PaperworkImport /></ProtectedRoute>} />
       <Route path="/documents/design" element={<ProtectedRoute feature="documents_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}><DocumentDesigner /></ProtectedRoute>} />
       <Route path="/documents/design/:templateId" element={<ProtectedRoute feature="documents_edit" allowedRoles={['system_admin', 'company_admin', 'admin', 'audit_creator']}><DocumentDesigner /></ProtectedRoute>} />
       <Route path="/documents/fill/:documentId" element={<ProtectedRoute feature="documents"><DocumentFill /></ProtectedRoute>} />

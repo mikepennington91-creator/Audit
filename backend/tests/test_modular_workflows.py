@@ -338,6 +338,10 @@ def test_modular_entrypoint_has_single_replacement_route_for_critical_endpoints(
     assert route_count("GET", "/api/scheduled-audits") == 1
     assert route_count("DELETE", "/api/scheduled-audits/{schedule_id}") == 1
     assert route_count("GET", "/api/traceability/documents/{doc_id}") == 1
+    assert route_count("POST", "/api/document-imports/scans") == 1
+    assert route_count("POST", "/api/document-imports/excel") == 1
+    assert route_count("GET", "/api/document-imports/templates/{template_id}/workbook") == 1
+    assert route_count("PUT", "/api/traceability/documents/{doc_id}/close-out") == 1
 
 
 def test_new_account_notification_and_email_routes_are_registered():
