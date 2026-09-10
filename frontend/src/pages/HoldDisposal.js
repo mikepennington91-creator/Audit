@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
-import { AlertTriangle, Download, Eye, Mail, PackageX, Pencil, Plus, Save, Send, Settings, Trash2, Users } from 'lucide-react';
+import { AlertTriangle, Download, Eye, FileSpreadsheet, Mail, PackageX, Pencil, Plus, Save, Send, Settings, Trash2, Users } from 'lucide-react';
 
 import { formatUKDate, formatUKDateTime, ukToday, ukNowTime } from '../utils/dates';
 import { disposalRoutesForNotice } from '../utils/disposalRoutes';
@@ -254,13 +254,119 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
   );
 };
 
-const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onDispose, onOutcome, disposals = [], user, isAdminUser }) => {
+const HoldNoticeExportDialog = ({ open, onOpenChange, holds, companies, isSystemAdmin }) => {
+  const [mode, setMode] = useState('date');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [referenceFrom, setReferenceFrom] = useState('');
+  const [referenceTo, setReferenceTo] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [companyId, setCompanyId] = useState('');
+  const [exporting, setExporting] = useState(false);
+
+  const availableHolds = useMemo(() => {
+    const scoped = isSystemAdmin
+      ? (companyId ? holds.filter((hold) => hold.company_id === companyId) : [])
+      : holds;
+    return [...scoped].sort((a, b) => String(a.reference || '').localeCompare(String(b.reference || ''), undefined, { numeric: true }));
+  }, [holds, isSystemAdmin, companyId]);
+
+  const toggleNotice = (noticeId) => setSelectedIds((current) => current.includes(noticeId)
+    ? current.filter((id) => id !== noticeId)
+    : [...current, noticeId]);
+
+  const exportWorkbook = async () => {
+    if (isSystemAdmin && !companyId) return toast.error('Select a company');
+    if (mode === 'selected' && selectedIds.length === 0) return toast.error('Select at least one hold notice');
+    if (mode === 'reference' && !referenceFrom && !referenceTo) return toast.error('Select a starting or ending reference');
+    if (mode === 'date' && dateFrom && dateTo && dateFrom > dateTo) return toast.error('Start date cannot be after end date');
+    setExporting(true);
+    try {
+      const response = await axios.post(`${API}/hold-notices/bulk-export`, {
+        mode,
+        date_from: mode === 'date' ? dateFrom || null : null,
+        date_to: mode === 'date' ? dateTo || null : null,
+        notice_ids: mode === 'selected' ? selectedIds : [],
+        reference_from: mode === 'reference' ? referenceFrom || null : null,
+        reference_to: mode === 'reference' ? referenceTo || null : null,
+        ...(isSystemAdmin ? { company_id: companyId } : {}),
+      }, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `hold_notice_register_${formatUKDate(ukToday()).replaceAll('/', '')}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Hold notice Excel register downloaded');
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Unable to download the hold notice register');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle>Download Hold Notice Register</DialogTitle>
+        <DialogDescription>Choose which hold notices to include in one filterable Excel workbook.</DialogDescription>
+      </DialogHeader>
+      <div className="space-y-5 py-2">
+        {isSystemAdmin && <div className="space-y-2">
+          <Label>Company</Label>
+          <Select value={companyId} onValueChange={(value) => { setCompanyId(value); setSelectedIds([]); setReferenceFrom(''); setReferenceTo(''); }}>
+            <SelectTrigger><SelectValue placeholder="Select company" /></SelectTrigger>
+            <SelectContent>{companies.map((company) => <SelectItem key={company.id} value={company.id}>{company.name}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>}
+        <div className="space-y-2">
+          <Label>Selection Method</Label>
+          <Select value={mode} onValueChange={setMode}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="date">Date range</SelectItem>
+              <SelectItem value="selected">Manually select notices</SelectItem>
+              <SelectItem value="reference">Reference to reference</SelectItem>
+              <SelectItem value="all">All hold notices</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {mode === 'date' && <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2"><Label htmlFor="hold-export-from">From Date</Label><Input id="hold-export-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></div>
+          <div className="space-y-2"><Label htmlFor="hold-export-to">To Date</Label><Input id="hold-export-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></div>
+          <p className="text-xs text-muted-foreground sm:col-span-2">Leave one side blank to export everything before or after the date entered.</p>
+        </div>}
+        {mode === 'reference' && <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2"><Label>From Reference</Label><Select value={referenceFrom} onValueChange={setReferenceFrom}><SelectTrigger><SelectValue placeholder="First reference" /></SelectTrigger><SelectContent>{availableHolds.map((hold) => <SelectItem key={`from-${hold.id}`} value={hold.reference}>{hold.reference}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-2"><Label>To Reference</Label><Select value={referenceTo} onValueChange={setReferenceTo}><SelectTrigger><SelectValue placeholder="Last reference" /></SelectTrigger><SelectContent>{availableHolds.map((hold) => <SelectItem key={`to-${hold.id}`} value={hold.reference}>{hold.reference}</SelectItem>)}</SelectContent></Select></div>
+        </div>}
+        {mode === 'selected' && <div className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2"><Label>Hold Notices</Label><span className="text-xs text-muted-foreground">{selectedIds.length} selected</span></div>
+          <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border p-2">
+            {availableHolds.length === 0 ? <p className="p-4 text-center text-sm text-muted-foreground">No hold notices available.</p> : availableHolds.map((hold) => <label key={hold.id} className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted">
+              <input type="checkbox" className="mt-1 h-4 w-4" checked={selectedIds.includes(hold.id)} onChange={() => toggleNotice(hold.id)} />
+              <span className="min-w-0"><span className="font-medium">{hold.reference}</span><span className="block truncate text-xs text-muted-foreground">{formatUKDate(hold.event_date)} · {hold.ingredient_name}</span></span>
+            </label>)}
+          </div>
+        </div>}
+        <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">The workbook includes hold details, investigation outcome, quantities released or rejected, status and linked disposal information. Fields that have not been recorded remain blank.</p>
+      </div>
+      <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button onClick={exportWorkbook} disabled={exporting || (isSystemAdmin && !companyId)}><FileSpreadsheet className="mr-2 h-4 w-4" />{exporting ? 'Preparing...' : 'Download Excel'}</Button></DialogFooter>
+    </DialogContent>
+  </Dialog>;
+};
+
+const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onDispose, onOutcome, onBulkExport, disposals = [], user, isAdminUser }) => {
   const isDisposal = type === 'disposal';
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Recent {isDisposal ? 'Disposal' : 'Hold'} Notices</CardTitle>
-        <CardDescription>Open a notice in the website, or download and distribute its factory PDF.</CardDescription>
+      <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div><CardTitle>Recent {isDisposal ? 'Disposal' : 'Hold'} Notices</CardTitle>
+        <CardDescription>Open a notice in the website, or download and distribute its factory PDF.</CardDescription></div>
+        {!isDisposal && <Button variant="outline" onClick={onBulkExport}><FileSpreadsheet className="mr-2 h-4 w-4" />Bulk Download</Button>}
       </CardHeader>
       <CardContent>
         {notices.length === 0 ? (
@@ -661,6 +767,7 @@ const HoldDisposal = () => {
   const [emailListId, setEmailListId] = useState('');
   const [emailMessage, setEmailMessage] = useState('');
   const [emailing, setEmailing] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const isSystemAdmin = user?.role === 'system_admin';
   const isAdminUser = ['system_admin', 'company_admin', 'admin'].includes(user?.role);
@@ -781,7 +888,7 @@ const HoldDisposal = () => {
 
         <TabsContent value="hold" className="space-y-6">
           <NoticeForm type="hold" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('hold')} />
-          <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} disposals={disposals} user={user} isAdminUser={isAdminUser} />
+          <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} onBulkExport={() => setExportOpen(true)} disposals={disposals} user={user} isAdminUser={isAdminUser} />
         </TabsContent>
 
         <TabsContent value="disposal" className="space-y-6">
@@ -800,6 +907,8 @@ const HoldDisposal = () => {
           </TabsContent>
         )}
       </Tabs>
+
+      <HoldNoticeExportDialog open={exportOpen} onOpenChange={setExportOpen} holds={holds} companies={companies} isSystemAdmin={isSystemAdmin} />
 
       <Dialog open={!!viewTarget} onOpenChange={(open) => !open && setViewTarget(null)}>
         <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
