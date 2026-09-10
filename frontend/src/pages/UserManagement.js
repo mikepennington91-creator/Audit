@@ -27,8 +27,8 @@ const FULL_ACCESS = Object.fromEntries(Object.keys(DEFAULT_ACCESS).map(key => [k
 const FEATURES = [
   { key: 'audits_view', label: 'Audits — View', description: 'View and complete audits and see audit reports.' },
   { key: 'audits_edit', label: 'Audits — Edit', description: 'Create and edit audit templates and schedules.', parent: 'audits_view' },
-  { key: 'traceability_view', label: 'Traceability — View', description: 'View and complete raw material, finished batch and usage records.' },
-  { key: 'traceability_edit', label: 'Traceability — Edit', description: 'Correct traceability entries, manage configuration and edit records.', parent: 'traceability_view' },
+  { key: 'traceability_view', label: 'Traceability — View', description: 'View traceability records and hold/disposal notices, including downloads and email distribution.' },
+  { key: 'traceability_edit', label: 'Traceability — Edit', description: 'Create or change traceability records and any hold/disposal notice for the same company.', parent: 'traceability_view' },
   { key: 'traceability_release', label: 'Release / Quarantine', description: 'Set or change the release status of finished product batches.', parent: 'traceability_view' },
   { key: 'traceability_dispatch', label: 'Dispatch Finished Product', description: 'Record where individual finished-product pallets have been sent.', parent: 'traceability_view' },
   { key: 'documents_view', label: 'Documents — View', description: 'View and complete controlled documents and production records.' },

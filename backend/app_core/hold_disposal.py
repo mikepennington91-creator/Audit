@@ -137,6 +137,11 @@ def _same_company(record: dict, user: dict) -> bool:
     return record.get("created_by_id") == user.get("id")
 
 
+def _require_traceability_editor(user: dict) -> None:
+    if not legacy.has_feature(user, "traceability_edit"):
+        raise HTTPException(status_code=403, detail="Traceability Edit access is required to change hold and disposal records")
+
+
 async def _validate_company(company_id: Optional[str]) -> None:
     if company_id and not await legacy.db.companies.find_one({"id": company_id}, {"_id": 1}):
         raise HTTPException(status_code=400, detail="Company not found")
@@ -172,7 +177,8 @@ async def list_distribution_lists(user: dict = Depends(legacy.get_current_user))
 
 
 @router.post("/distribution-lists")
-async def create_distribution_list(data: DistributionListCreate, user: dict = Depends(legacy.get_current_user)):
+async def create_distribution_list(data: DistributionListCreate, user: dict = Depends(legacy.require_feature("traceability_edit"))):
+    _require_traceability_editor(user)
     company_id = _company_scope(user, data.company_id)
     await _validate_company(company_id)
     recipients = _normalised_recipients(data.recipients)
@@ -200,7 +206,8 @@ async def create_distribution_list(data: DistributionListCreate, user: dict = De
 
 
 @router.put("/distribution-lists/{list_id}")
-async def update_distribution_list(list_id: str, data: DistributionListUpdate, user: dict = Depends(legacy.get_current_user)):
+async def update_distribution_list(list_id: str, data: DistributionListUpdate, user: dict = Depends(legacy.require_feature("traceability_edit"))):
+    _require_traceability_editor(user)
     record = await legacy.db.distribution_lists.find_one({"id": list_id}, {"_id": 0})
     if not record or not _same_company(record, user):
         raise HTTPException(status_code=404, detail="Distribution list not found")
@@ -219,7 +226,8 @@ async def update_distribution_list(list_id: str, data: DistributionListUpdate, u
 
 
 @router.delete("/distribution-lists/{list_id}")
-async def delete_distribution_list(list_id: str, user: dict = Depends(legacy.get_current_user)):
+async def delete_distribution_list(list_id: str, user: dict = Depends(legacy.require_feature("traceability_edit"))):
+    _require_traceability_editor(user)
     record = await legacy.db.distribution_lists.find_one({"id": list_id}, {"_id": 0})
     if not record or not _same_company(record, user):
         raise HTTPException(status_code=404, detail="Distribution list not found")
@@ -235,6 +243,7 @@ async def _create_notice(
     disposal_route: Optional[str] = None,
     source_hold: Optional[dict] = None,
 ) -> dict:
+    _require_traceability_editor(user)
     company_id = source_hold.get("company_id") if source_hold else _company_scope(user, data.company_id)
     await _validate_company(company_id)
 
@@ -287,17 +296,17 @@ async def _create_notice(
 
 
 @router.post("/hold-notices")
-async def create_hold_notice(data: NoticeCreate, user: dict = Depends(legacy.get_current_user)):
+async def create_hold_notice(data: NoticeCreate, user: dict = Depends(legacy.require_feature("traceability_edit"))):
     return await _create_notice(data, user, notice_type="hold")
 
 
 @router.post("/disposal-notices")
-async def create_disposal_notice(data: DisposalNoticeCreate, user: dict = Depends(legacy.get_current_user)):
+async def create_disposal_notice(data: DisposalNoticeCreate, user: dict = Depends(legacy.require_feature("traceability_edit"))):
     return await _create_notice(data, user, notice_type="disposal", disposal_route=data.disposal_route)
 
 
 @router.post("/hold-notices/{notice_id}/disposal")
-async def dispose_hold(notice_id: str, data: HoldDisposalCreate, user: dict = Depends(legacy.require_feature("traceability"))):
+async def dispose_hold(notice_id: str, data: HoldDisposalCreate, user: dict = Depends(legacy.require_feature("traceability_edit"))):
     hold = await _get_notice("hold", notice_id, user)
     # Take identity, quantity and tenant from the saved hold, never the client.
     copied = NoticeCreate(
@@ -312,7 +321,8 @@ async def dispose_hold(notice_id: str, data: HoldDisposalCreate, user: dict = De
 
 @router.put("/hold-notices/{notice_id}/outcome")
 async def update_hold_outcome(notice_id: str, data: HoldOutcomeUpdate,
-                              user: dict = Depends(legacy.require_feature("traceability"))):
+                              user: dict = Depends(legacy.require_feature("traceability_edit"))):
+    _require_traceability_editor(user)
     hold = await _get_notice("hold", notice_id, user)
     version = hold.get("outcome_version", 0)
     if data.expected_version != version:
@@ -453,9 +463,8 @@ async def get_disposal_notice(notice_id: str, user: dict = Depends(legacy.get_cu
 
 
 async def _update_notice(notice_type: str, notice_id: str, data: NoticeUpdate, user: dict) -> dict:
+    _require_traceability_editor(user)
     record = await _get_notice(notice_type, notice_id, user)
-    if not legacy.is_admin(user) and record.get("created_by_id") != user.get("id"):
-        raise HTTPException(status_code=403, detail="Only the notice creator or an administrator can edit this notice")
 
     version = record.get("record_version", 0)
     if data.expected_version != version:
@@ -531,7 +540,7 @@ async def _update_notice(notice_type: str, notice_id: str, data: NoticeUpdate, u
 async def update_hold_notice(
     notice_id: str,
     data: NoticeUpdate,
-    user: dict = Depends(legacy.get_current_user),
+    user: dict = Depends(legacy.require_feature("traceability_edit")),
 ):
     return await _update_notice("hold", notice_id, data, user)
 
@@ -540,7 +549,7 @@ async def update_hold_notice(
 async def update_disposal_notice(
     notice_id: str,
     data: NoticeUpdate,
-    user: dict = Depends(legacy.get_current_user),
+    user: dict = Depends(legacy.require_feature("traceability_edit")),
 ):
     return await _update_notice("disposal", notice_id, data, user)
 

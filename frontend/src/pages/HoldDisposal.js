@@ -359,7 +359,7 @@ const HoldNoticeExportDialog = ({ open, onOpenChange, holds, companies, isSystem
   </Dialog>;
 };
 
-const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onDispose, onOutcome, onBulkExport, disposals = [], user, isAdminUser }) => {
+const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onDispose, onOutcome, onBulkExport, disposals = [], canEditNotices }) => {
   const isDisposal = type === 'disposal';
   return (
     <Card>
@@ -400,9 +400,9 @@ const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onD
                     )}
                     <TableCell className="text-right whitespace-nowrap">
                       <Button variant="outline" size="sm" onClick={() => onView(type, notice)}><Eye className="mr-1 h-4 w-4" />View</Button>
-                      {(isAdminUser || notice.created_by_id === user?.id) && <Button variant="ghost" size="sm" onClick={() => onEdit(type, notice)} title="Edit notice"><Pencil className="h-4 w-4" /></Button>}
-                      {!isDisposal && <Button variant="outline" size="sm" onClick={() => onOutcome(notice)}>Record Outcome</Button>}
-                      {!isDisposal && (disposals.some((item) => item.source_hold_id === notice.id)
+                      {canEditNotices && <Button variant="ghost" size="sm" onClick={() => onEdit(type, notice)} title="Edit notice"><Pencil className="h-4 w-4" /></Button>}
+                      {!isDisposal && canEditNotices && <Button variant="outline" size="sm" onClick={() => onOutcome(notice)}>Record Outcome</Button>}
+                      {!isDisposal && canEditNotices && (disposals.some((item) => item.source_hold_id === notice.id)
                         ? <Badge variant="secondary">Disposal notice raised</Badge>
                         : <Button variant="outline" size="sm" onClick={() => onDispose(notice)}><PackageX className="mr-1 h-4 w-4" />Create Disposal</Button>)}
                       <Button variant="ghost" size="sm" onClick={() => onDownload(type, notice)} title="Download PDF"><Download className="h-4 w-4" /></Button>
@@ -549,7 +549,7 @@ const HoldOutcomeForm = ({ notice, onSaved, onCancel, onRefresh }) => {
   </form>;
 };
 
-const DistributionLists = ({ lists, companies, isSystemAdmin, onChanged }) => {
+const DistributionLists = ({ lists, companies, isSystemAdmin, canManage, onChanged }) => {
   const [name, setName] = useState('');
   const [recipients, setRecipients] = useState('');
   const [companyId, setCompanyId] = useState('');
@@ -591,8 +591,8 @@ const DistributionLists = ({ lists, companies, isSystemAdmin, onChanged }) => {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
-      <Card>
+    <div className={`grid gap-6 ${canManage ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]' : ''}`}>
+      {canManage && <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><Plus className="h-5 w-5" />New Distribution List</CardTitle><CardDescription>Create a reusable group once, then send future notices to the whole group in one click.</CardDescription></CardHeader>
         <CardContent>
           <form onSubmit={createList} className="space-y-4">
@@ -604,7 +604,7 @@ const DistributionLists = ({ lists, companies, isSystemAdmin, onChanged }) => {
             <Button type="submit" className="w-full" disabled={saving}><Users className="mr-2 h-4 w-4" />{saving ? 'Saving...' : 'Save Distribution List'}</Button>
           </form>
         </CardContent>
-      </Card>
+      </Card>}
 
       <Card>
         <CardHeader><CardTitle>Saved Distribution Lists</CardTitle><CardDescription>{lists.length} saved list{lists.length === 1 ? '' : 's'}</CardDescription></CardHeader>
@@ -612,7 +612,7 @@ const DistributionLists = ({ lists, companies, isSystemAdmin, onChanged }) => {
           {lists.length === 0 ? <div className="py-10 text-center text-sm text-muted-foreground">No distribution lists yet.</div> : lists.map((list) => (
             <div key={list.id} className="rounded-lg border p-4 flex items-start justify-between gap-4">
               <div className="min-w-0"><p className="font-medium">{list.name}</p><p className="mt-1 text-sm text-muted-foreground">{list.recipients?.length || 0} recipient{list.recipients?.length === 1 ? '' : 's'}</p><p className="mt-2 text-xs text-muted-foreground break-words">{(list.recipients || []).join(' · ')}</p></div>
-              <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deleteList(list)}><Trash2 className="h-4 w-4" /></Button>
+              {canManage && <Button variant="ghost" size="sm" className="text-destructive" onClick={() => deleteList(list)}><Trash2 className="h-4 w-4" /></Button>}
             </div>
           ))}
         </CardContent>
@@ -752,7 +752,7 @@ const DisposalRouteConfig = ({ routes, companies, isSystemAdmin, onChanged }) =>
 };
 
 const HoldDisposal = () => {
-  const { user } = useAuth();
+  const { user, hasFeature } = useAuth();
   const [holds, setHolds] = useState([]);
   const [disposals, setDisposals] = useState([]);
   const [distributionLists, setDistributionLists] = useState([]);
@@ -771,6 +771,7 @@ const HoldDisposal = () => {
 
   const isSystemAdmin = user?.role === 'system_admin';
   const isAdminUser = ['system_admin', 'company_admin', 'admin'].includes(user?.role);
+  const canEditNotices = hasFeature('traceability_edit');
 
   const fetchData = async () => {
     try {
@@ -887,18 +888,18 @@ const HoldDisposal = () => {
         </TabsList>
 
         <TabsContent value="hold" className="space-y-6">
-          <NoticeForm type="hold" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('hold')} />
-          <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} onBulkExport={() => setExportOpen(true)} disposals={disposals} user={user} isAdminUser={isAdminUser} />
+          {canEditNotices ? <NoticeForm type="hold" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('hold')} /> : <Card><CardContent className="pt-6 text-sm text-muted-foreground">You have view-only access. Traceability — Edit permission is required to create or change hold notices.</CardContent></Card>}
+          <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} onBulkExport={() => setExportOpen(true)} disposals={disposals} canEditNotices={canEditNotices} />
         </TabsContent>
 
         <TabsContent value="disposal" className="space-y-6">
-          <DisposalFromHoldCard holds={holds} disposals={disposals} onStart={setSourceHold} />
-          <NoticeForm type="disposal" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('disposal')} />
-          <NoticeHistory type="disposal" notices={disposals} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} user={user} isAdminUser={isAdminUser} />
+          {canEditNotices && <DisposalFromHoldCard holds={holds} disposals={disposals} onStart={setSourceHold} />}
+          {canEditNotices ? <NoticeForm type="disposal" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('disposal')} /> : <Card><CardContent className="pt-6 text-sm text-muted-foreground">You have view-only access. Traceability — Edit permission is required to create or change disposal notices.</CardContent></Card>}
+          <NoticeHistory type="disposal" notices={disposals} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} canEditNotices={canEditNotices} />
         </TabsContent>
 
         <TabsContent value="lists">
-          <DistributionLists lists={distributionLists} companies={companies} isSystemAdmin={isSystemAdmin} onChanged={fetchData} />
+          <DistributionLists lists={distributionLists} companies={companies} isSystemAdmin={isSystemAdmin} canManage={canEditNotices} onChanged={fetchData} />
         </TabsContent>
 
         {isAdminUser && (
@@ -916,10 +917,10 @@ const HoldDisposal = () => {
           {viewTarget && <NoticeViewer
             type={viewTarget.type}
             notice={viewTarget.notice}
-            canEdit={isAdminUser || viewTarget.notice.created_by_id === user?.id}
+            canEdit={canEditNotices}
             onClose={() => setViewTarget(null)}
             onEdit={() => { setEditTarget(viewTarget); setViewTarget(null); }}
-            onDispose={viewTarget.type === 'hold' && !disposals.some((notice) => notice.source_hold_id === viewTarget.notice.id) ? () => { setSourceHold(viewTarget.notice); setViewTarget(null); } : null}
+            onDispose={canEditNotices && viewTarget.type === 'hold' && !disposals.some((notice) => notice.source_hold_id === viewTarget.notice.id) ? () => { setSourceHold(viewTarget.notice); setViewTarget(null); } : null}
           />}
         </DialogContent>
       </Dialog>
