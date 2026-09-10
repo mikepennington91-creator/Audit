@@ -66,6 +66,14 @@ create index if not exists app_documents_audit_completed_idx
 create index if not exists app_documents_company_release_status_idx
     on public.app_documents (collection, (data ->> 'company_id'), (data ->> 'releaseStatus'), (data ->> 'created_at') desc);
 
+create index if not exists app_documents_import_content_idx
+    on public.app_documents ((data ->> 'company_id'), (data ->> 'content_sha256'))
+    where collection = 'document_import_items' and data ? 'content_sha256';
+
+create index if not exists app_documents_import_batch_idx
+    on public.app_documents ((data ->> 'batch_id'), (data ->> 'uploaded_at'))
+    where collection = 'document_import_items';
+
 revoke all on table public.app_documents from anon, authenticated;
 
 -- Activity entries are generated in the same transaction as the change. No

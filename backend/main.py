@@ -17,6 +17,7 @@ from app_core.audit_runs import router as audit_runs_router
 from app_core.company_activity import router as company_activity_router
 from app_core.compliance_operations import router as compliance_operations_router
 from app_core.disposal_routes import router as disposal_routes_router
+from app_core.document_imports import router as document_imports_router
 from app_core.documents import router as documents_router
 from app_core.hold_disposal import router as hold_disposal_router
 from app_core.notifications import router as notifications_router
@@ -40,6 +41,7 @@ app.include_router(audit_runs_router)
 app.include_router(company_activity_router)
 app.include_router(compliance_operations_router)
 app.include_router(disposal_routes_router)
+app.include_router(document_imports_router)
 app.include_router(documents_router)
 app.include_router(hold_disposal_router)
 app.include_router(notifications_router)
@@ -156,6 +158,7 @@ _REPLACED_ROUTES = {
     ("PUT", "/api/traceability/documents/{doc_id}"),
     ("GET", "/api/traceability/documents/{doc_id}/pdf"),
     ("POST", "/api/traceability/documents/batch-pdf"),
+    ("PUT", "/api/traceability/documents/{doc_id}/close-out"),
     ("POST", "/api/scheduled-audits"),
     ("GET", "/api/scheduled-audits"),
     ("GET", "/api/scheduled-audits/my-schedule"),
@@ -193,6 +196,9 @@ async def startup_event():
     await legacy.db.disposal_routes.create_index("id", unique=True)
     await legacy.db.hold_notices.create_index("id", unique=True)
     await legacy.db.disposal_notices.create_index("id", unique=True)
+    await legacy.db.document_import_batches.create_index("id", unique=True)
+    await legacy.db.document_import_items.create_index("id", unique=True)
+    await legacy.db.document_import_items.create_index("content_sha256")
     await legacy.db.training_records.create_index("id", unique=True)
     await legacy.db.mock_recalls.create_index("id", unique=True)
     await legacy.db.system_job_events.create_index("id", unique=True)

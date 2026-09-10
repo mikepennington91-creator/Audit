@@ -4,7 +4,7 @@ import html
 import io
 import re
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -14,6 +14,7 @@ import server as legacy
 from app_core.disposal_routes import DISPOSAL_ROUTES, resolve_disposal_route
 from app_core.email_service import EmailAttachment, send_email
 from app_core.factory_notice_pdf import notice_pdf_bytes as _notice_pdf_bytes
+from app_core.hold_notice_excel import build_hold_notice_workbook
 from app_core.notice_files import notice_filename
 from date_formats import parse_date
 
@@ -107,6 +108,16 @@ class HoldOutcomeUpdate(BaseModel):
 class NoticeEmailRequest(BaseModel):
     distribution_list_id: str
     message: Optional[str] = Field(default=None, max_length=2000)
+
+
+class HoldNoticeBulkExport(BaseModel):
+    mode: Literal["all", "date", "selected", "reference"] = "all"
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    notice_ids: list[str] = Field(default_factory=list, max_length=2000)
+    reference_from: Optional[str] = Field(default=None, max_length=60)
+    reference_to: Optional[str] = Field(default=None, max_length=60)
+    company_id: Optional[str] = None
 
 
 def _company_scope(user: dict, requested_company_id: Optional[str] = None) -> Optional[str]:
@@ -336,6 +347,86 @@ async def _list_notices(notice_type: str, user: dict) -> list[dict]:
 @router.get("/hold-notices")
 async def list_hold_notices(user: dict = Depends(legacy.get_current_user)):
     return await _list_notices("hold", user)
+
+
+@router.post("/hold-notices/bulk-export")
+async def export_hold_notices(
+    data: HoldNoticeBulkExport,
+    user: dict = Depends(legacy.get_current_user),
+):
+    """Export the user's company hold register with an explicit selection method."""
+    if data.mode == "selected" and not data.notice_ids:
+        raise HTTPException(status_code=400, detail="Select at least one hold notice")
+    if data.mode == "reference" and not (data.reference_from or data.reference_to):
+        raise HTTPException(status_code=400, detail="Enter a starting or ending reference")
+    if legacy.is_system_admin(user) and not data.company_id:
+        raise HTTPException(status_code=400, detail="Select a company for this export")
+
+    try:
+        date_from = parse_date(data.date_from) if data.date_from else None
+        date_to = parse_date(data.date_to) if data.date_to else None
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Export dates must be valid") from exc
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="Start date cannot be after end date")
+
+    if legacy.is_system_admin(user):
+        await _validate_company(data.company_id)
+        query = {"company_id": data.company_id}
+    else:
+        query = {"company_id": user.get("company_id")}
+
+    holds = await legacy.db.hold_notices.find(query, {"_id": 0}).sort("event_date", 1).to_list(10_000)
+    selected_ids = set(data.notice_ids)
+    reference_from = (data.reference_from or "").strip().casefold()
+    reference_to = (data.reference_to or "").strip().casefold()
+    if reference_from and reference_to and reference_from > reference_to:
+        raise HTTPException(status_code=400, detail="Starting reference cannot be after ending reference")
+    filtered = []
+    for hold in holds:
+        if data.mode == "selected" and hold.get("id") not in selected_ids:
+            continue
+        if data.mode == "date":
+            try:
+                held_on = parse_date(str(hold.get("event_date") or ""))
+            except (TypeError, ValueError):
+                continue
+            if date_from and held_on < date_from:
+                continue
+            if date_to and held_on > date_to:
+                continue
+        if data.mode == "reference":
+            reference = str(hold.get("reference") or "").strip().casefold()
+            if reference_from and reference < reference_from:
+                continue
+            if reference_to and reference > reference_to:
+                continue
+        filtered.append(hold)
+
+    disposals = await legacy.db.disposal_notices.find(query, {"_id": 0}).sort("event_date", -1).to_list(10_000)
+    by_hold_id = {}
+    by_reference = {}
+    for disposal in disposals:
+        source_hold_id = disposal.get("source_hold_id")
+        if source_hold_id and source_hold_id not in by_hold_id:
+            by_hold_id[source_hold_id] = disposal
+        reference = str(disposal.get("reference") or "").strip().casefold()
+        if reference and reference not in by_reference:
+            by_reference[reference] = disposal
+    for hold in filtered:
+        hold_id = str(hold.get("id") or "")
+        if hold_id not in by_hold_id:
+            matched = by_reference.get(str(hold.get("reference") or "").strip().casefold())
+            if matched:
+                by_hold_id[hold_id] = matched
+
+    workbook = build_hold_notice_workbook(filtered, by_hold_id)
+    filename = f"hold_notice_register_{legacy.get_uk_time().date().isoformat()}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(workbook),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/disposal-notices")

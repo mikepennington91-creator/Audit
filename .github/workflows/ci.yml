@@ -34,6 +34,7 @@ jobs:
           pytest -q
           tests/test_corrective_actions.py
           tests/test_document_admin_actions.py
+          tests/test_document_imports.py
           tests/test_modular_workflows.py
           tests/test_hold_disposal_regressions.py
           tests/test_notice_workflow.py

@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { toast } from 'sonner';
 import {
   Plus, FileText, ChevronRight, Trash2,
-  AlertTriangle, Eye, FileDown, ClipboardCheck, PenLine, Copy, CircleCheck, Mail
+  AlertTriangle, Eye, FileDown, ClipboardCheck, PenLine, Copy, CircleCheck, Mail, Upload
 } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -157,7 +157,10 @@ const DocumentList = () => {
     <div className="space-y-6" data-testid="document-list-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div><h1 className="text-3xl font-bold tracking-tight">Documents</h1><p className="text-muted-foreground mt-1">Production paperwork and traceability documents</p></div>
-        {hasFeature('documents_edit') && <Button onClick={() => navigate('/documents/design')} data-testid="create-template-btn"><Plus className="w-4 h-4 mr-2" />New Template</Button>}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => navigate('/documents/import')} data-testid="paperwork-import-btn"><Upload className="w-4 h-4 mr-2" />Import Paperwork</Button>
+          {hasFeature('documents_edit') && <Button onClick={() => navigate('/documents/design')} data-testid="create-template-btn"><Plus className="w-4 h-4 mr-2" />New Template</Button>}
+        </div>
       </div>
 
       <Tabs defaultValue="templates">

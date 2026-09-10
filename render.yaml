@@ -43,6 +43,22 @@ services:
         value: 900
       - key: INTERNAL_JOB_SECRET
         generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_DOCUMENT_MODEL
+        value: gpt-4.1
+      # Optional S3-compatible object storage for high-volume source scans.
+      # Without these, scans are stored separately in the application database.
+      - key: PAPERWORK_STORAGE_BUCKET
+        sync: false
+      - key: PAPERWORK_STORAGE_REGION
+        value: eu-west-2
+      - key: PAPERWORK_STORAGE_ENDPOINT
+        sync: false
+      - key: PAPERWORK_STORAGE_ACCESS_KEY
+        sync: false
+      - key: PAPERWORK_STORAGE_SECRET_KEY
+        sync: false
       - key: PYTHON_VERSION
         value: 3.11.0
 

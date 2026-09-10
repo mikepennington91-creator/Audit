@@ -11,7 +11,7 @@ import { Badge } from '../components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Separator } from '../components/ui/separator';
 import { toast } from 'sonner';
-import { ArrowLeft, Save, Send, Plus, Trash2, Table2, LayoutList } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, FileSearch, Save, Send, Plus, Trash2, Table2, LayoutList } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -23,8 +23,28 @@ const DocumentFill = () => {
   const [tableRows, setTableRows] = useState([{}]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [sourceScan, setSourceScan] = useState(null);
 
   useEffect(() => { loadDocument(); }, [documentId]);
+
+  useEffect(() => {
+    const itemId = doc?.import_source?.import_item_id;
+    if (!itemId) return undefined;
+    let active = true;
+    let objectUrl;
+    axios.get(`${API}/document-imports/items/${itemId}/scan`, { responseType: 'blob' })
+      .then(response => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(response.data);
+        setSourceScan({ url: objectUrl, type: response.data.type || doc.import_source?.content_type || '' });
+      })
+      .catch(() => toast.error('The draft loaded, but its source scan could not be displayed'));
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setSourceScan(null);
+    };
+  }, [doc?.import_source?.import_item_id]);
 
   const loadDocument = async () => {
     try {
@@ -89,6 +109,8 @@ const DocumentFill = () => {
       }
     }
 
+    if (doc.imported_draft && !window.confirm('Publish this imported draft as a completed document? Confirm that you have checked it against the source paperwork.')) return;
+
     setSubmitting(true);
     try {
       const fieldValues = Object.entries(headerValues).map(([field_id, value]) => ({ field_id, value }));
@@ -147,11 +169,34 @@ const DocumentFill = () => {
             <div className="flex items-center gap-2 mt-1">
               <Badge variant="secondary">{doc.document_reference}</Badge>
               <Badge variant="outline">v{doc.version}</Badge>
+              {doc.imported_draft && <Badge className="bg-amber-500 text-black hover:bg-amber-500">Imported draft</Badge>}
             </div>
           </div>
         </div>
         <Button variant="outline" onClick={saveProgress} data-testid="save-progress-btn"><Save className="w-4 h-4 mr-2" />Save</Button>
       </div>
+
+      {doc.imported_draft && (
+        <Card className="border-amber-500/60 bg-amber-500/5" data-testid="imported-draft-review">
+          <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-5 w-5 text-amber-600" />Check before publishing</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p>This record was imported by {doc.imported_by_name || 'a user'} and is not yet a completed production record. Compare every value with the original.</p>
+            {!!doc.import_warnings?.length && <div><p className="font-medium">Scan warnings</p><ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">{doc.import_warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div>}
+            {!!doc.import_review_flags?.length && <div><p className="font-medium text-amber-700 dark:text-amber-400">{doc.import_review_flags.length} field(s) were uncertain or missing:</p><ul className="mt-1 list-disc space-y-1 pl-5 text-muted-foreground">{doc.import_review_flags.map((flag, index) => <li key={`${flag.field_id}-${index}`}>{flag.label}{typeof flag.confidence === 'number' ? ` (${Math.round(flag.confidence * 100)}% confidence)` : ''}</li>)}</ul></div>}
+          </CardContent>
+        </Card>
+      )}
+
+      {sourceScan && (
+        <Card data-testid="source-scan-preview">
+          <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base"><FileSearch className="h-5 w-5 text-primary" />Original scan</CardTitle></CardHeader>
+          <CardContent>
+            {sourceScan.type === 'application/pdf'
+              ? <iframe src={sourceScan.url} title="Original production paperwork" className="h-[65vh] min-h-[420px] w-full rounded-lg border bg-white" />
+              : <div className="max-h-[70vh] overflow-auto rounded-lg border bg-white p-2"><img src={sourceScan.url} alt="Original production paperwork" className="mx-auto h-auto max-w-full" /></div>}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Header Fields */}
       {headerFields.length > 0 && (
@@ -162,7 +207,7 @@ const DocumentFill = () => {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {headerFields.map((field, idx) => (
-                <div key={field.id} className="space-y-1" data-testid={`header-field-${idx}`}>
+                <div key={field.id} className={`space-y-1 rounded-md ${doc.import_review_flags?.some(flag => flag.field_id === field.id) ? 'ring-2 ring-amber-500/70 p-2' : ''}`} data-testid={`header-field-${idx}`}>
                   <Label className="text-sm font-medium">
                     {field.label} {field.required && <span className="text-destructive">*</span>}
                   </Label>
@@ -231,7 +276,7 @@ const DocumentFill = () => {
 
       <Button onClick={submitDocument} disabled={submitting} className="w-full" size="lg" data-testid="submit-document-btn">
         <Send className="w-4 h-4 mr-2" />
-        {submitting ? 'Submitting...' : 'Complete Document'}
+        {submitting ? 'Publishing...' : doc.imported_draft ? 'Complete and Publish Document' : 'Complete Document'}
       </Button>
     </div>
   );
