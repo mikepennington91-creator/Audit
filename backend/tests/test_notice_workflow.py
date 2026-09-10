@@ -59,7 +59,8 @@ def setup(monkeypatch):
     route = AsyncMock(return_value={"id": "route-1", "key": "recycling", "name": "Recycling",
                                    "color_hex": "#7E22CE", "text_color": "#FFFFFF"})
     monkeypatch.setattr(notices, "resolve_disposal_route", route)
-    user = dict(id="user-a", company_id="company-a", role="user", name="QA")
+    user = dict(id="user-a", company_id="company-a", role="user", name="QA",
+                feature_access={"traceability_view": True, "traceability_edit": True})
     return hold, db, user, route
 
 

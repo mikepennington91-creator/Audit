@@ -164,7 +164,7 @@ def test_notice_cannot_be_viewed_across_companies(monkeypatch):
     assert error.value.status_code == 404
 
 
-def test_non_creator_cannot_edit_another_users_notice(monkeypatch):
+def test_user_without_traceability_edit_cannot_edit_notice(monkeypatch):
     record = {
         "id": "hold-1", "company_id": "company-a", "created_by_id": "creator-1",
         "notice_type": "hold", "reference": "HOLD-TEST", "record_version": 0,
@@ -173,9 +173,30 @@ def test_non_creator_cannot_edit_another_users_notice(monkeypatch):
     with pytest.raises(legacy.HTTPException) as error:
         asyncio.run(update_hold_notice(
             "hold-1", notice_update(),
-            {"id": "viewer-1", "role": "user", "company_id": "company-a"},
+            {"id": "viewer-1", "role": "user", "company_id": "company-a", "feature_access": {"traceability_view": True}},
         ))
     assert error.value.status_code == 403
+
+
+def test_editor_can_edit_notice_created_by_another_user(monkeypatch):
+    record = {
+        "id": "hold-1", "company_id": "company-a", "created_by_id": "creator-1",
+        "created_by_name": "Creator", "notice_type": "hold", "reference": "HOLD-TEST",
+        "rm_number": "RM100", "quantity": "40 kg", "ingredient_name": "Chocolate",
+        "reason": "Packaging damage", "action_required": "Segregate stock",
+        "event_date": "2026-09-07", "event_time": "09:15", "line_area": "Warehouse",
+        "our_batch": "B100", "vendor_batch": "V200", "date_delivered": "2026-09-06",
+        "quantity_delivered": "500 kg", "record_version": 0, "edit_history": [],
+    }
+    collection = NoticeCollection(record)
+    monkeypatch.setattr(legacy, "db", SimpleNamespace(hold_notices=collection))
+    result = asyncio.run(update_hold_notice(
+        "hold-1", notice_update(change_reason="QA editor confirmed quantity"),
+        {"id": "editor-1", "name": "QA Editor", "role": "user", "company_id": "company-a",
+         "feature_access": {"traceability_view": True, "traceability_edit": True}},
+    ))
+    assert result["record_version"] == 1
+    assert result["edit_history"][0]["updated_by_name"] == "QA Editor"
 
 
 def test_creator_edit_records_reason_and_field_history(monkeypatch):
@@ -192,7 +213,8 @@ def test_creator_edit_records_reason_and_field_history(monkeypatch):
     monkeypatch.setattr(legacy, "db", SimpleNamespace(hold_notices=collection))
     result = asyncio.run(update_hold_notice(
         "hold-1", notice_update(),
-        {"id": "creator-1", "name": "Creator", "role": "user", "company_id": "company-a"},
+        {"id": "creator-1", "name": "Creator", "role": "user", "company_id": "company-a",
+         "feature_access": {"traceability_view": True, "traceability_edit": True}},
     ))
     assert result["quantity"] == "50 kg"
     assert result["record_version"] == 1
