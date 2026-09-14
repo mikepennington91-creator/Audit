@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import html
+import io
 import uuid
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from starlette.responses import StreamingResponse
 
 import server as legacy
+from app_core.action_excel import build_action_workbook
 from app_core.email_service import public_app_url, send_email
 from app_core.notifications import create_notification, mark_action_notifications_read
 from app_core.preferences import email_preference_enabled
@@ -54,6 +57,58 @@ def action_payload(action: Dict[str, Any]) -> Dict[str, Any]:
         "reviewer_user_id": action_reviewer_id(action),
         "reviewer_user_name": action.get("reviewer_user_name") or action.get("created_by_name"),
     }
+
+
+def action_access_query(user: dict, assigned_to_me: bool = False, raised_by_me: bool = False) -> dict:
+    """Return the tenant-safe action scope for the selected personal view."""
+    if assigned_to_me and raised_by_me:
+        raise HTTPException(status_code=400, detail="Choose either assigned actions or raised actions")
+    if assigned_to_me:
+        return {"assigned_user_id": user["id"]}
+    if raised_by_me:
+        return {
+            "created_by_id": user["id"],
+            "assigned_user_id": {"$ne": user["id"]},
+        }
+    if legacy.is_system_admin(user):
+        return {}
+    if user["role"] in [
+        legacy.UserRole.COMPANY_ADMIN,
+        legacy.UserRole.ADMIN,
+        legacy.UserRole.AUDIT_CREATOR,
+    ]:
+        return {"company_id": user.get("company_id")}
+    return {"$or": [
+        {"assigned_user_id": user["id"]},
+        {"reviewer_user_id": user["id"]},
+        {"created_by_id": user["id"]},
+    ]}
+
+
+async def filtered_actions(
+    user: dict,
+    *,
+    status: Optional[str] = None,
+    assigned_to_me: bool = False,
+    raised_by_me: bool = False,
+    include_archived: bool = False,
+) -> List[Dict[str, Any]]:
+    allowed_statuses = {"open", "overdue", "awaiting_review", "effectiveness_pending", "completed"}
+    if status and status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail="Unknown action status")
+    query = action_access_query(user, assigned_to_me, raised_by_me)
+    actions = await legacy.db.corrective_actions.find(
+        query, {"_id": 0, "history": 0}
+    ).sort("due_date", 1).to_list(10_000)
+    results = []
+    for action in actions:
+        item = action_payload(action)
+        if bool(item.get("archived")) != include_archived:
+            continue
+        if status and item["status"] != status:
+            continue
+        results.append(item)
+    return results
 
 
 async def _action_owner(action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -240,48 +295,20 @@ async def update_run_audit(
 async def get_corrective_actions(
     status: Optional[str] = None,
     assigned_to_me: bool = False,
+    raised_by_me: bool = False,
     include_archived: bool = False,
     limit: int = 100,
     user: dict = Depends(legacy.require_feature("actions")),
 ) -> List[Dict[str, Any]]:
     limit = max(1, min(int(limit), 500))
-    allowed_statuses = {"open", "overdue", "awaiting_review", "effectiveness_pending", "completed"}
-    if status and status not in allowed_statuses:
-        raise HTTPException(status_code=400, detail="Unknown action status")
-
-    if legacy.is_system_admin(user):
-        query = {}
-    elif user["role"] in [
-        legacy.UserRole.COMPANY_ADMIN,
-        legacy.UserRole.ADMIN,
-        legacy.UserRole.AUDIT_CREATOR,
-    ]:
-        query = {"company_id": user.get("company_id")}
-    else:
-        query = {
-            "$or": [
-                {"assigned_user_id": user["id"]},
-                {"reviewer_user_id": user["id"]},
-                {"created_by_id": user["id"]},
-            ]
-        }
-    if assigned_to_me:
-        query = {"assigned_user_id": user["id"]}
-
-    actions = await legacy.db.corrective_actions.find(
-        query, {"_id": 0, "history": 0}
-    ).sort("due_date", 1).to_list(5000)
-    results = []
-    for action in actions:
-        item = action_payload(action)
-        if item.get("archived", False) and not include_archived:
-            continue
-        if status and item["status"] != status:
-            continue
-        results.append(item)
-        if len(results) >= limit:
-            break
-    return results
+    results = await filtered_actions(
+        user,
+        status=status,
+        assigned_to_me=assigned_to_me,
+        raised_by_me=raised_by_me,
+        include_archived=include_archived,
+    )
+    return results[:limit]
 
 
 @router.post("/actions", status_code=201)
@@ -404,20 +431,10 @@ async def change_action_reviewer(
 async def corrective_action_counts(
     include_archived: bool = False,
     assigned_to_me: bool = False,
+    raised_by_me: bool = False,
     user: dict = Depends(legacy.require_feature("actions")),
 ):
-    if legacy.is_system_admin(user):
-        query = {}
-    elif user["role"] in [legacy.UserRole.COMPANY_ADMIN, legacy.UserRole.ADMIN, legacy.UserRole.AUDIT_CREATOR]:
-        query = {"company_id": user.get("company_id")}
-    else:
-        query = {"$or": [
-            {"assigned_user_id": user["id"]},
-            {"reviewer_user_id": user["id"]},
-            {"created_by_id": user["id"]},
-        ]}
-    if assigned_to_me:
-        query = {"assigned_user_id": user["id"]}
+    query = action_access_query(user, assigned_to_me, raised_by_me)
     actions = await legacy.db.corrective_actions.find(
         query, {"_id": 0, "history": 0, "action_taken": 0}
     ).to_list(5000)
@@ -429,6 +446,30 @@ async def corrective_action_counts(
         counts["all"] += 1
         counts[status] += 1
     return counts
+
+
+@router.get("/actions-export.xlsx")
+async def export_corrective_actions(
+    status: Optional[str] = None,
+    assigned_to_me: bool = False,
+    raised_by_me: bool = False,
+    include_archived: bool = False,
+    user: dict = Depends(legacy.require_feature("actions")),
+):
+    actions = await filtered_actions(
+        user,
+        status=status,
+        assigned_to_me=assigned_to_me,
+        raised_by_me=raised_by_me,
+        include_archived=include_archived,
+    )
+    workbook = build_action_workbook(actions)
+    filename = f"corrective_actions_{legacy.get_uk_time().date().isoformat()}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(workbook),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/actions/{action_id}")

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { AlertTriangle, Archive, CheckCircle2, Clock3, Eye, FileDown, History, Mail, Plus, RotateCcw, ShieldCheck, Trash2, UserRoundCog, XCircle } from 'lucide-react';
+import { AlertTriangle, Archive, CheckCircle2, Clock3, Eye, FileDown, FileSpreadsheet, History, Mail, Plus, RotateCcw, ShieldCheck, Trash2, UserRoundCog, XCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import EmailReportDialog from '../components/EmailReportDialog';
 import { Badge } from '../components/ui/badge';
@@ -28,12 +28,14 @@ const Actions = () => {
   const [actionLimit, setActionLimit] = useState(100);
   const [showArchived, setShowArchived] = useState(false);
   const [myActionsOnly, setMyActionsOnly] = useState(false);
+  const [raisedByMeOnly, setRaisedByMeOnly] = useState(false);
   const [showCreateAction, setShowCreateAction] = useState(false);
   const [newAction, setNewAction] = useState({ title: '', non_conformance: '', action_required: '', assigned_user_id: '', reviewer_user_id: '', due_date: '' });
   const [selectedAction, setSelectedAction] = useState(null);
   const [actionTaken, setActionTaken] = useState('');
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState('');
+  const [bulkDownloading, setBulkDownloading] = useState(false);
   const [emailActionId, setEmailActionId] = useState(null);
   const [reassignUserId, setReassignUserId] = useState('');
   const [reassignReason, setReassignReason] = useState('');
@@ -51,10 +53,11 @@ const Actions = () => {
         include_archived: canAdmin && showArchived,
         status: statusFilter === 'all' ? undefined : statusFilter,
         assigned_to_me: myActionsOnly,
+        raised_by_me: raisedByMeOnly,
         limit: actionLimit,
       }});
       setActions(response.data);
-      const countResponse = await axios.get(`${API}/actions/counts`, { params: { include_archived: showArchived, assigned_to_me: myActionsOnly } });
+      const countResponse = await axios.get(`${API}/actions/counts`, { params: { include_archived: showArchived, assigned_to_me: myActionsOnly, raised_by_me: raisedByMeOnly } });
       setCounts(countResponse.data);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to load corrective actions');
@@ -65,7 +68,7 @@ const Actions = () => {
 
   useEffect(() => {
     fetchActions();
-  }, [statusFilter, showArchived, myActionsOnly, actionLimit]);
+  }, [statusFilter, showArchived, myActionsOnly, raisedByMeOnly, actionLimit]);
 
   useEffect(() => {
     axios.get(`${API}/action-assignees`).then((r) => setAssignees(r.data)).catch(() => setAssignees([]));
@@ -302,6 +305,34 @@ const Actions = () => {
     }
   };
 
+  const downloadActionRegister = async () => {
+    setBulkDownloading(true);
+    try {
+      const response = await axios.get(`${API}/actions-export.xlsx`, {
+        params: {
+          include_archived: canAdmin && showArchived,
+          status: statusFilter === 'all' ? undefined : statusFilter,
+          assigned_to_me: myActionsOnly,
+          raised_by_me: raisedByMeOnly,
+        },
+        responseType: 'blob',
+      });
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `corrective_actions_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Corrective action register downloaded');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to download the corrective action register');
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
   const filters = [
     { key: 'all', label: `All (${counts.all})` },
     { key: 'open', label: `Open (${counts.open})` },
@@ -325,7 +356,7 @@ const Actions = () => {
 
       <Card>
         <CardHeader className="space-y-4">
-          <div className="flex items-center justify-between gap-3 flex-wrap"><CardTitle className="text-lg">Action Reports</CardTitle><div className="flex items-center gap-4"><div className="flex items-center gap-2"><Switch id="my-actions-only" checked={myActionsOnly} onCheckedChange={setMyActionsOnly} /><Label htmlFor="my-actions-only" className="cursor-pointer">My actions only</Label></div>{canAdmin && <Button variant={showArchived ? 'default' : 'outline'} size="sm" onClick={() => { setShowArchived(!showArchived); setStatusFilter('all'); }}>{showArchived ? 'Viewing Archived' : 'View Archived'}</Button>}</div></div>
+          <div className="flex items-center justify-between gap-3 flex-wrap"><CardTitle className="text-lg">Action Reports</CardTitle><div className="flex items-center gap-4 flex-wrap"><div className="flex items-center gap-2"><Switch id="my-actions-only" checked={myActionsOnly} onCheckedChange={(checked) => { setMyActionsOnly(checked); if (checked) setRaisedByMeOnly(false); setActionLimit(100); }} /><Label htmlFor="my-actions-only" className="cursor-pointer">My actions only</Label></div><div className="flex items-center gap-2"><Switch id="raised-by-me-only" checked={raisedByMeOnly} onCheckedChange={(checked) => { setRaisedByMeOnly(checked); if (checked) setMyActionsOnly(false); setActionLimit(100); }} /><Label htmlFor="raised-by-me-only" className="cursor-pointer">Raised by me, assigned to others</Label></div><Button variant="outline" size="sm" onClick={downloadActionRegister} disabled={bulkDownloading}><FileSpreadsheet className="w-4 h-4 mr-2" />{bulkDownloading ? 'Preparing...' : 'Bulk Download'}</Button>{canAdmin && <Button variant={showArchived ? 'default' : 'outline'} size="sm" onClick={() => { setShowArchived(!showArchived); setStatusFilter('all'); }}>{showArchived ? 'Viewing Archived' : 'View Archived'}</Button>}</div></div>
           <div className="flex flex-wrap gap-2">{filters.map((filter) => <Button key={filter.key} size="sm" variant={statusFilter === filter.key ? 'default' : 'outline'} onClick={() => setStatusFilter(filter.key)}>{filter.label}</Button>)}</div>
         </CardHeader>
         <CardContent>
