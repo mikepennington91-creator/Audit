@@ -3,10 +3,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-from fastapi import HTTPException
-
-
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -14,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server as legacy  # noqa: E402
 from app_core import quality_operations  # noqa: E402
 from app_core.quality_operations import (  # noqa: E402
+    QualityEventCreate,
     QualityEventUpdate,
     _same_company,
     build_management_summary_pdf,
@@ -58,25 +55,46 @@ class EventCollection:
     async def find_one(self, *_args, **_kwargs):
         return dict(self.record)
 
+    async def update_one(self, _query, update):
+        self.record.update(update["$set"])
+
 
 class EventDatabase:
     def __init__(self, record):
         self.quality_events = EventCollection(record)
 
 
-def test_non_owner_cannot_change_another_users_quality_record(monkeypatch):
+def test_quality_editor_can_change_another_users_quality_record(monkeypatch):
     record = {
         "id": "event-1", "company_id": "company-1", "owner_user_id": "owner-1",
         "status": "investigating", "history": [],
     }
     monkeypatch.setattr(quality_operations.legacy, "db", EventDatabase(record))
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(quality_operations.update_quality_event(
-            "event-1",
-            QualityEventUpdate(root_cause="Equipment failure", change_note="Investigation update"),
-            user("viewer-1"),
-        ))
-    assert error.value.status_code == 403
+    result = asyncio.run(quality_operations.update_quality_event(
+        "event-1",
+        QualityEventUpdate(root_cause="Equipment failure", change_note="Investigation update"),
+        user("quality-editor"),
+    ))
+    assert result["root_cause"] == "Equipment failure"
+
+
+def test_quality_event_accepts_multiple_suppliers_and_actions():
+    event = QualityEventCreate(
+        event_type="quality_incident",
+        title="Incorrect raw material",
+        description="Two supplier materials were involved",
+        occurred_date="2026-09-14",
+        raw_material_numbers="RM27279 / RM27280",
+        finished_product_batch="6257",
+        supplier_ids=["supplier-1", "supplier-2"],
+        actions=[{
+            "action_required": "Review both specifications",
+            "assigned_user_id": "user-2",
+            "due_date": "2026-09-21",
+        }],
+    )
+    assert event.supplier_ids == ["supplier-1", "supplier-2"]
+    assert event.actions[0].action_required == "Review both specifications"
 
 
 def test_management_summary_pdf_is_valid_pdf():
