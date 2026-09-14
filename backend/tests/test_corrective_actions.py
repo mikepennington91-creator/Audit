@@ -46,6 +46,24 @@ def test_corrective_action_status_marks_overdue_and_completed():
     assert corrective_action_status({"status": "completed", "due_date": yesterday}) == "completed"
 
 
+def test_raised_by_me_scope_excludes_actions_also_assigned_to_me():
+    user = {"id": "mike", "role": "user", "company_id": "company-1"}
+    assert actions.action_access_query(user, raised_by_me=True) == {
+        "created_by_id": "mike",
+        "assigned_user_id": {"$ne": "mike"},
+    }
+
+
+def test_personal_action_filters_are_mutually_exclusive():
+    user = {"id": "mike", "role": "user", "company_id": "company-1"}
+    try:
+        actions.action_access_query(user, assigned_to_me=True, raised_by_me=True)
+    except HTTPException as exc:
+        assert exc.status_code == 400
+    else:
+        raise AssertionError("Expected mutually exclusive action filters")
+
+
 def test_audit_answer_preserves_legacy_corrective_action_fields():
     # Department ownership remains readable for historical audit records even
     # though newly submitted corrective actions now require a registered user.
