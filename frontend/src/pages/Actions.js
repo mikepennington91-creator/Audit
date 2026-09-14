@@ -365,10 +365,11 @@ const Actions = () => {
           ) : filteredActions.length ? (
             <div className="space-y-4"><div className="overflow-x-auto">
               <Table>
-                <TableHeader><TableRow><TableHead>Non-Conformance</TableHead><TableHead>Action Required</TableHead><TableHead>Owner</TableHead><TableHead>When</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Report</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Reference</TableHead><TableHead>Non-Conformance</TableHead><TableHead>Action Required</TableHead><TableHead>Owner</TableHead><TableHead>When</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Report</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {filteredActions.map((action) => (
                     <TableRow key={action.id}>
+                      <TableCell className="font-semibold">{action.reference || '-'}</TableCell>
                       <TableCell className="max-w-xs"><p className="font-medium">{action.audit_name}</p><p className="text-sm text-muted-foreground line-clamp-2">{action.non_conformance}</p></TableCell>
                       <TableCell className="max-w-xs">{action.action_required}</TableCell>
                       <TableCell>{assignedTo(action)}</TableCell>
@@ -403,9 +404,9 @@ const Actions = () => {
 
       <Dialog open={!!selectedAction} onOpenChange={(open) => { if (!open) setSelectedAction(null); }}>
         <DialogContent className="max-w-3xl max-h-[92vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Corrective Action Report</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{selectedAction?.reference ? `${selectedAction.reference} — ` : ''}Corrective Action Report</DialogTitle></DialogHeader>
           {selectedAction && <div className="space-y-5">
-            <div className="grid sm:grid-cols-2 gap-3 rounded-lg bg-muted/50 p-4 text-sm"><div><p className="text-muted-foreground">Source</p><p className="font-medium">{selectedAction.audit_name}</p></div><div><p className="text-muted-foreground">Status</p>{statusBadge(selectedAction.status)}</div><div><p className="text-muted-foreground">Action owner</p><p className="font-medium">{assignedTo(selectedAction)}</p></div><div><p className="text-muted-foreground">Approver</p><p className="font-medium">{selectedAction.reviewer_user_name || selectedAction.created_by_name || '-'}</p></div><div><p className="text-muted-foreground">Due date</p><p className="font-medium">{formatDate(selectedAction.due_date)}</p></div><div><p className="text-muted-foreground">Raised by</p><p className="font-medium">{selectedAction.created_by_name || '-'}</p></div></div>
+            <div className="grid sm:grid-cols-2 gap-3 rounded-lg bg-muted/50 p-4 text-sm"><div><p className="text-muted-foreground">Reference</p><p className="font-semibold">{selectedAction.reference || '-'}</p></div><div><p className="text-muted-foreground">Source</p><p className="font-medium">{selectedAction.audit_name}</p></div><div><p className="text-muted-foreground">Status</p>{statusBadge(selectedAction.status)}</div><div><p className="text-muted-foreground">Action owner</p><p className="font-medium">{assignedTo(selectedAction)}</p></div><div><p className="text-muted-foreground">Approver</p><p className="font-medium">{selectedAction.reviewer_user_name || selectedAction.created_by_name || '-'}</p></div><div><p className="text-muted-foreground">Due date</p><p className="font-medium">{formatDate(selectedAction.due_date)}</p></div><div><p className="text-muted-foreground">Raised by</p><p className="font-medium">{selectedAction.created_by_name || '-'}</p></div></div>
             {selectedAction.question_id && <div><Label>Audit Question</Label><p className="mt-1 text-sm">{selectedAction.question_text}</p></div>}
             <div><Label>Non-Conformance</Label><p className="mt-1 rounded-md border p-3 text-sm">{selectedAction.non_conformance}</p></div>
             <div><Label>Action Required</Label><p className="mt-1 rounded-md border p-3 text-sm">{selectedAction.action_required}</p></div>
