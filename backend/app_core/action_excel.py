@@ -12,6 +12,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 
 ACTION_COLUMNS = (
+    ("Reference", "reference", "text"),
     ("Action", "audit_name", "text"),
     ("Source", "source", "text"),
     ("Audit Question", "question_text", "text"),
@@ -117,15 +118,16 @@ def build_action_workbook(actions: Iterable[dict[str, Any]]) -> bytes:
                 cell.number_format = "dd/mm/yyyy hh:mm"
 
     widths = {
-        "A": 28, "B": 12, "C": 34, "D": 42, "E": 42, "F": 22, "G": 22,
-        "H": 22, "I": 18, "J": 14, "K": 20, "L": 42, "M": 22, "N": 18,
-        "O": 34, "P": 22, "Q": 18, "R": 42, "S": 25, "T": 21, "U": 12,
+        "A": 13, "B": 28, "C": 12, "D": 34, "E": 42, "F": 42, "G": 22,
+        "H": 22, "I": 22, "J": 18, "K": 14, "L": 20, "M": 42, "N": 22,
+        "O": 18, "P": 34, "Q": 22, "R": 18, "S": 42, "T": 25, "U": 21,
+        "V": 12,
     }
     for column, width in widths.items():
         worksheet.column_dimensions[column].width = width
 
     last_row = max(1, len(rows) + 1)
-    table = Table(displayName="CorrectiveActionRegister", ref=f"A1:U{last_row}")
+    table = Table(displayName="CorrectiveActionRegister", ref=f"A1:V{last_row}")
     table.tableStyleInfo = TableStyleInfo(
         name="TableStyleMedium2", showFirstColumn=False, showLastColumn=False,
         showRowStripes=True, showColumnStripes=False,
