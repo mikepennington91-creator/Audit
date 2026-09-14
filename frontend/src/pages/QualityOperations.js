@@ -14,6 +14,7 @@ import {
   PackageCheck,
   Plus,
   Save,
+  Search,
   ShieldCheck,
   UsersRound,
   X,
@@ -43,7 +44,9 @@ const emptyEvent = {
   location: "",
   product_name: "",
   batch_code: "",
-  supplier_id: "",
+  raw_material_numbers: "",
+  finished_product_batch: "",
+  supplier_ids: [],
   owner_user_id: "",
   due_date: "",
   immediate_action: "",
@@ -51,6 +54,7 @@ const emptyEvent = {
   root_cause: "",
   corrective_action: "",
   evidence: [],
+  actions: [],
 };
 const emptySupplier = {
   name: "",
@@ -120,6 +124,8 @@ const QualityOperations = () => {
   });
   const [saving, setSaving] = useState(false);
   const photoInput = useRef(null);
+  const createPhotoInput = useRef(null);
+  const [actionSearch, setActionSearch] = useState("");
   const canEdit = hasFeature("quality_edit");
 
   const load = async () => {
@@ -130,6 +136,7 @@ const QualityOperations = () => {
         axios.get(`${API}/suppliers`),
         axios.get(`${API}/document-signoffs`),
         axios.get(`${API}/quality-insights`),
+        axios.get(`${API}/action-assignees`),
       ];
       if (isAdmin())
         requests.push(
@@ -146,7 +153,8 @@ const QualityOperations = () => {
       setSuppliers(responses[1].data);
       setSignoffs(responses[2].data);
       setInsights(responses[3].data);
-      let index = 4;
+      setUsers(responses[4].data);
+      let index = 5;
       if (isAdmin()) {
         setUsers(responses[index++].data);
         setManagement(responses[index++].data);
@@ -197,7 +205,6 @@ const QualityOperations = () => {
     try {
       await axios.post(`${API}/quality-events`, {
         ...eventForm,
-        supplier_id: eventForm.supplier_id || null,
         owner_user_id: eventForm.owner_user_id || (isAdmin() ? null : user.id),
         due_date: eventForm.due_date || null,
       });
@@ -303,6 +310,17 @@ const QualityOperations = () => {
     setSaving(true);
     try {
       const response = await axios.put(`${API}/quality-events/${selected.id}`, {
+        title: selected.title,
+        description: selected.description,
+        occurred_date: selected.occurred_date,
+        severity: selected.severity,
+        location: selected.location || null,
+        product_name: selected.product_name || null,
+        batch_code: selected.batch_code || null,
+        raw_material_numbers: selected.raw_material_numbers || null,
+        finished_product_batch: selected.finished_product_batch || null,
+        supplier_ids: selected.supplier_ids || (selected.supplier_id ? [selected.supplier_id] : []),
+        due_date: selected.due_date || null,
         immediate_action: selected.immediate_action || null,
         root_cause_category: selected.root_cause_category || null,
         root_cause: selected.root_cause || null,
@@ -387,6 +405,37 @@ const QualityOperations = () => {
     }
   };
 
+  const addCreationEvidence = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return toast.error("Select an image file");
+    try {
+      const image = await evidenceDataUrl(file);
+      setEventForm((current) => ({
+        ...current,
+        evidence: [...(current.evidence || []), image],
+      }));
+    } catch (error) {
+      toast.error("Could not prepare that image");
+    }
+  };
+
+  const toggleSupplier = (supplierId, selectedIds, update) => {
+    update(selectedIds.includes(supplierId)
+      ? selectedIds.filter((id) => id !== supplierId)
+      : [...selectedIds, supplierId]);
+  };
+
+  const addActionDraft = () => setEventForm((current) => ({
+    ...current,
+    actions: [...current.actions, {
+      title: current.title ? `${current.title} corrective action` : "",
+      action_required: "",
+      assigned_user_id: "",
+      reviewer_user_id: user?.id || "",
+      due_date: current.due_date || "",
+    }],
+  }));
+
   const downloadManagement = async () => {
     try {
       const response = await axios.get(`${API}/management-report/pdf?days=30`, {
@@ -425,7 +474,6 @@ const QualityOperations = () => {
     }
   };
 
-  const selectedIsOwner = selected?.owner_user_id === user?.id;
   const activeSignoffs = useMemo(
     () => signoffs.filter((item) => item.status !== "acknowledged"),
     [signoffs],
@@ -458,7 +506,7 @@ const QualityOperations = () => {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {(selectedIsOwner || isAdmin()) &&
+            {(canEdit || isAdmin()) &&
               !["closed", "cancelled"].includes(selected.status) && (
                 <Button
                   variant="outline"
@@ -482,10 +530,34 @@ const QualityOperations = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
+                <Label>Title</Label>
+                <Input value={selected.title || ""} disabled={!canEdit} onChange={(e) => setSelected({ ...selected, title: e.target.value })} />
+              </div>
+              <div>
                 <Label>Description</Label>
-                <p className="mt-1 whitespace-pre-wrap rounded-md bg-muted p-3">
-                  {selected.description}
-                </p>
+                <Textarea rows={4} value={selected.description || ""} disabled={!canEdit} onChange={(e) => setSelected({ ...selected, description: e.target.value })} />
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div><Label>Occurred</Label><Input type="date" value={selected.occurred_date || ""} disabled={!canEdit} onChange={(e) => setSelected({ ...selected, occurred_date: e.target.value })} /></div>
+                <div><Label>Severity</Label><select className="w-full h-10 border rounded-md bg-background px-3" value={selected.severity || "medium"} disabled={!canEdit} onChange={(e) => setSelected({ ...selected, severity: e.target.value })}>{["low", "medium", "high", "critical"].map((item) => <option value={item} key={item}>{readable(item)}</option>)}</select></div>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div><Label>Product</Label><Input value={selected.product_name || ""} disabled={!canEdit} onChange={(e) => setSelected({ ...selected, product_name: e.target.value })} /></div>
+                <div><Label>Finished product batch</Label><Input value={selected.finished_product_batch || selected.batch_code || ""} disabled={!canEdit} onChange={(e) => setSelected({ ...selected, finished_product_batch: e.target.value, batch_code: e.target.value })} /></div>
+              </div>
+              <div><Label>Raw material (RM) numbers</Label><Input value={selected.raw_material_numbers || ""} disabled={!canEdit} placeholder="e.g. RM26723 / RM26574" onChange={(e) => setSelected({ ...selected, raw_material_numbers: e.target.value })} /></div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div><Label>Location</Label><Input value={selected.location || ""} disabled={!canEdit} onChange={(e) => setSelected({ ...selected, location: e.target.value })} /></div>
+                <div><Label>Due date</Label><Input type="date" value={selected.due_date || ""} disabled={!canEdit} onChange={(e) => setSelected({ ...selected, due_date: e.target.value })} /></div>
+              </div>
+              <div>
+                <Label>Suppliers</Label>
+                {canEdit ? <details className="relative mt-1 rounded-md border bg-background">
+                  <summary className="cursor-pointer list-none px-3 py-2">{(selected.supplier_ids || []).length ? `${(selected.supplier_ids || []).length} supplier(s) selected` : "Not supplier related"}</summary>
+                  <div className="max-h-52 overflow-y-auto border-t p-2 space-y-1">
+                    {suppliers.map((supplier) => <label key={supplier.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted cursor-pointer"><input type="checkbox" checked={(selected.supplier_ids || []).includes(supplier.id)} onChange={() => toggleSupplier(supplier.id, selected.supplier_ids || [], (supplier_ids) => setSelected({ ...selected, supplier_ids }))} />{supplier.name}</label>)}
+                  </div>
+                </details> : <p className="mt-1 rounded-md bg-muted p-3">{(selected.supplier_names || [selected.supplier_name]).filter(Boolean).join(", ") || "-"}</p>}
               </div>
               {[
                 ["immediate_action", "Immediate containment / action"],
@@ -498,7 +570,7 @@ const QualityOperations = () => {
                   {key === "root_cause_category" ? (
                     <Input
                       value={selected[key] || ""}
-                      disabled={!selectedIsOwner && !isAdmin()}
+                      disabled={!canEdit}
                       onChange={(e) =>
                         setSelected({ ...selected, [key]: e.target.value })
                       }
@@ -507,7 +579,7 @@ const QualityOperations = () => {
                     <Textarea
                       rows={4}
                       value={selected[key] || ""}
-                      disabled={!selectedIsOwner && !isAdmin()}
+                      disabled={!canEdit}
                       onChange={(e) =>
                         setSelected({ ...selected, [key]: e.target.value })
                       }
@@ -515,7 +587,7 @@ const QualityOperations = () => {
                   )}
                 </div>
               ))}
-              {(selectedIsOwner || isAdmin()) &&
+              {canEdit &&
                 !["closed", "cancelled"].includes(selected.status) && (
                   <Button onClick={updateSelected} disabled={saving}>
                     <Save className="w-4 h-4 mr-2" />
@@ -534,8 +606,9 @@ const QualityOperations = () => {
                   ["Occurred", selected.occurred_date],
                   ["Location", selected.location],
                   ["Product", selected.product_name],
-                  ["Batch", selected.batch_code],
-                  ["Supplier", selected.supplier_name],
+                  ["Finished product batch", selected.finished_product_batch || selected.batch_code],
+                  ["RM numbers", selected.raw_material_numbers],
+                  ["Suppliers", (selected.supplier_names || [selected.supplier_name]).filter(Boolean).join(", ")],
                   ["Owner", selected.owner_user_name],
                   ["Due", selected.due_date],
                   ["Raised by", selected.created_by_name],
@@ -563,7 +636,7 @@ const QualityOperations = () => {
                     e.target.value = "";
                   }}
                 />
-                {(selectedIsOwner || isAdmin()) && (
+                {canEdit && (
                   <Button
                     variant="outline"
                     className="w-full"
@@ -581,7 +654,7 @@ const QualityOperations = () => {
                         src={image}
                         alt={`Evidence ${index + 1}`}
                       />
-                      {(selectedIsOwner || isAdmin()) && (
+                      {canEdit && (
                         <button
                           className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-1"
                           onClick={() =>
@@ -615,34 +688,20 @@ const QualityOperations = () => {
                   >
                     <Link to={`/actions?action=${id}`}>
                       <Link2 className="w-4 h-4 mr-2" />
-                      Open linked action
+                      {(() => { const action = actions.find((item) => item.id === id); return action ? `${action.reference || "Action"} — ${action.audit_name || action.non_conformance}` : "Open linked action"; })()}
                     </Link>
                   </Button>
                 ))}
-                {(selectedIsOwner || isAdmin()) && (
-                  <select
-                    className="w-full h-10 border rounded-md bg-background px-3"
-                    defaultValue=""
-                    onChange={(e) => {
-                      linkAction(e.target.value);
-                      e.target.value = "";
-                    }}
-                  >
-                    <option value="">Link an action…</option>
-                    {actions
-                      .filter(
-                        (action) =>
-                          !(selected.linked_action_ids || []).includes(
-                            action.id,
-                          ),
-                      )
-                      .map((action) => (
-                        <option key={action.id} value={action.id}>
-                          {action.title || action.non_conformance}
-                        </option>
-                      ))}
-                  </select>
-                )}
+                {canEdit && <div className="space-y-2 border-t pt-3">
+                  <Label>Find an existing action</Label>
+                  <div className="relative"><Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={actionSearch} onChange={(e) => setActionSearch(e.target.value)} placeholder="Search A1, title, issue or owner" /></div>
+                  <div className="max-h-52 overflow-y-auto space-y-1">
+                    {actions.filter((action) => !(selected.linked_action_ids || []).includes(action.id)).filter((action) => {
+                      const needle = actionSearch.trim().toLowerCase();
+                      return !needle || `${action.reference || ""} ${action.audit_name || ""} ${action.non_conformance || ""} ${action.assigned_user_name || ""}`.toLowerCase().includes(needle);
+                    }).slice(0, 50).map((action) => <button type="button" key={action.id} onClick={() => linkAction(action.id)} className="w-full rounded-md border p-2 text-left text-sm hover:bg-muted"><span className="font-semibold">{action.reference || "Action"}</span> — {action.audit_name || action.non_conformance}<span className="block text-xs text-muted-foreground">{action.assigned_user_name || action.assigned_department || "Unassigned"}</span></button>)}
+                  </div>
+                </div>}
               </CardContent>
             </Card>
             <Card>
@@ -827,17 +886,22 @@ const QualityOperations = () => {
                       />
                     </div>
                     <div>
-                      <Label>Batch</Label>
+                      <Label>Finished product batch</Label>
                       <Input
-                        value={eventForm.batch_code}
+                        value={eventForm.finished_product_batch}
                         onChange={(e) =>
                           setEventForm({
                             ...eventForm,
+                            finished_product_batch: e.target.value,
                             batch_code: e.target.value,
                           })
                         }
                       />
                     </div>
+                  </div>
+                  <div>
+                    <Label>Raw material (RM) numbers</Label>
+                    <Input value={eventForm.raw_material_numbers} placeholder="e.g. RM26723 / RM26574" onChange={(e) => setEventForm({ ...eventForm, raw_material_numbers: e.target.value })} />
                   </div>
                   <div>
                     <Label>Location</Label>
@@ -881,24 +945,28 @@ const QualityOperations = () => {
                     </select>
                   </div>
                   <div>
-                    <Label>Supplier</Label>
-                    <select
-                      className="w-full h-10 border rounded-md bg-background px-3"
-                      value={eventForm.supplier_id}
-                      onChange={(e) =>
-                        setEventForm({
-                          ...eventForm,
-                          supplier_id: e.target.value,
-                        })
-                      }
-                    >
-                      <option value="">Not supplier related</option>
-                      {suppliers.map((item) => (
-                        <option value={item.id} key={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
+                    <Label>Suppliers</Label>
+                    <details className="relative mt-1 rounded-md border bg-background">
+                      <summary className="cursor-pointer list-none px-3 py-2">{eventForm.supplier_ids.length ? `${eventForm.supplier_ids.length} supplier(s) selected` : "Not supplier related"}</summary>
+                      <div className="max-h-52 overflow-y-auto border-t p-2 space-y-1">
+                        {suppliers.map((supplier) => <label key={supplier.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted cursor-pointer"><input type="checkbox" checked={eventForm.supplier_ids.includes(supplier.id)} onChange={() => toggleSupplier(supplier.id, eventForm.supplier_ids, (supplier_ids) => setEventForm({ ...eventForm, supplier_ids }))} />{supplier.name}</label>)}
+                      </div>
+                    </details>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Photographs</Label>
+                    <input ref={createPhotoInput} className="hidden" type="file" accept="image/*" capture="environment" onChange={(e) => { addCreationEvidence(e.target.files?.[0]); e.target.value = ""; }} />
+                    <Button type="button" variant="outline" className="w-full" onClick={() => createPhotoInput.current?.click()}><Camera className="w-4 h-4 mr-2" />Take or Add Photo</Button>
+                    {!!eventForm.evidence.length && <div className="grid grid-cols-3 gap-2">{eventForm.evidence.map((image, index) => <div className="relative" key={index}><img className="w-full aspect-square object-cover rounded-md" src={image} alt={`New incident evidence ${index + 1}`} /><button type="button" className="absolute top-1 right-1 bg-black/70 text-white rounded-full p-1" onClick={() => setEventForm({ ...eventForm, evidence: eventForm.evidence.filter((_, i) => i !== index) })}><X className="w-3 h-3" /></button></div>)}</div>}
+                  </div>
+                  <div className="space-y-3 rounded-lg border p-3">
+                    <div className="flex items-center justify-between gap-2"><div><Label>Corrective actions</Label><p className="text-xs text-muted-foreground">Create one or several actions with this incident.</p></div><Button type="button" variant="outline" size="sm" onClick={addActionDraft}><Plus className="w-4 h-4 mr-1" />Add action</Button></div>
+                    {eventForm.actions.map((action, index) => <div key={index} className="space-y-2 rounded-md bg-muted/40 p-3">
+                      <div className="flex items-center justify-between"><span className="text-sm font-semibold">Action {index + 1}</span><Button type="button" variant="ghost" size="sm" onClick={() => setEventForm({ ...eventForm, actions: eventForm.actions.filter((_, i) => i !== index) })}><X className="w-4 h-4" /></Button></div>
+                      <Input value={action.title} placeholder="Action title (optional)" onChange={(e) => setEventForm({ ...eventForm, actions: eventForm.actions.map((item, i) => i === index ? { ...item, title: e.target.value } : item) })} />
+                      <Textarea required value={action.action_required} placeholder="Action required *" onChange={(e) => setEventForm({ ...eventForm, actions: eventForm.actions.map((item, i) => i === index ? { ...item, action_required: e.target.value } : item) })} />
+                      <div className="grid sm:grid-cols-2 gap-2"><select required className="w-full h-10 border rounded-md bg-background px-3" value={action.assigned_user_id} onChange={(e) => setEventForm({ ...eventForm, actions: eventForm.actions.map((item, i) => i === index ? { ...item, assigned_user_id: e.target.value } : item) })}><option value="">Assign to *</option>{users.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><Input required type="date" value={action.due_date} onChange={(e) => setEventForm({ ...eventForm, actions: eventForm.actions.map((item, i) => i === index ? { ...item, due_date: e.target.value } : item) })} /></div>
+                    </div>)}
                   </div>
                   <Button className="w-full" disabled={saving}>
                     <Plus className="w-4 h-4 mr-2" />
