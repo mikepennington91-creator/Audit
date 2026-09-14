@@ -32,10 +32,11 @@ def test_action_workbook_contains_filterable_register_fields():
     sheet = workbook["Corrective Actions"]
 
     assert sheet.freeze_panes == "A2"
-    assert sheet["A2"].value == "Glass audit"
-    assert sheet["F2"].value == "Chris"
-    assert sheet["G2"].value == "Mike"
-    assert sheet["K2"].value == "Awaiting Review"
+    assert sheet["A2"].value is None
+    assert sheet["B2"].value == "Glass audit"
+    assert sheet["G2"].value == "Chris"
+    assert sheet["H2"].value == "Mike"
+    assert sheet["L2"].value == "Awaiting Review"
     assert "CorrectiveActionRegister" in sheet.tables
 
 
@@ -44,4 +45,4 @@ def test_action_workbook_protects_formula_like_text():
         "audit_name": "=HYPERLINK(\"bad\")",
         "status": "open",
     }])))
-    assert workbook["Corrective Actions"]["A2"].value.startswith("'=")
+    assert workbook["Corrective Actions"]["B2"].value.startswith("'=")
