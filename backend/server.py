@@ -1375,24 +1375,27 @@ async def prepare_corrective_actions(run_audit: dict, audit: dict, answers: List
                 answer["action_completed_at"] = existing.get("completed_at")
             await db.corrective_actions.update_one({"id": action_id}, {"$set": base_action})
         else:
-            await db.corrective_actions.insert_one({
-                "id": action_id,
-                **base_action,
-                "status": "open",
-                "action_taken": None,
-                "created_by_id": user["id"],
-                "created_by_name": user["name"],
-                "reviewer_user_id": user["id"],
-                "reviewer_user_name": user["name"],
-                "reviewer_user_email": user.get("email"),
-                "completed_by_id": None,
-                "completed_by_name": None,
-                "created_at": now,
-                "completed_at": None,
-                "archived": False,
-                "history": [],
-                "extension_request": None,
-            })
+            from app_core.action_references import allocate_action_reference
+            async with allocate_action_reference(db, action_company_id) as reference:
+                await db.corrective_actions.insert_one({
+                    "id": action_id,
+                    "reference": reference,
+                    **base_action,
+                    "status": "open",
+                    "action_taken": None,
+                    "created_by_id": user["id"],
+                    "created_by_name": user["name"],
+                    "reviewer_user_id": user["id"],
+                    "reviewer_user_name": user["name"],
+                    "reviewer_user_email": user.get("email"),
+                    "completed_by_id": None,
+                    "completed_by_name": None,
+                    "created_at": now,
+                    "completed_at": None,
+                    "archived": False,
+                    "history": [],
+                    "extension_request": None,
+                })
 
 @api_router.put("/run-audits/{run_id}", response_model=RunAuditResponse)
 async def update_run_audit(run_id: str, submit_data: RunAuditSubmit, user: dict = Depends(require_feature("audits"))):
@@ -1810,6 +1813,7 @@ async def export_corrective_action_pdf(action_id: str, user: dict = Depends(requ
         Spacer(1, 0.25*inch),
     ]
     meta_data = [
+        ["Reference:", action.get("reference", "N/A")],
         ["Audit:", action.get("audit_name", "N/A")],
         ["Status:", display_status.replace("_", " ").title()],
         ["Assigned to:", assigned_to],
@@ -1850,7 +1854,7 @@ async def export_corrective_action_pdf(action_id: str, user: dict = Depends(requ
     doc.build(story)
     buffer.seek(0)
 
-    filename = f"action_report_{action_id[:8]}_{get_uk_time().strftime('%d%m%y')}.pdf"
+    filename = f"action_report_{action.get('reference') or action_id[:8]}_{get_uk_time().strftime('%d%m%y')}.pdf"
     return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": pdf_content_disposition(filename)})
 
 # ==================== PHOTO UPLOAD ====================
