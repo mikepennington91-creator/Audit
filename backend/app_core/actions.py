@@ -12,6 +12,7 @@ from starlette.responses import StreamingResponse
 
 import server as legacy
 from app_core.action_excel import build_action_workbook
+from app_core.action_references import allocate_action_reference, ensure_action_references
 from app_core.email_service import public_app_url, send_email
 from app_core.notifications import create_notification, mark_action_notifications_read
 from app_core.preferences import email_preference_enabled
@@ -96,6 +97,15 @@ async def filtered_actions(
     allowed_statuses = {"open", "overdue", "awaiting_review", "effectiveness_pending", "completed"}
     if status and status not in allowed_statuses:
         raise HTTPException(status_code=400, detail="Unknown action status")
+    if legacy.is_system_admin(user) and not (assigned_to_me or raised_by_me):
+        company_records = await legacy.db.corrective_actions.find(
+            {}, {"_id": 0, "history": 0, "evidence": 0}
+        ).to_list(10_000)
+        company_ids = {record.get("company_id") for record in company_records}
+        for company_id in company_ids:
+            await ensure_action_references(legacy.db, company_id)
+    else:
+        await ensure_action_references(legacy.db, user.get("company_id"))
     query = action_access_query(user, assigned_to_me, raised_by_me)
     actions = await legacy.db.corrective_actions.find(
         query, {"_id": 0, "history": 0}
@@ -336,9 +346,10 @@ async def create_corrective_action(
     reviewer = await _company_user(create.reviewer_user_id or user["id"], company_id, user)
     now = legacy.get_uk_time_iso()
     action_id = str(uuid.uuid4())
+    action_company_id = company_id or owner.get("company_id")
     action = {
         "id": action_id,
-        "company_id": company_id or owner.get("company_id"),
+        "company_id": action_company_id,
         "run_id": "",
         "audit_id": "",
         "audit_name": title,
@@ -375,7 +386,9 @@ async def create_corrective_action(
             )
         ],
     }
-    await legacy.db.corrective_actions.insert_one(action)
+    async with allocate_action_reference(legacy.db, action_company_id) as reference:
+        action["reference"] = reference
+        await legacy.db.corrective_actions.insert_one(action)
     await send_action_assignment_email(action)
     saved = await legacy.db.corrective_actions.find_one({"id": action_id}, {"_id": 0})
     return action_payload(saved)

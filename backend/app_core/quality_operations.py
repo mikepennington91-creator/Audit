@@ -23,6 +23,8 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, 
 
 import server as legacy
 from app_core.audit_reports import _get_accessible_run
+from app_core.action_references import allocate_action_reference
+from app_core.actions import send_action_assignment_email
 from app_core.email_service import public_app_url
 from app_core.notifications import create_notification
 from app_core.pdf_support import pdf_content_disposition
@@ -94,6 +96,19 @@ class SupplierUpdate(SupplierCreate):
     change_reason: str = Field(min_length=3, max_length=1000)
 
 
+class QualityEventActionCreate(BaseModel):
+    title: Optional[str] = Field(default=None, max_length=250)
+    action_required: str = Field(min_length=1, max_length=10000)
+    assigned_user_id: str
+    reviewer_user_id: Optional[str] = None
+    due_date: str
+
+    @field_validator("action_required")
+    @classmethod
+    def clean_action_required(cls, value: str) -> str:
+        return value.strip()
+
+
 class QualityEventCreate(BaseModel):
     event_type: Literal["incident", "complaint", "ncr", "quality_incident", "foreign_body", "ccp_failure"]
     title: str = Field(min_length=1, max_length=250)
@@ -103,7 +118,10 @@ class QualityEventCreate(BaseModel):
     location: Optional[str] = Field(default=None, max_length=250)
     product_name: Optional[str] = Field(default=None, max_length=250)
     batch_code: Optional[str] = Field(default=None, max_length=200)
+    raw_material_numbers: Optional[str] = Field(default=None, max_length=2000)
+    finished_product_batch: Optional[str] = Field(default=None, max_length=500)
     supplier_id: Optional[str] = None
+    supplier_ids: List[str] = Field(default_factory=list, max_length=100)
     owner_user_id: Optional[str] = None
     due_date: Optional[str] = None
     immediate_action: Optional[str] = Field(default=None, max_length=10000)
@@ -111,6 +129,7 @@ class QualityEventCreate(BaseModel):
     root_cause: Optional[str] = Field(default=None, max_length=10000)
     corrective_action: Optional[str] = Field(default=None, max_length=10000)
     evidence: List[str] = Field(default_factory=list, max_length=20)
+    actions: List[QualityEventActionCreate] = Field(default_factory=list, max_length=50)
 
     @field_validator("title", "description")
     @classmethod
@@ -129,6 +148,17 @@ class QualityEventCreate(BaseModel):
 
 
 class QualityEventUpdate(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=250)
+    description: Optional[str] = Field(default=None, min_length=1, max_length=10000)
+    occurred_date: Optional[str] = None
+    severity: Optional[Literal["low", "medium", "high", "critical"]] = None
+    location: Optional[str] = Field(default=None, max_length=250)
+    product_name: Optional[str] = Field(default=None, max_length=250)
+    batch_code: Optional[str] = Field(default=None, max_length=200)
+    raw_material_numbers: Optional[str] = Field(default=None, max_length=2000)
+    finished_product_batch: Optional[str] = Field(default=None, max_length=500)
+    supplier_ids: Optional[List[str]] = Field(default=None, max_length=100)
+    due_date: Optional[str] = None
     immediate_action: Optional[str] = Field(default=None, max_length=10000)
     root_cause_category: Optional[str] = Field(default=None, max_length=150)
     root_cause: Optional[str] = Field(default=None, max_length=10000)
@@ -140,6 +170,11 @@ class QualityEventUpdate(BaseModel):
     @classmethod
     def validate_evidence(cls, values: Optional[List[str]]) -> Optional[List[str]]:
         return QualityEventCreate.validate_evidence(values or []) if values is not None else None
+
+    @field_validator("title", "description")
+    @classmethod
+    def clean_required(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() if value is not None else None
 
 
 class QualityEventAssignment(BaseModel):
@@ -206,6 +241,11 @@ async def _supplier(supplier_id: str, user: dict) -> dict:
     if not supplier or not _same_company(supplier, user):
         raise HTTPException(status_code=404, detail="Supplier not found")
     return supplier
+
+
+async def _suppliers(supplier_ids: List[str], user: dict) -> List[dict]:
+    unique_ids = list(dict.fromkeys(item for item in supplier_ids if item))
+    return [await _supplier(supplier_id, user) for supplier_id in unique_ids]
 
 
 @router.get("/suppliers")
@@ -319,21 +359,65 @@ async def create_quality_event(
     user: dict = Depends(legacy.require_feature("quality_edit")),
 ):
     owner = await _company_user(data.owner_user_id, user) if data.owner_user_id else None
-    supplier = await _supplier(data.supplier_id, user) if data.supplier_id else None
+    requested_supplier_ids = [*data.supplier_ids]
+    if data.supplier_id and data.supplier_id not in requested_supplier_ids:
+        requested_supplier_ids.append(data.supplier_id)
+    suppliers = await _suppliers(requested_supplier_ids, user)
     now = legacy.get_uk_time_iso()
+    event_id = str(uuid.uuid4())
+    linked_actions = []
+    notification_actions = []
     record = {
-        "id": str(uuid.uuid4()), "company_id": user.get("company_id"),
-        **data.model_dump(exclude={"occurred_date", "due_date", "supplier_id", "owner_user_id"}),
+        "id": event_id, "company_id": user.get("company_id"),
+        **data.model_dump(exclude={"occurred_date", "due_date", "supplier_id", "supplier_ids", "owner_user_id", "actions"}),
         "occurred_date": _parse_date(data.occurred_date, "Occurrence date", required=True),
         "due_date": _parse_date(data.due_date, "Due date"),
-        "supplier_id": (supplier or {}).get("id"), "supplier_name": (supplier or {}).get("name"),
+        "supplier_ids": [supplier["id"] for supplier in suppliers],
+        "supplier_names": [supplier["name"] for supplier in suppliers],
+        "supplier_id": suppliers[0]["id"] if suppliers else None,
+        "supplier_name": suppliers[0]["name"] if suppliers else None,
         "owner_user_id": (owner or {}).get("id"), "owner_user_name": (owner or {}).get("name"),
-        "status": "open", "linked_action_ids": [],
+        "status": "open", "linked_action_ids": linked_actions,
         "created_by_id": user["id"], "created_by_name": user.get("name"),
         "created_at": now, "updated_at": now,
         "history": [_event_history("created", user)],
     }
-    await legacy.db.quality_events.insert_one(record)
+    async with legacy.db.transaction(f"quality-event:{event_id}"):
+        for requested_action in data.actions:
+            action_owner = await _company_user(requested_action.assigned_user_id, user)
+            reviewer = await _company_user(requested_action.reviewer_user_id or user["id"], user)
+            action_due_date = _parse_date(requested_action.due_date, "Action due date", required=True)
+            if action_due_date < legacy.get_uk_time().date().isoformat():
+                raise HTTPException(status_code=400, detail="Corrective action due dates cannot be in the past")
+            action_id = str(uuid.uuid4())
+            async with allocate_action_reference(legacy.db, record.get("company_id")) as reference:
+                action = {
+                    "id": action_id, "reference": reference,
+                    "company_id": record.get("company_id"), "quality_event_id": event_id,
+                    "run_id": "", "audit_id": "",
+                    "audit_name": _clean_optional(requested_action.title) or data.title,
+                    "question_id": "", "question_text": "Quality Operations record",
+                    "response_label": "Quality event",
+                    "non_conformance": data.description,
+                    "action_required": requested_action.action_required,
+                    "assigned_user_id": action_owner["id"], "assigned_user_name": action_owner["name"],
+                    "assigned_user_email": action_owner.get("email"), "assigned_department": None,
+                    "reviewer_user_id": reviewer["id"], "reviewer_user_name": reviewer["name"],
+                    "reviewer_user_email": reviewer.get("email"), "due_date": action_due_date,
+                    "status": "open", "review_status": None, "action_taken": None,
+                    "created_by_id": user["id"], "created_by_name": user.get("name"),
+                    "completed_by_id": None, "completed_by_name": None, "completed_at": None,
+                    "created_at": now, "updated_at": now, "archived": False,
+                    "extension_request": None,
+                    "history": [legacy.action_history_entry(
+                        "created", user,
+                        f"Action {reference} raised from quality record {data.title} and assigned to {action_owner['name']}",
+                    )],
+                }
+                await legacy.db.corrective_actions.insert_one(action)
+            linked_actions.append(action_id)
+            notification_actions.append(action)
+        await legacy.db.quality_events.insert_one(record)
     if owner:
         await create_notification(
             user_id=owner["id"], company_id=user.get("company_id"),
@@ -341,6 +425,8 @@ async def create_quality_event(
             message=f"{data.title} has been assigned to you.",
             link=f"/quality?event={record['id']}", metadata={"quality_event_id": record["id"]},
         )
+    for action in notification_actions:
+        await send_action_assignment_email(action)
     return record
 
 
@@ -351,11 +437,22 @@ async def update_quality_event(
     user: dict = Depends(legacy.require_feature("quality_edit")),
 ):
     record = await _quality_event(event_id, user)
-    if record.get("owner_user_id") != user.get("id") and not legacy.is_admin(user):
-        raise HTTPException(status_code=403, detail="Only the assigned owner or an administrator can update this record")
     if record.get("status") in {"closed", "cancelled"}:
         raise HTTPException(status_code=409, detail="Closed quality records cannot be edited")
-    changes = {key: value for key, value in data.model_dump(exclude={"change_note"}).items() if value is not None}
+    excluded = {"change_note", "supplier_ids", "occurred_date", "due_date"}
+    changes = data.model_dump(exclude=excluded, exclude_unset=True)
+    if "occurred_date" in data.model_fields_set:
+        changes["occurred_date"] = _parse_date(data.occurred_date, "Occurrence date", required=True)
+    if "due_date" in data.model_fields_set:
+        changes["due_date"] = _parse_date(data.due_date, "Due date")
+    if "supplier_ids" in data.model_fields_set:
+        suppliers = await _suppliers(data.supplier_ids or [], user)
+        changes.update({
+            "supplier_ids": [supplier["id"] for supplier in suppliers],
+            "supplier_names": [supplier["name"] for supplier in suppliers],
+            "supplier_id": suppliers[0]["id"] if suppliers else None,
+            "supplier_name": suppliers[0]["name"] if suppliers else None,
+        })
     changes.update({
         "updated_at": legacy.get_uk_time_iso(),
         "history": [*(record.get("history") or []), _event_history("updated", user, data.change_note)],
@@ -395,11 +492,8 @@ async def change_quality_event_status(
     user: dict = Depends(legacy.require_feature("quality_edit")),
 ):
     record = await _quality_event(event_id, user)
-    is_owner = record.get("owner_user_id") == user.get("id")
     if data.status in {"closed", "cancelled"} and not legacy.is_admin(user):
         raise HTTPException(status_code=403, detail="Only an administrator can close or cancel a quality record")
-    if not is_owner and not legacy.is_admin(user):
-        raise HTTPException(status_code=403, detail="Only the assigned owner or an administrator can change this status")
     if data.status == "awaiting_review" and not (record.get("root_cause") and record.get("corrective_action")):
         raise HTTPException(status_code=409, detail="Root cause and corrective action are required before review")
     changes = {
@@ -420,15 +514,16 @@ async def link_quality_action(
     user: dict = Depends(legacy.require_feature("quality_edit")),
 ):
     record = await _quality_event(event_id, user)
-    if not legacy.is_admin(user) and record.get("owner_user_id") != user.get("id"):
-        raise HTTPException(status_code=403, detail="Only the assigned owner or an administrator can link actions")
     action = await legacy.db.corrective_actions.find_one({"id": data.action_id}, {"_id": 0, "history": 0})
     if not action or not _same_company(action, user):
         raise HTTPException(status_code=400, detail="Select a valid corrective action")
     action_ids = list(dict.fromkeys([*(record.get("linked_action_ids") or []), action["id"]]))
     changes = {
         "linked_action_ids": action_ids, "updated_at": legacy.get_uk_time_iso(),
-        "history": [*(record.get("history") or []), _event_history("action_linked", user, action.get("title") or action["id"])],
+        "history": [*(record.get("history") or []), _event_history(
+            "action_linked", user,
+            f"{action.get('reference') or action['id']}: {action.get('audit_name') or action.get('non_conformance') or 'Corrective action'}",
+        )],
     }
     await legacy.db.quality_events.update_one({"id": event_id}, {"$set": changes})
     return {"linked_action_ids": action_ids}
