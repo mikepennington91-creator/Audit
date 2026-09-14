@@ -81,6 +81,10 @@ class _WhereBuilder:
                         operator_clauses.append(
                             f"LOWER({expression}) = LOWER({self.add(_text_value(value))})"
                         )
+                    elif operator == "$ne":
+                        operator_clauses.append(
+                            f"({expression} IS NULL OR {expression} <> {self.add(_text_value(value))})"
+                        )
                     else:
                         raise ValueError(f"Unsupported query operator: {operator}")
                 clauses.append(f"({' AND '.join(operator_clauses)})")
@@ -391,6 +395,10 @@ class PostgresDatabase:
     async def transaction(self, lock_key: str | None = None):
         """Keep related writes atomic and serialize changes to a shared audit."""
         if self._transaction_connection.get() is not None:
+            if lock_key:
+                await self.connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", lock_key
+                )
             yield self.connection
             return
         async with self.pool.acquire() as connection:
