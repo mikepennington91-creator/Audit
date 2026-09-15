@@ -36,9 +36,17 @@ app = FastAPI(title="Infinit-Audit API")
 # below when they need the new workflow or tighter multi-tenant access checks.
 app.include_router(user_lifecycle_router)
 app.include_router(account_router)
-# Register this before the standard actions router so its enhanced audit-run
-# update route handles creation of multiple actions for one non-conformance.
+# Register the enhanced audit-run update route and exclude the standard actions
+# router's version so FastAPI has exactly one handler for this endpoint.
 app.include_router(multi_audit_actions_router)
+actions_router.routes = [
+    route
+    for route in actions_router.routes
+    if not (
+        getattr(route, "path", "") == "/api/run-audits/{run_id}"
+        and "PUT" in (getattr(route, "methods", None) or set())
+    )
+]
 app.include_router(actions_router)
 app.include_router(audit_reports_router)
 app.include_router(audit_runs_router)
