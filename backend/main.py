@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse
 import server as legacy
 from database import activity_actor
 from app_core.account_auth import router as account_router
+from app_core.multi_audit_actions import router as multi_audit_actions_router
 from app_core.actions import router as actions_router
 from app_core.audit_reports import router as audit_reports_router
 from app_core.audit_runs import router as audit_runs_router
@@ -35,6 +36,9 @@ app = FastAPI(title="Infinit-Audit API")
 # below when they need the new workflow or tighter multi-tenant access checks.
 app.include_router(user_lifecycle_router)
 app.include_router(account_router)
+# Register this before the standard actions router so its enhanced audit-run
+# update route handles creation of multiple actions for one non-conformance.
+app.include_router(multi_audit_actions_router)
 app.include_router(actions_router)
 app.include_router(audit_reports_router)
 app.include_router(audit_runs_router)
