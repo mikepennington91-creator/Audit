@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import "@/index.css";
 import App from "@/App";
 import { initialiseBrowserPdfPrinting } from "@/utils/browserPdfPrint";
+import "@/utils/holdRegisterEnhancements";
 
 // Add a browser print action beside existing controlled PDF downloads.
 initialiseBrowserPdfPrinting();
