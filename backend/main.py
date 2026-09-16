@@ -20,6 +20,7 @@ from app_core.compliance_operations import router as compliance_operations_route
 from app_core.disposal_routes import router as disposal_routes_router
 from app_core.document_imports import router as document_imports_router
 from app_core.documents import router as documents_router
+from app_core.hold_workflow_overrides import router as hold_workflow_overrides_router
 from app_core.hold_disposal import router as hold_disposal_router
 from app_core.notifications import router as notifications_router
 from app_core.performance import router as performance_router
@@ -55,6 +56,9 @@ app.include_router(compliance_operations_router)
 app.include_router(disposal_routes_router)
 app.include_router(document_imports_router)
 app.include_router(documents_router)
+# These routes intentionally precede the legacy hold/disposal handlers so the
+# enhanced disposal outcome and paginated register contracts win path matching.
+app.include_router(hold_workflow_overrides_router)
 app.include_router(hold_disposal_router)
 app.include_router(notifications_router)
 app.include_router(performance_router)
@@ -131,8 +135,6 @@ async def enforce_session_restrictions(request: Request, call_next):
                         content={"detail": "Traceability access is required for Hold & Disposal."},
                     )
         except (legacy.jwt.ExpiredSignatureError, legacy.jwt.InvalidTokenError):
-            # Existing endpoint dependencies remain responsible for returning
-            # the normal authentication error for invalid/expired sessions.
             pass
 
     token = activity_actor.set(actor)
@@ -207,6 +209,7 @@ async def startup_event():
     await legacy.db.distribution_lists.create_index("id", unique=True)
     await legacy.db.disposal_routes.create_index("id", unique=True)
     await legacy.db.hold_notices.create_index("id", unique=True)
+    await legacy.db.hold_notices.create_index([("company_id", 1), ("created_at", -1)])
     await legacy.db.disposal_notices.create_index("id", unique=True)
     await legacy.db.document_import_batches.create_index("id", unique=True)
     await legacy.db.document_import_items.create_index("id", unique=True)
