@@ -19,6 +19,15 @@ from app_core.disposal_routes import resolve_disposal_route
 router = APIRouter(prefix="/api/hold-disposal", tags=["hold-disposal-workflow"])
 
 
+def _pagination_headers(response: Response, *, total: int, pages: int, page: int, page_size: int | None = None) -> None:
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["X-Total-Pages"] = str(pages)
+    response.headers["X-Page"] = str(page)
+    if page_size is not None:
+        response.headers["X-Page-Size"] = str(page_size)
+    response.headers["Access-Control-Expose-Headers"] = "X-Total-Count, X-Total-Pages, X-Page, X-Page-Size"
+
+
 @router.get("/hold-notices")
 async def list_hold_notices_paginated(
     response: Response,
@@ -32,9 +41,7 @@ async def list_hold_notices_paginated(
 
     if page is None or page_size is None:
         records = await collection.find(query, {"_id": 0}).sort("created_at", -1).to_list(2000)
-        response.headers["X-Total-Count"] = str(len(records))
-        response.headers["X-Total-Pages"] = "1"
-        response.headers["X-Page"] = "1"
+        _pagination_headers(response, total=len(records), pages=1, page=1)
         return [_notice_payload(record) for record in records]
 
     total = await collection.count_documents(query)
@@ -47,10 +54,7 @@ async def list_hold_notices_paginated(
         .limit(page_size)
         .to_list(page_size)
     )
-    response.headers["X-Total-Count"] = str(total)
-    response.headers["X-Total-Pages"] = str(total_pages)
-    response.headers["X-Page"] = str(safe_page)
-    response.headers["X-Page-Size"] = str(page_size)
+    _pagination_headers(response, total=total, pages=total_pages, page=safe_page, page_size=page_size)
     return [_notice_payload(record) for record in records]
 
 
