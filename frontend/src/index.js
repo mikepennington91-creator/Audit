@@ -2,6 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "@/index.css";
 import App from "@/App";
+import { initialiseBrowserPdfPrinting } from "@/utils/browserPdfPrint";
+
+// Add a browser print action beside existing controlled PDF downloads.
+initialiseBrowserPdfPrinting();
 
 // Register service worker for offline support.
 if ('serviceWorker' in navigator) {
