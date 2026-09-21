@@ -359,7 +359,7 @@ const HoldNoticeExportDialog = ({ open, onOpenChange, holds, companies, isSystem
   </Dialog>;
 };
 
-const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onDispose, onOutcome, onBulkExport, disposals = [], canEditNotices }) => {
+const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onDispose, onOutcome, onBulkExport, disposals = [], canEditNotices, isAdminUser = false }) => {
   const isDisposal = type === 'disposal';
   return (
     <Card>
@@ -378,7 +378,7 @@ const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onD
               <TableBody>
                 {notices.map((notice) => (
                   <TableRow key={notice.id}>
-                    <TableCell className="font-medium">{notice.reference}{notice.source_hold_id && <p className="text-xs font-normal text-muted-foreground">From hold {notice.reference}</p>}</TableCell>
+                    <TableCell className="font-medium">{notice.reference}{notice.source_hold_id && <p className="text-xs font-normal text-muted-foreground">From hold {notice.reference}</p>}{!isDisposal && notice.resolved && <Badge variant="secondary" className="ml-2">Resolved</Badge>}</TableCell>
                     <TableCell>{notice.ingredient_name}</TableCell>
                     <TableCell>{notice.rm_number}<p className="text-xs text-muted-foreground">Our batch: {notice.our_batch || '-'}</p><p className="text-xs text-muted-foreground">Vendor batch: {notice.vendor_batch || '-'}</p></TableCell>
                     <TableCell>{notice.quantity}{!isDisposal && <div className="text-xs text-muted-foreground">Released: {notice.quantity_released || '-'}<br />Discarded: {notice.quantity_discarded || '-'}</div>}</TableCell>
@@ -400,9 +400,9 @@ const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onD
                     )}
                     <TableCell className="text-right whitespace-nowrap">
                       <Button variant="outline" size="sm" onClick={() => onView(type, notice)}><Eye className="mr-1 h-4 w-4" />View</Button>
-                      {canEditNotices && <Button variant="ghost" size="sm" onClick={() => onEdit(type, notice)} title="Edit notice"><Pencil className="h-4 w-4" /></Button>}
-                      {!isDisposal && canEditNotices && <Button variant="outline" size="sm" onClick={() => onOutcome(notice)}>Record Outcome</Button>}
-                      {!isDisposal && canEditNotices && (disposals.some((item) => item.source_hold_id === notice.id)
+                      {canEditNotices && (isDisposal || !notice.resolved || isAdminUser) && <Button variant="ghost" size="sm" onClick={() => onEdit(type, notice)} title="Edit notice"><Pencil className="h-4 w-4" /></Button>}
+                      {!isDisposal && canEditNotices && !notice.resolved && <Button variant="outline" size="sm" onClick={() => onOutcome(notice)}>Record Outcome</Button>}
+                      {!isDisposal && canEditNotices && !notice.resolved && (disposals.some((item) => item.source_hold_id === notice.id)
                         ? <Badge variant="secondary">Disposal notice raised</Badge>
                         : <Button variant="outline" size="sm" onClick={() => onDispose(notice)}><PackageX className="mr-1 h-4 w-4" />Create Disposal</Button>)}
                       <Button variant="ghost" size="sm" onClick={() => onDownload(type, notice)} title="Download PDF"><Download className="h-4 w-4" /></Button>
@@ -428,7 +428,7 @@ const NOTICE_FIELD_LABELS = {
 
 const DisposalFromHoldCard = ({ holds, disposals, onStart }) => {
   const [holdId, setHoldId] = useState('');
-  const availableHolds = holds.filter((hold) => !disposals.some((notice) => notice.source_hold_id === hold.id));
+  const availableHolds = holds.filter((hold) => !hold.resolved && !disposals.some((notice) => notice.source_hold_id === hold.id));
   if (!availableHolds.length) return null;
   const selected = availableHolds.find((hold) => hold.id === holdId);
   return <Card className="border-amber-300 dark:border-amber-800">
@@ -507,7 +507,7 @@ const OUTCOME_LABELS = {
 };
 
 const HoldOutcomeForm = ({ notice, onSaved, onCancel, onRefresh }) => {
-  const [values, setValues] = useState(() => Object.fromEntries(Object.keys(OUTCOME_LABELS).map((field) => [field, notice[field] || ''])));
+  const [values, setValues] = useState(() => ({ ...Object.fromEntries(Object.keys(OUTCOME_LABELS).map((field) => [field, notice[field] || ''])), resolved: false }));
   const [saving, setSaving] = useState(false);
   const [conflict, setConflict] = useState(false);
   const save = async (event) => {
@@ -537,6 +537,10 @@ const HoldOutcomeForm = ({ notice, onSaved, onCancel, onRefresh }) => {
           : <Textarea id={`outcome-${field}`} value={values[field]} onChange={(e) => setValues((current) => ({ ...current, [field]: e.target.value }))} maxLength={3000} rows={4} />}
       </div>)}
     </div>
+    <label className="flex items-start gap-3 rounded-md border border-emerald-300 bg-emerald-50 p-4 text-sm text-slate-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-slate-100">
+      <input type="checkbox" className="mt-1 h-4 w-4" checked={values.resolved} onChange={(e) => setValues((current) => ({ ...current, resolved: e.target.checked }))} />
+      <span><strong>Resolved</strong><span className="block text-xs opacity-75">Once saved as resolved, the outcome is locked and no further disposal can be raised. A company admin can still correct the hold notice if required.</span></span>
+    </label>
     {!!notice.outcome_history?.length && <details className="rounded-md border p-3 text-sm">
       <summary className="cursor-pointer font-medium">Outcome History</summary>
       <div className="mt-3 space-y-3">{[...notice.outcome_history].reverse().map((entry) => <div key={entry.id} className="border-t pt-2">
@@ -889,7 +893,7 @@ const HoldDisposal = () => {
 
         <TabsContent value="hold" className="space-y-6">
           {canEditNotices ? <NoticeForm type="hold" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('hold')} /> : <Card><CardContent className="pt-6 text-sm text-muted-foreground">You have view-only access. Traceability — Edit permission is required to create or change hold notices.</CardContent></Card>}
-          <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} onBulkExport={() => setExportOpen(true)} disposals={disposals} canEditNotices={canEditNotices} />
+          <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} onBulkExport={() => setExportOpen(true)} disposals={disposals} canEditNotices={canEditNotices} isAdminUser={isAdminUser} />
         </TabsContent>
 
         <TabsContent value="disposal" className="space-y-6">
@@ -917,10 +921,10 @@ const HoldDisposal = () => {
           {viewTarget && <NoticeViewer
             type={viewTarget.type}
             notice={viewTarget.notice}
-            canEdit={canEditNotices}
+            canEdit={canEditNotices && (viewTarget.type === 'disposal' || !viewTarget.notice.resolved || isAdminUser)}
             onClose={() => setViewTarget(null)}
             onEdit={() => { setEditTarget(viewTarget); setViewTarget(null); }}
-            onDispose={canEditNotices && viewTarget.type === 'hold' && !disposals.some((notice) => notice.source_hold_id === viewTarget.notice.id) ? () => { setSourceHold(viewTarget.notice); setViewTarget(null); } : null}
+            onDispose={canEditNotices && viewTarget.type === 'hold' && !viewTarget.notice.resolved && !disposals.some((notice) => notice.source_hold_id === viewTarget.notice.id) ? () => { setSourceHold(viewTarget.notice); setViewTarget(null); } : null}
           />}
         </DialogContent>
       </Dialog>
