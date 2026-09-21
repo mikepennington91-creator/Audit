@@ -250,6 +250,29 @@ async def notice_pdf_bytes(record: dict) -> bytes:
             _signoff(record, styles, notice_type),
         ])
 
+    if notice_type == "hold" and record.get("resolved"):
+        released_style = ParagraphStyle(
+            "ReleasedBanner",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=34,
+            leading=38,
+            alignment=TA_CENTER,
+            textColor=white,
+        )
+        released_banner = Table(
+            [[Paragraph("RELEASED!", released_style)]],
+            colWidths=[6.7 * inch],
+            rowHeights=[0.72 * inch],
+        )
+        released_banner.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), HexColor("#16803C")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("BOX", (0, 0), (-1, -1), 1.5, BORDER),
+        ]))
+        story.extend([Spacer(1, 0.16 * inch), released_banner])
+
     if notice_type == "hold" and (record.get("outcome_version") or any(record.get(field) for field in (
         "quantity_released", "quantity_discarded", "root_cause", "corrective_action"
     ))):
