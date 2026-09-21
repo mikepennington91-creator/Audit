@@ -359,7 +359,7 @@ const HoldNoticeExportDialog = ({ open, onOpenChange, holds, companies, isSystem
   </Dialog>;
 };
 
-const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onDispose, onOutcome, onBulkExport, disposals = [], canEditNotices, isAdminUser = false }) => {
+const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onDispose, onOutcome, onReopen, onBulkExport, disposals = [], canEditNotices, isAdminUser = false }) => {
   const isDisposal = type === 'disposal';
   return (
     <Card>
@@ -378,7 +378,7 @@ const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onD
               <TableBody>
                 {notices.map((notice) => (
                   <TableRow key={notice.id}>
-                    <TableCell className="font-medium">{notice.reference}{notice.source_hold_id && <p className="text-xs font-normal text-muted-foreground">From hold {notice.reference}</p>}{!isDisposal && notice.resolved && <Badge variant="secondary" className="ml-2">Resolved</Badge>}</TableCell>
+                    <TableCell className="font-medium">{notice.reference}{notice.source_hold_id && <p className="text-xs font-normal text-muted-foreground">From hold {notice.reference}</p>}{!isDisposal && notice.resolved && <Badge className="ml-2 bg-emerald-600 text-white hover:bg-emerald-600">RESOLVED</Badge>}</TableCell>
                     <TableCell>{notice.ingredient_name}</TableCell>
                     <TableCell>{notice.rm_number}<p className="text-xs text-muted-foreground">Our batch: {notice.our_batch || '-'}</p><p className="text-xs text-muted-foreground">Vendor batch: {notice.vendor_batch || '-'}</p></TableCell>
                     <TableCell>{notice.quantity}{!isDisposal && <div className="text-xs text-muted-foreground">Released: {notice.quantity_released || '-'}<br />Discarded: {notice.quantity_discarded || '-'}</div>}</TableCell>
@@ -401,7 +401,7 @@ const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onD
                     <TableCell className="text-right whitespace-nowrap">
                       <Button variant="outline" size="sm" onClick={() => onView(type, notice)}><Eye className="mr-1 h-4 w-4" />View</Button>
                       {canEditNotices && (isDisposal || !notice.resolved || isAdminUser) && <Button variant="ghost" size="sm" onClick={() => onEdit(type, notice)} title="Edit notice"><Pencil className="h-4 w-4" /></Button>}
-                      {!isDisposal && canEditNotices && !notice.resolved && <Button variant="outline" size="sm" onClick={() => onOutcome(notice)}>Record Outcome</Button>}
+                      {!isDisposal && canEditNotices && !notice.resolved && <Button variant="outline" size="sm" onClick={() => onOutcome(notice)}>Record Outcome</Button>}{!isDisposal && canEditNotices && notice.resolved && isAdminUser && <Button variant="outline" size="sm" onClick={() => onReopen(notice)}>Reopen Hold</Button>}
                       {!isDisposal && canEditNotices && !notice.resolved && (disposals.some((item) => item.source_hold_id === notice.id)
                         ? <Badge variant="secondary">Disposal notice raised</Badge>
                         : <Button variant="outline" size="sm" onClick={() => onDispose(notice)}><PackageX className="mr-1 h-4 w-4" />Create Disposal</Button>)}
@@ -477,7 +477,7 @@ const NoticeViewer = ({ type, notice, canEdit, onEdit, onDispose, onClose }) => 
       <div className="rounded-md border p-4"><p className="font-semibold">Action required</p><p className="mt-2 whitespace-pre-wrap break-words text-sm">{notice.action_required}</p></div>
     </div>
     {!isDisposal && <div className="rounded-md border p-4">
-      <p className="font-semibold">Hold outcome</p>
+      <div className="flex items-center gap-2"><p className="font-semibold">Hold outcome</p>{notice.resolved && <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">RESOLVED</Badge>}</div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <p><span className="text-muted-foreground">Released:</span> {notice.quantity_released || '-'}</p>
         <p><span className="text-muted-foreground">Discarded:</span> {notice.quantity_discarded || '-'}</p>
@@ -545,7 +545,7 @@ const HoldOutcomeForm = ({ notice, onSaved, onCancel, onRefresh }) => {
       <summary className="cursor-pointer font-medium">Outcome History</summary>
       <div className="mt-3 space-y-3">{[...notice.outcome_history].reverse().map((entry) => <div key={entry.id} className="border-t pt-2">
         <p className="text-muted-foreground">{entry.updated_by_name} · {formatUKDateTime(entry.updated_at)}</p>
-        {Object.entries(entry.changes || {}).map(([field, change]) => <p key={field} className="whitespace-pre-wrap break-words"><strong>{OUTCOME_LABELS[field]}:</strong> {change.before || '(blank)'} → {change.after || '(blank)'}</p>)}
+        {Object.entries(entry.changes || {}).map(([field, change]) => <p key={field} className="whitespace-pre-wrap break-words"><strong>{OUTCOME_LABELS[field] || (field === 'resolved' ? 'Resolved' : field)}:</strong> {field === 'resolved' ? (change.before ? 'Yes' : 'No') : (change.before || '(blank)')} → {field === 'resolved' ? (change.after ? 'Yes' : 'No') : (change.after || '(blank)')}</p>)}
       </div>)}</div>
     </details>}
     {conflict && <p role="alert" className="text-sm text-destructive">This hold has changed. Close and reopen it to see the latest outcome before saving.</p>}
@@ -855,6 +855,18 @@ const HoldDisposal = () => {
     setEmailMessage('');
   };
 
+  const reopenHold = async (notice) => {
+    if (!window.confirm(`Reopen hold ${notice.reference}? It can then be updated and marked as resolved again.`)) return;
+    try {
+      const response = await axios.put(`${API}/hold-notices/${notice.id}/reopen`);
+      setHolds((current) => current.map((hold) => hold.id === response.data.id ? response.data : hold));
+      if (viewTarget?.notice?.id === response.data.id) setViewTarget({ type: 'hold', notice: response.data });
+      toast.success(`Hold ${response.data.reference} reopened`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Unable to reopen hold');
+    }
+  };
+
   const sendEmail = async () => {
     if (!emailTarget || !emailListId) return toast.error('Select a distribution list');
     setEmailing(true);
@@ -893,7 +905,7 @@ const HoldDisposal = () => {
 
         <TabsContent value="hold" className="space-y-6">
           {canEditNotices ? <NoticeForm type="hold" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('hold')} /> : <Card><CardContent className="pt-6 text-sm text-muted-foreground">You have view-only access. Traceability — Edit permission is required to create or change hold notices.</CardContent></Card>}
-          <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} onBulkExport={() => setExportOpen(true)} disposals={disposals} canEditNotices={canEditNotices} isAdminUser={isAdminUser} />
+          <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} onReopen={reopenHold} onBulkExport={() => setExportOpen(true)} disposals={disposals} canEditNotices={canEditNotices} isAdminUser={isAdminUser} />
         </TabsContent>
 
         <TabsContent value="disposal" className="space-y-6">
