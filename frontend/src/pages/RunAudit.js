@@ -32,6 +32,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Camera,
+  ImagePlus,
   X,
   AlertCircle,
   ClipboardCheck,
@@ -64,6 +65,7 @@ const RunAudit = () => {
   const navigate = useNavigate();
   const { runId } = useParams();
   const fileInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
   const { isOnline, updatePendingCount } = useOffline();
   const { isAuditCreator, isAdmin, user } = useAuth();
 
@@ -1218,27 +1220,49 @@ const RunAudit = () => {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Photos</Label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  ref={fileInputRef}
-                  onChange={handlePhotoUpload}
-                  className="hidden"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setCurrentPhotoQuestion(currentQuestion);
-                    fileInputRef.current?.click();
-                  }}
-                  disabled={uploadingPhoto}
-                  data-testid="add-photo-btn"
-                >
-                  <Camera className="w-4 h-4 mr-2" />
-                  {uploadingPhoto ? "Preparing..." : "Take or Add Photo"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    ref={fileInputRef}
+                    onChange={handlePhotoUpload}
+                    className="hidden"
+                  />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    ref={galleryInputRef}
+                    onChange={handlePhotoUpload}
+                    className="hidden"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setCurrentPhotoQuestion(currentQuestion);
+                      fileInputRef.current?.click();
+                    }}
+                    disabled={uploadingPhoto}
+                    data-testid="take-photo-btn"
+                  >
+                    <Camera className="w-4 h-4 mr-2" />
+                    {uploadingPhoto ? "Preparing..." : "Take Photo"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setCurrentPhotoQuestion(currentQuestion);
+                      galleryInputRef.current?.click();
+                    }}
+                    disabled={uploadingPhoto}
+                    data-testid="upload-photo-btn"
+                  >
+                    <ImagePlus className="w-4 h-4 mr-2" />
+                    Upload Photo
+                  </Button>
+                </div>
               </div>
               {currentAnswer?.photos?.length > 0 && (
                 <div className="flex flex-wrap gap-2">
