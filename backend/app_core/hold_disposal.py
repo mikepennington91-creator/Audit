@@ -326,6 +326,39 @@ async def dispose_hold(notice_id: str, data: HoldDisposalCreate, user: dict = De
     return await _create_notice(copied, user, notice_type="disposal", disposal_route=data.disposal_route, source_hold=hold)
 
 
+@router.put("/hold-notices/{notice_id}/reopen")
+async def reopen_hold_notice(notice_id: str, user: dict = Depends(legacy.require_feature("traceability_edit"))):
+    _require_traceability_editor(user)
+    if not _is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Only a company admin can reopen a resolved hold.")
+    hold = await _get_notice("hold", notice_id, user)
+    if not hold.get("resolved"):
+        return _notice_payload(hold)
+
+    now = legacy.get_uk_time_iso()
+    history = list(hold.get("outcome_history") or [])
+    history.append({
+        "id": str(uuid.uuid4()),
+        "updated_at": now,
+        "updated_by_id": user.get("id"),
+        "updated_by_name": user.get("name"),
+        "changes": {"resolved": {"before": True, "after": False}},
+    })
+    update = {
+        "resolved": False,
+        "resolved_at": None,
+        "resolved_by_name": None,
+        "resolved_by_id": None,
+        "outcome_version": hold.get("outcome_version", 0) + 1,
+        "outcome_history": history,
+        "outcome_updated_at": now,
+        "outcome_updated_by_name": user.get("name"),
+        "outcome_updated_by_id": user.get("id"),
+    }
+    await legacy.db.hold_notices.update_one({"id": notice_id}, {"$set": update})
+    return _notice_payload({**hold, **update})
+
+
 @router.put("/hold-notices/{notice_id}/outcome")
 async def update_hold_outcome(notice_id: str, data: HoldOutcomeUpdate,
                               user: dict = Depends(legacy.require_feature("traceability_edit"))):
