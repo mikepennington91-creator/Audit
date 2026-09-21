@@ -66,6 +66,9 @@ async def dispose_hold_and_record_outcome(
 ):
     """Create the linked disposal and automatically update the hold outcome/CAPA state."""
     hold = await _get_notice("hold", notice_id, user)
+    if hold.get("resolved"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=409, detail="This hold is resolved and cannot have a disposal notice raised.")
     copied = NoticeCreate(
         **{key: hold[key] for key in ("rm_number", "ingredient_name", "line_area")},
         **{key: hold.get(key) or "" for key in ("our_batch", "vendor_batch", "quantity_delivered")},
