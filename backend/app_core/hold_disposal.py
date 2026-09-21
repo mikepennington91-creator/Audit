@@ -103,6 +103,7 @@ class HoldOutcomeUpdate(BaseModel):
     quantity_discarded: str = Field(default="", max_length=120)
     root_cause: str = Field(default="", max_length=3000)
     corrective_action: str = Field(default="", max_length=3000)
+    resolved: bool = False
 
 
 class NoticeEmailRequest(BaseModel):
@@ -140,6 +141,10 @@ def _same_company(record: dict, user: dict) -> bool:
 def _require_traceability_editor(user: dict) -> None:
     if not legacy.has_feature(user, "traceability_edit"):
         raise HTTPException(status_code=403, detail="Traceability Edit access is required to change hold and disposal records")
+
+
+def _is_admin_user(user: dict) -> bool:
+    return user.get("role") in {"system_admin", "company_admin", "admin"}
 
 
 async def _validate_company(company_id: Optional[str]) -> None:
@@ -308,6 +313,8 @@ async def create_disposal_notice(data: DisposalNoticeCreate, user: dict = Depend
 @router.post("/hold-notices/{notice_id}/disposal")
 async def dispose_hold(notice_id: str, data: HoldDisposalCreate, user: dict = Depends(legacy.require_feature("traceability_edit"))):
     hold = await _get_notice("hold", notice_id, user)
+    if hold.get("resolved"):
+        raise HTTPException(status_code=409, detail="This hold is resolved and cannot have a disposal notice raised.")
     # Take identity, quantity and tenant from the saved hold, never the client.
     copied = NoticeCreate(
         **{key: hold[key] for key in ("rm_number", "ingredient_name", "line_area")},
@@ -324,10 +331,13 @@ async def update_hold_outcome(notice_id: str, data: HoldOutcomeUpdate,
                               user: dict = Depends(legacy.require_feature("traceability_edit"))):
     _require_traceability_editor(user)
     hold = await _get_notice("hold", notice_id, user)
+    if hold.get("resolved"):
+        raise HTTPException(status_code=409, detail="This hold is resolved. Outcome data is locked.")
     version = hold.get("outcome_version", 0)
     if data.expected_version != version:
         raise HTTPException(status_code=409, detail="This hold was updated by another user. Close and reopen it before saving.")
     values = {field: getattr(data, field).strip() for field in OUTCOME_FIELDS}
+    values["resolved"] = data.resolved
     changes = {field: {"before": hold.get(field) or "", "after": value}
                for field, value in values.items() if (hold.get(field) or "") != value}
     if not changes:
@@ -339,6 +349,12 @@ async def update_hold_outcome(notice_id: str, data: HoldOutcomeUpdate,
     update = {**values, "outcome_version": version + 1, "outcome_history": history,
               "outcome_updated_at": now, "outcome_updated_by_name": user.get("name"),
               "outcome_updated_by_id": user.get("id")}
+    if data.resolved:
+        update.update({
+            "resolved_at": now,
+            "resolved_by_name": user.get("name"),
+            "resolved_by_id": user.get("id"),
+        })
     # Match the stored version too so two concurrent saves cannot lose history.
     result = await legacy.db.hold_notices.update_one(
         {"id": notice_id, "outcome_version": hold.get("outcome_version")}, {"$set": update})
@@ -465,6 +481,8 @@ async def get_disposal_notice(notice_id: str, user: dict = Depends(legacy.get_cu
 async def _update_notice(notice_type: str, notice_id: str, data: NoticeUpdate, user: dict) -> dict:
     _require_traceability_editor(user)
     record = await _get_notice(notice_type, notice_id, user)
+    if notice_type == "hold" and record.get("resolved") and not _is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Resolved hold notices can only be corrected by a company admin.")
 
     version = record.get("record_version", 0)
     if data.expected_version != version:
