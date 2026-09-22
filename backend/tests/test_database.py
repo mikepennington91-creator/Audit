@@ -5,7 +5,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from database import PostgresCursor, _WhereBuilder, _apply_projection, _decode_document  # noqa: E402
+from database import (  # noqa: E402
+    PostgresCollection,
+    PostgresCursor,
+    _WhereBuilder,
+    _apply_projection,
+    _decode_document,
+)
 
 
 def build_where(query):
@@ -81,3 +87,9 @@ def test_exclusion_projection_is_applied_in_postgres_before_transfer():
     cursor = PostgresCursor(Collection(), {}, {"_id": 0, "answers": 0, "signature": 0})
     assert asyncio.run(cursor.to_list(5)) == [{"id": "run-1"}]
     assert "data - ARRAY['answers', 'signature']::text[]" in Collection.database.connection.sql
+
+
+def test_create_index_accepts_motor_compound_index_specification():
+    collection = PostgresCollection(object(), "hold_notices")
+
+    asyncio.run(collection.create_index([("company_id", 1), ("created_at", -1)]))

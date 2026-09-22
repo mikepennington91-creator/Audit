@@ -369,9 +369,25 @@ class PostgresCollection:
             *where.args,
         )
 
-    async def create_index(self, field: str, unique: bool = False) -> None:
-        # The schema owns the indexes.  Keep this method for Motor API compatibility.
-        _field_expression(field)
+    async def create_index(self, field: Any, unique: bool = False) -> None:
+        """Validate Motor-style single or compound index specifications.
+
+        PostgreSQL indexes are owned by the schema, so this remains a no-op.
+        Accepting compound specifications keeps startup compatible with calls
+        such as ``create_index([("company_id", 1), ("created_at", -1)])``.
+        """
+        fields = [field] if isinstance(field, str) else field
+        if not isinstance(fields, (list, tuple)) or not fields:
+            raise ValueError(f"Unsupported index specification: {field!r}")
+        for specification in fields:
+            name = specification
+            if isinstance(specification, (list, tuple)):
+                if len(specification) != 2:
+                    raise ValueError(f"Unsupported index specification: {field!r}")
+                name = specification[0]
+            if not isinstance(name, str):
+                raise ValueError(f"Unsupported index field: {name!r}")
+            _field_expression(name)
 
 
 class PostgresDatabase:
