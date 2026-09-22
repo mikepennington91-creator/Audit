@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { toast } from 'sonner';
-import { AlertTriangle, Archive, CheckCircle2, Clock3, Eye, FileDown, FileSpreadsheet, History, Mail, Plus, RotateCcw, ShieldCheck, Trash2, UserRoundCog, XCircle } from 'lucide-react';
+import { AlertTriangle, Archive, BarChart3, CheckCircle2, Clock3, Eye, FileDown, FileSpreadsheet, History, Mail, Plus, RotateCcw, ShieldCheck, Trash2, UserRoundCog, XCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import EmailReportDialog from '../components/EmailReportDialog';
 import { Badge } from '../components/ui/badge';
@@ -18,6 +19,7 @@ import { Switch } from '../components/ui/switch';
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const Actions = () => {
+  const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
   const canAdmin = isAdmin();
   const [actions, setActions] = useState([]);
@@ -348,7 +350,7 @@ const Actions = () => {
 
   return (
     <div className="space-y-6" data-testid="actions-page">
-      <div className="flex items-start justify-between gap-4 flex-wrap"><div><h1 className="text-3xl font-bold tracking-tight">Corrective Actions</h1><p className="text-muted-foreground mt-1">Track actions from assignment through completion, approver review and final sign-off.</p></div><Button onClick={() => { setNewAction((current) => ({ ...current, reviewer_user_id: current.reviewer_user_id || user?.id || '' })); setShowCreateAction(true); }}><Plus className="w-4 h-4 mr-2" />Add Action</Button></div>
+      <div className="flex items-start justify-between gap-4 flex-wrap"><div><h1 className="text-3xl font-bold tracking-tight">Corrective Actions</h1><p className="text-muted-foreground mt-1">Track actions from assignment through completion, approver review and final sign-off.</p></div><div className="flex gap-2"><Button variant="outline" onClick={() => navigate('/reports/non-conformances')}><BarChart3 className="w-4 h-4 mr-2" />NC Report</Button><Button onClick={() => { setNewAction((current) => ({ ...current, reviewer_user_id: current.reviewer_user_id || user?.id || '' })); setShowCreateAction(true); }}><Plus className="w-4 h-4 mr-2" />Add Action</Button></div></div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {[{ key: 'open', label: 'Open', count: counts.open, icon: Clock3, colour: 'text-amber-600' }, { key: 'overdue', label: 'Overdue', count: counts.overdue, icon: AlertTriangle, colour: 'text-red-600' }, { key: 'awaiting_review', label: 'Awaiting Review', count: counts.awaiting_review, icon: ShieldCheck, colour: 'text-blue-600' }, { key: 'effectiveness_pending', label: 'Effectiveness', count: counts.effectiveness_pending, icon: ShieldCheck, colour: 'text-violet-600' }, { key: 'completed', label: 'Completed', count: counts.completed, icon: CheckCircle2, colour: 'text-emerald-600' }].map((summary) => { const Icon = summary.icon; return <Card key={summary.key} className={`cursor-pointer transition-colors hover:bg-muted/50 ${statusFilter === summary.key ? 'ring-2 ring-primary' : ''}`} onClick={() => setStatusFilter(summary.key)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setStatusFilter(summary.key); }}><CardContent className="pt-6 flex items-center gap-4"><Icon className={`w-8 h-8 ${summary.colour}`} /><div><p className="text-2xl font-bold">{summary.count}</p><p className="text-sm text-muted-foreground">{summary.label}</p></div></CardContent></Card>; })}

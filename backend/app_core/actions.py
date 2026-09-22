@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import io
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -42,6 +42,47 @@ class CorrectiveActionCreate(BaseModel):
 
 class ActionReviewerUpdate(BaseModel):
     reviewer_user_id: str
+
+
+MAX_NON_CONFORMANCE_REPORT_DAYS = 31
+
+
+def non_conformance_report_period(date_from: str, date_to: str) -> tuple[date, date]:
+    """Validate the inclusive reporting window used by the UI and API."""
+    try:
+        start = date.fromisoformat(date_from)
+        end = date.fromisoformat(date_to)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Enter valid report dates")
+    if end < start:
+        raise HTTPException(status_code=400, detail="The report end date cannot be before the start date")
+    if (end - start).days >= MAX_NON_CONFORMANCE_REPORT_DAYS:
+        raise HTTPException(status_code=400, detail="Non-conformance reports are limited to a maximum of one month (31 days)")
+    return start, end
+
+
+def _action_created_date(action: Dict[str, Any]) -> Optional[date]:
+    value = action.get("created_at")
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+    except ValueError:
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError:
+            return None
+
+
+def _action_closed_at(action: Dict[str, Any], status: str) -> Optional[str]:
+    if status != "completed":
+        return None
+    return (
+        action.get("effectiveness_verified_at")
+        or action.get("reviewed_at")
+        or action.get("completed_at")
+        or action.get("updated_at")
+    )
 
 
 def action_display_status(action: Dict[str, Any]) -> str:
@@ -459,6 +500,49 @@ async def corrective_action_counts(
         counts["all"] += 1
         counts[status] += 1
     return counts
+
+
+@router.get("/reports/non-conformances")
+async def non_conformance_report(
+    date_from: str,
+    date_to: str,
+    user: dict = Depends(legacy.require_feature("actions")),
+):
+    """Return a tenant-safe register of NCs raised during a short reporting period."""
+    start, end = non_conformance_report_period(date_from, date_to)
+    await ensure_action_references(legacy.db, user.get("company_id"))
+    actions = await legacy.db.corrective_actions.find(
+        action_access_query(user), {"_id": 0}
+    ).sort("created_at", -1).to_list(10_000)
+
+    report_actions = []
+    for action in actions:
+        created = _action_created_date(action)
+        if created is None or created < start or created > end:
+            continue
+        item = action_payload(action)
+        item["closed_at"] = _action_closed_at(item, item["status"])
+        report_actions.append(item)
+
+    totals = {
+        "total": len(report_actions),
+        "open": 0,
+        "overdue": 0,
+        "awaiting_review": 0,
+        "effectiveness_pending": 0,
+        "completed": 0,
+    }
+    for action in report_actions:
+        totals[action["status"]] = totals.get(action["status"], 0) + 1
+    totals["closure_rate"] = round(
+        (totals["completed"] / totals["total"] * 100) if totals["total"] else 0,
+        1,
+    )
+    return {
+        "period": {"date_from": start.isoformat(), "date_to": end.isoformat()},
+        "summary": totals,
+        "non_conformances": report_actions,
+    }
 
 
 @router.get("/actions-export.xlsx")

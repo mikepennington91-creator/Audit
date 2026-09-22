@@ -247,6 +247,23 @@ const Reports = () => {
         </p>
       </div>
 
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="p-5 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6 text-primary" />
+            </div>
+            <div>
+              <p className="font-semibold">Non-Conformance Report</p>
+              <p className="text-sm text-muted-foreground">Review issues raised and their close-out position for a selected period.</p>
+            </div>
+          </div>
+          <Button onClick={() => navigate('/reports/non-conformances')}>
+            Run Report <ChevronRight className="w-4 h-4 ml-2" />
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Stats Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
