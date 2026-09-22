@@ -778,6 +778,49 @@ def build_management_summary_pdf(data: dict, company: Optional[dict]) -> bytes:
     return buffer.getvalue()
 
 
+def _management_report_sections(data: dict) -> list[tuple]:
+    """Return the detailed management-report tables and their column layouts."""
+    return [
+        (
+            "Failed audits",
+            data["failed_audits"],
+            ["Audit", "Completed", "Auditor"],
+            [3.2 * inch, 1.45 * inch, 1.45 * inch],
+            lambda item: [
+                item.get("audit_name", "Audit"),
+                legacy.format_uk_date(item.get("completed_at")),
+                item.get("auditor_name", "-"),
+            ],
+        ),
+        (
+            "Quality records raised",
+            data["quality_records"],
+            ["Record", "Type", "Severity"],
+            [3.2 * inch, 1.45 * inch, 1.45 * inch],
+            lambda item: [
+                item.get("title", "Record"),
+                str(item.get("event_type", "")).replace("_", " ").title(),
+                item.get("severity", "-").title(),
+            ],
+        ),
+        (
+            "Overdue corrective actions",
+            data["overdue_actions"],
+            ["Reference / issue", "Action required", "Due date", "Owner"],
+            [1.8 * inch, 2.3 * inch, 0.9 * inch, 1.1 * inch],
+            lambda item: [
+                " — ".join(filter(None, [
+                    item.get("reference"),
+                    item.get("title") or item.get("non_conformance") or "Action",
+                ])),
+                item.get("action_required") or "Not recorded",
+                legacy.format_uk_date(item.get("due_date")),
+                item.get("assigned_user_name") or item.get("assigned_department", "-"),
+            ],
+        ),
+    ]
+
+
 @router.get("/management-report")
 async def management_report(
     days: int = Query(30, ge=7, le=366),
@@ -811,17 +854,12 @@ async def management_report_pdf(
         ("VALIGN", (0, 0), (-1, -1), "TOP"), ("PADDING", (0, 0), (-1, -1), 7),
     ]))
     story.append(table)
-    sections = [
-        ("Failed audits", data["failed_audits"], lambda item: [item.get("audit_name", "Audit"), legacy.format_uk_date(item.get("completed_at")), item.get("auditor_name", "-")]),
-        ("Quality records raised", data["quality_records"], lambda item: [item.get("title", "Record"), str(item.get("event_type", "")).replace("_", " ").title(), item.get("severity", "-").title()]),
-        ("Overdue corrective actions", data["overdue_actions"], lambda item: [item.get("title") or item.get("non_conformance", "Action"), legacy.format_uk_date(item.get("due_date")), item.get("assigned_user_name") or item.get("assigned_department", "-")]),
-    ]
-    for heading, records, row_builder in sections:
+    for heading, records, headers, column_widths, row_builder in _management_report_sections(data):
         story.append(Spacer(1, 0.18 * inch)); story.append(Paragraph(heading, styles["Heading2"]))
         if not records:
             story.append(Paragraph("No records for this period.", styles["Normal"])); continue
-        rows = [["Record", "Date / type", "Owner / severity"]] + [[Paragraph(escape(str(cell or "-")), styles["BodyText"]) for cell in row_builder(item)] for item in records]
-        detail = Table(rows, colWidths=[3.2 * inch, 1.45 * inch, 1.45 * inch], repeatRows=1)
+        rows = [headers] + [[Paragraph(escape(str(cell or "-")), styles["BodyText"]) for cell in row_builder(item)] for item in records]
+        detail = Table(rows, colWidths=column_widths, repeatRows=1)
         detail.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), HexColor("#e8f3f2")), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("GRID", (0, 0), (-1, -1), 0.35, HexColor("#d7e2e0")), ("VALIGN", (0, 0), (-1, -1), "TOP"),
