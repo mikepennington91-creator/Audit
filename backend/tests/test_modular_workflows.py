@@ -10,7 +10,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import server as legacy  # noqa: E402
 from app_core.account_auth import _hash_reset_token  # noqa: E402
-from app_core.actions import action_display_status, action_payload, action_reviewer_id  # noqa: E402
+from app_core.actions import (  # noqa: E402
+    action_display_status,
+    action_payload,
+    action_reviewer_id,
+    non_conformance_report_period,
+)
 from app_core.audit_reports import audit_access_allowed, audit_run_access_allowed  # noqa: E402
 from app_core.disposal_routes import (  # noqa: E402
     DEFAULT_DISPOSAL_ROUTE_CONFIG,
@@ -33,6 +38,22 @@ from main import app  # noqa: E402
 
 def _user(user_id="user-1", role=legacy.UserRole.USER, company_id="company-1"):
     return {"id": user_id, "role": role, "company_id": company_id}
+
+
+def test_non_conformance_report_period_allows_31_inclusive_days():
+    start, end = non_conformance_report_period("2026-08-23", "2026-09-22")
+    assert start.isoformat() == "2026-08-23"
+    assert end.isoformat() == "2026-09-22"
+
+
+def test_non_conformance_report_period_rejects_more_than_one_month():
+    import pytest
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as error:
+        non_conformance_report_period("2026-08-22", "2026-09-22")
+    assert error.value.status_code == 400
+    assert "31 days" in error.value.detail
 
 
 def test_schedule_date_is_calendar_based_and_accepts_legacy_iso_values():
