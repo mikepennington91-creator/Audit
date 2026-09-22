@@ -12,6 +12,7 @@ from app_core import quality_operations  # noqa: E402
 from app_core.quality_operations import (  # noqa: E402
     QualityEventCreate,
     QualityEventUpdate,
+    _management_report_sections,
     _same_company,
     build_management_summary_pdf,
 )
@@ -105,3 +106,29 @@ def test_management_summary_pdf_is_valid_pdf():
     result = build_management_summary_pdf(data, {"name": "ZRO Group"})
     assert result.startswith(b"%PDF")
     assert len(result) > 1000
+
+
+def test_management_report_overdue_actions_include_required_action():
+    data = {
+        "failed_audits": [],
+        "quality_records": [],
+        "overdue_actions": [{
+            "reference": "A17",
+            "title": "Tote bin missing traceability tag",
+            "action_required": "Fit a blue traceability tag and brief the team",
+            "due_date": "2026-09-17",
+            "assigned_user_name": "Carol Heslop",
+        }],
+    }
+
+    heading, records, headers, _widths, row_builder = _management_report_sections(data)[2]
+    row = row_builder(records[0])
+
+    assert heading == "Overdue corrective actions"
+    assert headers == ["Reference / issue", "Action required", "Due date", "Owner"]
+    assert row == [
+        "A17 — Tote bin missing traceability tag",
+        "Fit a blue traceability tag and brief the team",
+        "17/09/2026",
+        "Carol Heslop",
+    ]
