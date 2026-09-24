@@ -7,7 +7,7 @@ import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, TypeAdapter
 from starlette.responses import StreamingResponse
 
 import server as legacy
@@ -102,7 +102,7 @@ def _parse_recipients(value: str) -> list[str]:
     recipients: list[str] = []
     for part in parts:
         try:
-            validated = str(EmailStr._validate(part))
+            validated = str(TypeAdapter(EmailStr).validate_python(part))
         except Exception:
             raise HTTPException(status_code=422, detail=f"Invalid recipient email: {part}")
         if validated not in recipients:
