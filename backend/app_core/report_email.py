@@ -135,7 +135,7 @@ async def _deliver_attachment(
         if result.status == "disabled":
             raise HTTPException(status_code=503, detail="Email has not been configured on the server yet")
         raise HTTPException(status_code=502, detail="The report was generated but the email could not be delivered")
-    return {"message": f"Emailed to {\", \".join(recipients)}"}
+    return {"message": "Emailed to " + ", ".join(recipients)}
 
 
 def _csv_bytes(rows: list[dict], columns: list[tuple[str, str]]) -> bytes:
