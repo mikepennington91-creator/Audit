@@ -62,16 +62,17 @@ const EmailReportDialog = ({
         </DialogHeader>
         <form onSubmit={send} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="report-email-recipient">Recipient email</Label>
+            <Label htmlFor="report-email-recipient">To</Label>
             <Input
               id="report-email-recipient"
-              type="email"
+              type="text"
               value={recipient}
               onChange={(event) => setRecipient(event.target.value)}
-              placeholder="recipient@example.com"
+              placeholder="person1@example.com, person2@example.com"
               required
               autoFocus
             />
+            <p className="text-xs text-muted-foreground">Separate multiple email addresses with commas or semicolons. Everyone will be visible in the To field.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="report-email-message">Message (optional)</Label>
