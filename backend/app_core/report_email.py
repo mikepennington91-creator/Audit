@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["report-email"])
 
 
 class ReportEmailRequest(BaseModel):
-    recipient: EmailStr
+    recipient: str = Field(min_length=3, max_length=2000)
     message: Optional[str] = Field(default=None, max_length=2000)
 
 
@@ -96,6 +96,22 @@ async def _get_accessible_audit_run(run_id: str, user: dict) -> dict:
     return run
 
 
+def _parse_recipients(value: str) -> list[str]:
+    """Parse comma/semicolon separated recipients for a single visible To header."""
+    parts = [part.strip() for part in re.split(r"[,;\n]+", str(value or "")) if part.strip()]
+    recipients: list[str] = []
+    for part in parts:
+        try:
+            validated = str(EmailStr._validate(part))
+        except Exception:
+            raise HTTPException(status_code=422, detail=f"Invalid recipient email: {part}")
+        if validated not in recipients:
+            recipients.append(validated)
+    if not recipients:
+        raise HTTPException(status_code=422, detail="Enter at least one recipient email")
+    return recipients
+
+
 async def _deliver_attachment(
     *,
     request: ReportEmailRequest,
@@ -106,8 +122,9 @@ async def _deliver_attachment(
     template: str,
 ):
     text_body, html_body = _message_bodies(user, request.message, item_name)
+    recipients = _parse_recipients(request.recipient)
     result = await send_email(
-        to_email=str(request.recipient),
+        to_email=recipients,
         subject=subject,
         text_body=text_body,
         html_body=html_body,
@@ -118,7 +135,7 @@ async def _deliver_attachment(
         if result.status == "disabled":
             raise HTTPException(status_code=503, detail="Email has not been configured on the server yet")
         raise HTTPException(status_code=502, detail="The report was generated but the email could not be delivered")
-    return {"message": f"Emailed to {request.recipient}"}
+    return {"message": f"Emailed to {\", \".join(recipients)}"}
 
 
 def _csv_bytes(rows: list[dict], columns: list[tuple[str, str]]) -> bytes:
