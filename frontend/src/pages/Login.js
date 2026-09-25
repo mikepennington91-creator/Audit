@@ -47,7 +47,7 @@ const Login = () => {
           <div className="absolute top-20 left-20 w-72 h-72 bg-white rounded-full blur-3xl" />
           <div className="absolute bottom-20 right-20 w-96 h-96 bg-teal-300 rounded-full blur-3xl" />
         </div>
-        <div className="relative z-10 flex flex-col justify-center px-12 xl:px-20">
+        <div className="relative z-10 flex w-full flex-col justify-center px-12 xl:px-20">
           <div className="mb-8">
             <img src={LOGO_URL} alt="Infinit-Audit" className="h-28 mb-6" />
           </div>
