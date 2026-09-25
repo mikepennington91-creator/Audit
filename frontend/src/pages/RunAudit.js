@@ -456,6 +456,7 @@ const RunAudit = () => {
           headers: { "Content-Type": "multipart/form-data" },
         });
         photoUrl = response.data?.url;
+        if (photoUrl?.startsWith("/")) photoUrl = `${process.env.REACT_APP_BACKEND_URL}${photoUrl}`;
       }
       // Keep compressed evidence inside the offline audit when there is no
       // connection. This also handles a service worker accepting the request
