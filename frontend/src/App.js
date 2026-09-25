@@ -10,6 +10,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import ChangeTemporaryPassword from "./pages/ChangeTemporaryPassword";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import Pricing from "./pages/Pricing";
 import Dashboard from "./pages/Dashboard";
 import CompanyActivity from "./pages/CompanyActivity";
 import Account from "./pages/Account";
@@ -71,6 +72,7 @@ function AppRoutes() {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/change-password" element={<PasswordChangeRoute />} />
       <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/pricing" element={<Pricing />} />
 
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/company-activity" element={<ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}><CompanyActivity /></ProtectedRoute>} />
