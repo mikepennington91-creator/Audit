@@ -16,7 +16,7 @@ const PrivacyPolicy = () => {
     <div className="min-h-screen bg-background px-4 py-8 md:py-12">
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="text-center space-y-4">
-          <img src={LOGO_URL} alt="Infinit Audit" className="mx-auto h-20 w-auto" />
+          <img src={LOGO_URL} alt="Infinit Audit" className="mx-auto h-28 w-auto md:h-32" />
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Privacy Policy</h1>
             <p className="mt-2 text-sm text-muted-foreground">Last updated: 8 September 2026</p>

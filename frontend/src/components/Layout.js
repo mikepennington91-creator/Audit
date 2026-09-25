@@ -150,7 +150,7 @@ const Layout = ({ children }) => {
             <Menu className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-2">
-            <img src={LOGO_URL} alt="Infinit-Audit" className="h-16 w-auto" />
+            <img src={LOGO_URL} alt="Infinit-Audit" className="h-18 w-auto" />
             {!isOnline && (
               <span className="flex items-center gap-1 text-xs bg-amber-500/20 text-amber-500 px-2 py-1 rounded-full">
                 <WifiOff className="w-3 h-3" />
@@ -192,7 +192,7 @@ const Layout = ({ children }) => {
       >
         <div className="flex flex-col h-full">
           <div className="py-6 flex items-center justify-between px-4 border-b">
-            <img src={LOGO_URL} alt="Infinit-Audit" className="w-44" />
+            <img src={LOGO_URL} alt="Infinit-Audit" className="w-52 max-w-full" />
             <button
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden p-2 hover:bg-muted rounded-lg transition-colors"

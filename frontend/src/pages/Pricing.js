@@ -41,7 +41,7 @@ const Pricing = () => (
   <div className="min-h-screen bg-background">
     <header className="sticky top-0 z-50 border-b bg-card/95 shadow-sm backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 py-3 flex items-center justify-between gap-4 md:px-6">
-        <Link to="/"><img src={LOGO_URL} alt="Infinit Audit" className="h-16 w-auto md:h-20" /></Link>
+        <Link to="/"><img src={LOGO_URL} alt="Infinit Audit" className="h-20 w-auto md:h-24" /></Link>
         <div className="flex items-center gap-2">
           <Button variant="ghost" className="hidden sm:inline-flex" asChild><Link to="/">Home</Link></Button>
           <Button variant="ghost" className="hidden sm:inline-flex" asChild><Link to="/privacy">Privacy</Link></Button>
