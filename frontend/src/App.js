@@ -11,6 +11,7 @@ import ResetPassword from "./pages/ResetPassword";
 import ChangeTemporaryPassword from "./pages/ChangeTemporaryPassword";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Pricing from "./pages/Pricing";
+import Home from "./pages/Home";
 import CommercialDocuments from "./pages/CommercialDocuments";
 import CommercialDocumentView from "./pages/CommercialDocumentView";
 import Dashboard from "./pages/Dashboard";
@@ -105,7 +106,7 @@ function AppRoutes() {
       <Route path="/documents/fill/:documentId" element={<ProtectedRoute feature="documents"><DocumentFill /></ProtectedRoute>} />
       <Route path="/documents/view/:documentId" element={<ProtectedRoute feature="documents"><DocumentView /></ProtectedRoute>} />
 
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<Home />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
