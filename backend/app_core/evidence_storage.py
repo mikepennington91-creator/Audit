@@ -72,7 +72,6 @@ async def store_evidence(content: bytes, *, company_id: Optional[str], uploaded_
         Key=key,
         Body=content,
         ContentType="image/jpeg",
-        ServerSideEncryption="AES256",
         Metadata={"uploaded-by": _safe_segment(uploaded_by), "original-name": _safe_segment(filename, "evidence")},
     )
     return {"id": photo_id, "storage_backend": "s3", "storage_key": key, "content_type": "image/jpeg", "size": len(content)}
