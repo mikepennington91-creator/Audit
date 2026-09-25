@@ -10,6 +10,9 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import ChangeTemporaryPassword from "./pages/ChangeTemporaryPassword";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import Pricing from "./pages/Pricing";
+import CommercialDocuments from "./pages/CommercialDocuments";
+import CommercialDocumentView from "./pages/CommercialDocumentView";
 import Dashboard from "./pages/Dashboard";
 import CompanyActivity from "./pages/CompanyActivity";
 import Account from "./pages/Account";
@@ -71,8 +74,11 @@ function AppRoutes() {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/change-password" element={<PasswordChangeRoute />} />
       <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/pricing" element={<Pricing />} />
 
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/system/commercial-documents" element={<ProtectedRoute allowedRoles={['system_admin']}><CommercialDocuments /></ProtectedRoute>} />
+      <Route path="/system/commercial-documents/:filename" element={<ProtectedRoute allowedRoles={['system_admin']}><CommercialDocumentView /></ProtectedRoute>} />
       <Route path="/company-activity" element={<ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}><CompanyActivity /></ProtectedRoute>} />
       <Route path="/account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
       <Route path="/user-management" element={<ProtectedRoute allowedRoles={['system_admin', 'company_admin', 'admin']}><UserManagement /></ProtectedRoute>} />

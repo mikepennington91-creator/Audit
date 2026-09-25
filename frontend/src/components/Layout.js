@@ -29,6 +29,7 @@ import {
   AlertTriangle,
   ShieldCheck,
   Factory,
+  Scale,
 } from "lucide-react";
 
 const LOGO_URL =
@@ -36,7 +37,7 @@ const LOGO_URL =
 
 const Layout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user, logout, isAdmin, isAuditCreator, hasFeature } = useAuth();
+  const { user, logout, isSystemAdmin, isAdmin, isAuditCreator, hasFeature } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { isOnline, pendingCount, isSyncing, triggerSync } = useOffline();
   const location = useLocation();
@@ -126,6 +127,12 @@ const Layout = ({ children }) => {
       label: "Documents",
       icon: FileText,
       show: hasFeature("documents"),
+    },
+    {
+      path: "/system/commercial-documents",
+      label: "Commercial & Legal",
+      icon: Scale,
+      show: isSystemAdmin(),
     },
   ];
 

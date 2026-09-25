@@ -16,6 +16,7 @@ from app_core.actions import router as actions_router
 from app_core.audit_reports import router as audit_reports_router
 from app_core.audit_runs import router as audit_runs_router
 from app_core.company_activity import router as company_activity_router
+from app_core.commercial_documents import router as commercial_documents_router
 from app_core.compliance_operations import router as compliance_operations_router
 from app_core.disposal_routes import router as disposal_routes_router
 from app_core.document_imports import router as document_imports_router
@@ -52,6 +53,7 @@ app.include_router(actions_router)
 app.include_router(audit_reports_router)
 app.include_router(audit_runs_router)
 app.include_router(company_activity_router)
+app.include_router(commercial_documents_router)
 app.include_router(compliance_operations_router)
 app.include_router(disposal_routes_router)
 app.include_router(document_imports_router)
