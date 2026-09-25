@@ -27,6 +27,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from database import PostgresDatabase
 from date_formats import format_uk_date, format_uk_datetime
 from app_core.pdf_support import document_fields_story, pdf_content_disposition, plain_text
+from app_core.evidence_storage import configured as evidence_storage_configured, optimise_image, read_evidence, store_evidence
 from traceability_excel import (
     DEFAULT_CONFIG as TRACEABILITY_DEFAULT_CONFIG,
     TRACEABILITY_SCHEMAS,
@@ -1861,26 +1862,30 @@ async def export_corrective_action_pdf(action_id: str, user: dict = Depends(requ
 
 @api_router.post("/upload-photo")
 async def upload_photo(file: UploadFile = File(...), user: dict = Depends(require_feature("audits"))):
-    content = await file.read()
-    if len(content) > 5 * 1024 * 1024:  # 5MB limit
-        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
-    
-    # Store as base64 in database (for simplicity)
-    photo_id = str(uuid.uuid4())
-    base64_content = base64.b64encode(content).decode('utf-8')
-    content_type = file.content_type or "image/jpeg"
-    
-    photo_doc = {
-        "id": photo_id,
-        "filename": file.filename,
-        "content_type": content_type,
-        "data": f"data:{content_type};base64,{base64_content}",
-        "uploaded_by": user["id"],
-        "uploaded_at": get_uk_time_iso()
-    }
+    if not evidence_storage_configured():
+        raise HTTPException(status_code=503, detail="Private evidence storage is not configured")
+    raw = await file.read(20 * 1024 * 1024 + 1)
+    content = optimise_image(raw)
+    stored = await store_evidence(content, company_id=user.get("company_id"), uploaded_by=user["id"], filename=file.filename or "evidence.jpg")
+    photo_doc = {**stored, "filename": file.filename or "evidence.jpg", "company_id": user.get("company_id"), "uploaded_by": user["id"], "uploaded_at": get_uk_time_iso()}
     await db.photos.insert_one(photo_doc)
-    
-    return {"id": photo_id, "url": f"data:{content_type};base64,{base64_content}"}
+    return {"id": stored["id"], "url": f"/api/photos/{stored['id']}"}
+
+
+@api_router.get("/photos/{photo_id}")
+async def get_photo(photo_id: str, user: dict = Depends(get_current_user)):
+    photo = await db.photos.find_one({"id": photo_id}, {"_id": 0})
+    if not photo or (not is_system_admin(user) and photo.get("company_id") != user.get("company_id")):
+        raise HTTPException(status_code=404, detail="Photo not found")
+    if photo.get("storage_backend") == "s3":
+        content = await read_evidence(photo)
+        return StreamingResponse(io.BytesIO(content), media_type=photo.get("content_type") or "image/jpeg", headers={"Cache-Control": "private, max-age=300"})
+    data = photo.get("data")
+    if isinstance(data, str) and "," in data:
+        content = base64.b64decode(data.split(",", 1)[1])
+        return StreamingResponse(io.BytesIO(content), media_type=photo.get("content_type") or "image/jpeg", headers={"Cache-Control": "private, max-age=300"})
+    raise HTTPException(status_code=404, detail="Photo data is unavailable")
+
 
 # ==================== DASHBOARD STATS ====================
 
