@@ -18,7 +18,7 @@ const Home = () => (
   <div className="min-h-screen bg-background text-foreground">
     <header className="sticky top-0 z-40 border-b bg-background/90 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-2 md:px-6">
-        <Link to="/" aria-label="Infinit Audit home"><img src={LOGO_URL} alt="Infinit Audit" className="h-20 w-auto md:h-24" /></Link>
+        <Link to="/" aria-label="Infinit Audit home"><img src={LOGO_URL} alt="Infinit Audit" className="h-24 w-auto md:h-28" /></Link>
         <nav className="hidden items-center gap-6 text-sm md:flex">
           <a href="#features" className="text-muted-foreground hover:text-foreground">Features</a>
           <Link to="/pricing" className="text-muted-foreground hover:text-foreground">Pricing</Link>
@@ -86,7 +86,7 @@ const Home = () => (
 
     <footer className="border-t bg-card">
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-8 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between md:px-6">
-        <img src={LOGO_URL} alt="Infinit Audit" className="h-16 w-auto object-contain object-left" />
+        <img src={LOGO_URL} alt="Infinit Audit" className="h-20 w-auto object-contain object-left md:h-24" />
         <div className="flex gap-5"><Link to="/pricing">Pricing</Link><Link to="/privacy">Privacy</Link><Link to="/login">Login</Link></div>
       </div>
     </footer>
