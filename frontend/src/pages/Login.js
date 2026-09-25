@@ -48,8 +48,8 @@ const Login = () => {
           <div className="absolute bottom-20 right-20 w-96 h-96 bg-teal-300 rounded-full blur-3xl" />
         </div>
         <div className="relative z-10 flex w-full flex-col justify-center px-12 xl:px-20">
-          <div className="mb-8">
-            <img src={LOGO_URL} alt="Infinit-Audit" className="h-28 mb-6" />
+          <div className="mb-8 flex justify-center">
+            <img src={LOGO_URL} alt="Infinit-Audit" className="h-48 w-auto object-contain xl:h-56" />
           </div>
           <h1 className="text-4xl xl:text-5xl font-bold text-white mb-6 leading-tight">
             Food Safety Auditing<br />Made Simple
@@ -84,8 +84,8 @@ const Login = () => {
           {theme === 'dark' ? <Sun className="w-5 h-5 text-foreground" /> : <Moon className="w-5 h-5 text-foreground" />}
         </button>
 
-        <div className="lg:hidden absolute top-4 left-4">
-          <img src={LOGO_URL} alt="Infinit-Audit" className="h-12" />
+        <div className="lg:hidden absolute top-4 left-1/2 -translate-x-1/2">
+          <img src={LOGO_URL} alt="Infinit-Audit" className="h-24 w-auto object-contain" />
         </div>
 
         <Card className="w-full max-w-md border-border shadow-lg bg-card">
