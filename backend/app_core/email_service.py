@@ -119,7 +119,7 @@ def _text_to_html(text_body: str) -> str:
 
 def _build_message(
     *,
-    to_email: str,
+    to_email: str | Iterable[str],
     subject: str,
     text_body: str,
     html_body: Optional[str],
@@ -132,7 +132,8 @@ def _build_message(
 
     message = EmailMessage()
     message["From"] = formataddr((from_name, from_email))
-    message["To"] = to_email
+    recipients = [to_email] if isinstance(to_email, str) else list(to_email)
+    message["To"] = ", ".join(str(item).strip() for item in recipients if str(item).strip())
     message["Subject"] = subject
     message.set_content(f"{text_body.rstrip()}\n\nPrivacy Policy: {privacy_url}\n")
     # Every application email gets the same polished HTML treatment. Templates
@@ -210,7 +211,7 @@ async def _record_delivery(
 
 async def send_email(
     *,
-    to_email: str,
+    to_email: str | Iterable[str],
     subject: str,
     text_body: str,
     html_body: Optional[str] = None,
@@ -223,9 +224,15 @@ async def send_email(
     user-facing error. Automated action/audit workflows can safely continue and
     retain an email delivery audit event when SMTP is unavailable.
     """
-    recipient = str(to_email or "").strip()
-    if not recipient:
+    if isinstance(to_email, str):
+        recipients = [to_email.strip()] if to_email.strip() else []
+    else:
+        recipients = [str(item).strip() for item in to_email if str(item).strip()]
+    # Preserve order while removing duplicates.
+    recipients = list(dict.fromkeys(recipients))
+    if not recipients:
         return EmailDeliveryResult(False, "skipped", "Recipient email is missing")
+    recipient = recipients[0]
 
     attachment_list = tuple(attachments or ())
     secure_templates = {"password_reset", "new_user_welcome"}
@@ -250,7 +257,7 @@ async def send_email(
         return EmailDeliveryResult(False, "disabled", "Email service is not configured")
 
     message = _build_message(
-        to_email=recipient,
+        to_email=recipients,
         subject=subject,
         text_body=text_body,
         html_body=html_body,
@@ -258,23 +265,25 @@ async def send_email(
     )
     try:
         await asyncio.to_thread(_send_message, message)
-        await _record_delivery(
-            recipient=recipient,
-            subject=subject,
-            template=template,
-            status="sent",
-            error=None,
-            resend_payload=resend_payload,
-        )
+        for delivery_recipient in recipients:
+            await _record_delivery(
+                recipient=delivery_recipient,
+                subject=subject,
+                template=template,
+                status="sent",
+                error=None,
+                resend_payload=resend_payload,
+            )
         return EmailDeliveryResult(True, "sent")
     except Exception as exc:
         logger.exception("SMTP delivery failed for template %s", template)
-        await _record_delivery(
-            recipient=recipient,
-            subject=subject,
-            template=template,
-            status="failed",
-            error=str(exc)[:500],
-            resend_payload=resend_payload,
-        )
+        for delivery_recipient in recipients:
+            await _record_delivery(
+                recipient=delivery_recipient,
+                subject=subject,
+                template=template,
+                status="failed",
+                error=str(exc)[:500],
+                resend_payload=resend_payload,
+            )
         return EmailDeliveryResult(False, "failed", "Email delivery failed")
