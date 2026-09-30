@@ -63,6 +63,13 @@ class NoticeCreate(NoticeEvent):
     vendor_batch: str = Field(default="", max_length=120)
     date_delivered: Optional[str] = None
     quantity_delivered: str = Field(default="", max_length=120)
+    supplier: str = Field(default="", max_length=240)
+    best_before_date: Optional[str] = None
+
+    @field_validator("best_before_date")
+    @classmethod
+    def valid_best_before_date(cls, value):
+        return parse_date(value).isoformat() if value else None
 
     @field_validator("date_delivered")
     @classmethod
@@ -278,6 +285,8 @@ async def _create_notice(
         "vendor_batch": data.vendor_batch.strip(),
         "date_delivered": data.date_delivered,
         "quantity_delivered": data.quantity_delivered.strip(),
+        "supplier": data.supplier.strip(),
+        "best_before_date": data.best_before_date,
         "disposal_route": route.get("key") if route else None,
         "disposal_route_id": route.get("id") if route else None,
         "disposal_route_label": route.get("name") if route else None,
@@ -318,8 +327,9 @@ async def dispose_hold(notice_id: str, data: HoldDisposalCreate, user: dict = De
     # Take identity, quantity and tenant from the saved hold, never the client.
     copied = NoticeCreate(
         **{key: hold[key] for key in ("rm_number", "ingredient_name", "line_area")},
-        **{key: hold.get(key) or "" for key in ("our_batch", "vendor_batch", "quantity_delivered")},
+        **{key: hold.get(key) or "" for key in ("our_batch", "vendor_batch", "quantity_delivered", "supplier")},
         date_delivered=hold.get("date_delivered"),
+        best_before_date=hold.get("best_before_date") or hold.get("best_before"),
         quantity=data.quantity or hold.get("quantity_discarded") or hold["quantity"],
         **data.model_dump(exclude={"disposal_route", "quantity"}),
     )
