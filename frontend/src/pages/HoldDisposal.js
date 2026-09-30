@@ -27,6 +27,8 @@ const blankNotice = () => ({
   vendor_batch: '',
   date_delivered: '',
   quantity_delivered: '',
+  supplier: '',
+  best_before_date: '',
   quantity: '',
   ingredient_name: '',
   reason: '',
@@ -38,7 +40,7 @@ const blankNotice = () => ({
   company_id: '',
 });
 
-const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated, onUpdated, sourceHold, editNotice, onCancel }) => {
+const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, locations = [], onCreated, onUpdated, sourceHold, editNotice, onCancel }) => {
   const [form, setForm] = useState(() => editNotice ? { ...blankNotice(), ...editNotice } : sourceHold ? {
     ...blankNotice(), ...sourceHold, quantity: sourceHold.quantity_discarded || sourceHold.quantity, event_date: ukToday(), event_time: ukNowTime(), disposal_route: '',
   } : blankNotice());
@@ -159,11 +161,15 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
               <Label htmlFor={`${type}-ingredient`}>Ingredient / Material Name</Label>
               <Input id={`${type}-ingredient`} readOnly={!!sourceHold} value={form.ingredient_name} onChange={(e) => update('ingredient_name', e.target.value)} maxLength={240} required />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${type}-supplier`}>Supplier</Label>
+              <Input id={`${type}-supplier`} readOnly={!!sourceHold} value={form.supplier || ''} onChange={(e) => update('supplier', e.target.value)} maxLength={240} placeholder="Supplier name" />
+            </div>
             <div className="grid gap-4 md:grid-cols-3">
               {[
-                ['rm_number', 'RM Number', 'e.g. RM26723'],
+                ['rm_number', 'Raw Material Number', 'e.g. RM26723'],
                 ['our_batch', 'Our Batch', 'Our batch code'],
-                ['vendor_batch', 'Vendor Batch', 'Supplier batch code'],
+                ['vendor_batch', 'Vendor / Supplier Batch', 'Supplier batch code'],
               ].map(([field, label, placeholder]) => <div key={field} className="space-y-2">
                 <Label htmlFor={`${type}-${field}`}>{label}</Label>
                 <Input id={`${type}-${field}`} readOnly={!!sourceHold} value={form[field] || ''} onChange={(e) => update(field, e.target.value)} placeholder={placeholder} maxLength={120} required={field === 'rm_number'} />
@@ -179,6 +185,10 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
                 <Input id={`${type}-date_delivered`} type="date" readOnly={!!sourceHold} value={form.date_delivered || ''} onChange={(e) => update('date_delivered', e.target.value)} />
               </div>
               <div className="space-y-2">
+                <Label htmlFor={`${type}-best_before_date`}>Best Before Date</Label>
+                <Input id={`${type}-best_before_date`} type="date" readOnly={!!sourceHold} value={form.best_before_date || ''} onChange={(e) => update('best_before_date', e.target.value)} />
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor={`${type}-quantity_delivered`}>Quantity Delivered</Label>
                 <Input id={`${type}-quantity_delivered`} readOnly={!!sourceHold} value={form.quantity_delivered || ''} onChange={(e) => update('quantity_delivered', e.target.value)} maxLength={120} placeholder="e.g. 500 kg / 180 cases" />
               </div>
@@ -187,8 +197,12 @@ const NoticeForm = ({ type, companies, isSystemAdmin, disposalRoutes, onCreated,
                 <Input id={`${type}-quantity`} value={form.quantity} onChange={(e) => update('quantity', e.target.value)} maxLength={120} placeholder="Include the unit, e.g. 50 kg" required />
               </div>
               <div className="space-y-2">
-                <Label htmlFor={`${type}-area`}>Line / Factory Area</Label>
-                <Input id={`${type}-area`} readOnly={!!sourceHold} value={form.line_area} onChange={(e) => update('line_area', e.target.value)} maxLength={240} placeholder="e.g. Line 3 / Warehouse" required />
+                <Label htmlFor={`${type}-area`}>Location</Label>
+                <Input id={`${type}-area`} list={`${type}-location-options`} readOnly={!!sourceHold} value={form.line_area} onChange={(e) => update('line_area', e.target.value)} maxLength={240} placeholder="Type or select a configured location" required />
+                <datalist id={`${type}-location-options`}>
+                  {locations.map((location) => <option key={location.id || location.title} value={location.title} />)}
+                </datalist>
+                <p className="text-xs text-muted-foreground">Suggestions follow the Lines/Shifts configured in the background, but you can also type a location.</p>
               </div>
             </div>
           </fieldset>
@@ -421,8 +435,8 @@ const NoticeHistory = ({ type, notices, onView, onEdit, onDownload, onEmail, onD
 
 const NOTICE_FIELD_LABELS = {
   reference: 'Notice Reference', event_date: 'Date', event_time: 'Time', ingredient_name: 'Ingredient / Material',
-  rm_number: 'RM Number', our_batch: 'Our Batch', vendor_batch: 'Vendor Batch', date_delivered: 'Date Delivered',
-  quantity_delivered: 'Quantity Delivered', quantity: 'Notice Quantity', line_area: 'Line / Factory Area',
+  rm_number: 'Raw Material Number', supplier: 'Supplier', our_batch: 'Our Batch', vendor_batch: 'Vendor / Supplier Batch', best_before_date: 'Best Before Date', date_delivered: 'Date Delivered',
+  quantity_delivered: 'Quantity Delivered', quantity: 'Notice Quantity', line_area: 'Location',
   disposal_route: 'Disposal Route', disposal_route_label: 'Disposal Route', reason: 'Issue / Reason', action_required: 'Action Required',
 };
 
@@ -455,12 +469,14 @@ const NoticeViewer = ({ type, notice, canEdit, onEdit, onDispose, onClose }) => 
     ['Reference', notice.reference],
     [isDisposal ? 'Disposal date' : 'Hold date', `${formatUKDate(notice.event_date)} ${notice.event_time || ''}`],
     ['Ingredient / Material', notice.ingredient_name],
-    ['RM number', notice.rm_number],
+    ['Supplier', notice.supplier],
+    ['Raw Material Number', notice.rm_number],
     ['Our batch', notice.our_batch],
-    ['Vendor batch', notice.vendor_batch],
+    ['Vendor / supplier batch', notice.vendor_batch],
+    ['Best before date', notice.best_before_date ? formatUKDate(notice.best_before_date) : '-'],
     ['Delivered', `${notice.quantity_delivered || '-'}${notice.date_delivered ? ` on ${formatUKDate(notice.date_delivered)}` : ''}`],
     [isDisposal ? 'Quantity for disposal' : 'Quantity on hold', notice.quantity],
-    ['Line / factory area', notice.line_area],
+    ['Location', notice.line_area],
     ...(isDisposal ? [['Disposal route', notice.disposal_route_label || notice.disposal_route]] : []),
     ['Created by', notice.created_by_name],
     ['Created', formatUKDateTime(notice.created_at)],
@@ -762,6 +778,7 @@ const HoldDisposal = () => {
   const [distributionLists, setDistributionLists] = useState([]);
   const [disposalRoutes, setDisposalRoutes] = useState([]);
   const [companies, setCompanies] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewTarget, setViewTarget] = useState(null);
   const [editTarget, setEditTarget] = useState(null);
@@ -784,13 +801,15 @@ const HoldDisposal = () => {
         axios.get(`${API}/disposal-notices`),
         axios.get(`${API}/distribution-lists`),
         axios.get(`${API}/disposal-routes`),
+        axios.get(`${process.env.REACT_APP_BACKEND_URL}/api/lines-shifts`),
       ];
       if (isSystemAdmin) calls.push(axios.get(`${process.env.REACT_APP_BACKEND_URL}/api/companies`));
-      const [holdsRes, disposalsRes, listsRes, routesRes, companiesRes] = await Promise.all(calls);
+      const [holdsRes, disposalsRes, listsRes, routesRes, locationsRes, companiesRes] = await Promise.all(calls);
       setHolds(holdsRes.data);
       setDisposals(disposalsRes.data);
       setDistributionLists(listsRes.data);
       setDisposalRoutes(routesRes.data);
+      setLocations(locationsRes.data || []);
       if (companiesRes) setCompanies(companiesRes.data);
     } catch (error) {
       toast.error('Failed to load hold and disposal records');
@@ -892,13 +911,13 @@ const HoldDisposal = () => {
         </TabsList>
 
         <TabsContent value="hold" className="space-y-6">
-          {canEditNotices ? <NoticeForm type="hold" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('hold')} /> : <Card><CardContent className="pt-6 text-sm text-muted-foreground">You have view-only access. Traceability — Edit permission is required to create or change hold notices.</CardContent></Card>}
+          {canEditNotices ? <NoticeForm type="hold" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} locations={locations} onCreated={created('hold')} /> : <Card><CardContent className="pt-6 text-sm text-muted-foreground">You have view-only access. Traceability — Edit permission is required to create or change hold notices.</CardContent></Card>}
           <NoticeHistory type="hold" notices={holds} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} onDispose={setSourceHold} onOutcome={setOutcomeTarget} onBulkExport={() => setExportOpen(true)} disposals={disposals} canEditNotices={canEditNotices} isAdminUser={isAdminUser} />
         </TabsContent>
 
         <TabsContent value="disposal" className="space-y-6">
           {canEditNotices && <DisposalFromHoldCard holds={holds} disposals={disposals} onStart={setSourceHold} />}
-          {canEditNotices ? <NoticeForm type="disposal" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCreated={created('disposal')} /> : <Card><CardContent className="pt-6 text-sm text-muted-foreground">You have view-only access. Traceability — Edit permission is required to create or change disposal notices.</CardContent></Card>}
+          {canEditNotices ? <NoticeForm type="disposal" companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} locations={locations} onCreated={created('disposal')} /> : <Card><CardContent className="pt-6 text-sm text-muted-foreground">You have view-only access. Traceability — Edit permission is required to create or change disposal notices.</CardContent></Card>}
           <NoticeHistory type="disposal" notices={disposals} onView={(type, notice) => loadNotice(type, notice, 'view')} onEdit={(type, notice) => loadNotice(type, notice, 'edit')} onDownload={downloadPdf} onEmail={openEmail} canEditNotices={canEditNotices} />
         </TabsContent>
 
@@ -939,6 +958,7 @@ const HoldDisposal = () => {
             companies={companies}
             isSystemAdmin={isSystemAdmin}
             disposalRoutes={disposalRoutes}
+            locations={locations}
             onCancel={() => setEditTarget(null)}
             onUpdated={(notice) => {
               updateNoticeInList(editTarget.type, notice);
@@ -962,7 +982,7 @@ const HoldDisposal = () => {
       <Dialog open={!!sourceHold} onOpenChange={(open) => !open && setSourceHold(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Create Disposal from Hold</DialogTitle><DialogDescription>The original hold is retained and linked to the disposal notice.</DialogDescription></DialogHeader>
-          {sourceHold && <NoticeForm key={sourceHold.id} type="disposal" sourceHold={sourceHold} companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} onCancel={() => setSourceHold(null)} onCreated={(notice) => { created('disposal')(notice); setSourceHold(null); }} />}
+          {sourceHold && <NoticeForm key={sourceHold.id} type="disposal" sourceHold={sourceHold} companies={companies} isSystemAdmin={isSystemAdmin} disposalRoutes={disposalRoutes} locations={locations} onCancel={() => setSourceHold(null)} onCreated={(notice) => { created('disposal')(notice); setSourceHold(null); }} />}
         </DialogContent>
       </Dialog>
 
