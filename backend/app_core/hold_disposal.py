@@ -518,6 +518,8 @@ async def _update_notice(notice_type: str, notice_id: str, data: NoticeUpdate, u
         "vendor_batch": data.vendor_batch.strip(),
         "date_delivered": data.date_delivered,
         "quantity_delivered": data.quantity_delivered.strip(),
+        "supplier": data.supplier.strip(),
+        "best_before_date": data.best_before_date,
     }
     if route:
         values.update({
