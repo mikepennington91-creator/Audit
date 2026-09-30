@@ -47,8 +47,8 @@ HOLD_NOTICE_COLUMNS = (
     ("Disposal Route", "disposal_route", "text"),
     ("Disposal Authorised By", "authorised_by", "text"),
     ("Disposal Reason", "disposal_reason", "text"),
-    ("Record Created", "created_at", "datetime"),
-    ("Last Updated", "updated_at", "datetime"),
+    ("Record Created", "created_at", "text"),
+    ("Last Updated", "updated_at", "text"),
 )
 
 
