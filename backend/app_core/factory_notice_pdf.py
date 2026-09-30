@@ -121,13 +121,15 @@ def _details_table(record: dict, styles):
     value_style = ParagraphStyle("DetailValue", parent=styles["Normal"], fontSize=10, leading=12)
     rows = [
         [Paragraph("Product / Material:", label_style), _paragraph(record.get("ingredient_name"), value_style)],
-        [Paragraph("RM Number:", label_style), _paragraph(record.get("rm_number"), value_style)],
+        [Paragraph("Supplier:", label_style), _paragraph(record.get("supplier"), value_style)],
+        [Paragraph("Raw Material Number:", label_style), _paragraph(record.get("rm_number"), value_style)],
         [Paragraph("Our Batch:", label_style), _paragraph(record.get("our_batch"), value_style)],
-        [Paragraph("Vendor Batch:", label_style), _paragraph(record.get("vendor_batch"), value_style)],
+        [Paragraph("Vendor / Supplier Batch:", label_style), _paragraph(record.get("vendor_batch"), value_style)],
+        [Paragraph("Best Before Date:", label_style), _paragraph(format_uk_date(record.get("best_before_date") or record.get("best_before"), "-"), value_style)],
         [Paragraph("Date Delivered:", label_style), _paragraph(format_uk_date(record.get("date_delivered"), "-"), value_style)],
         [Paragraph("Quantity Delivered:", label_style), _paragraph(record.get("quantity_delivered"), value_style)],
         [Paragraph("Quantity for Disposal:" if record.get("notice_type") == "disposal" else "Quantity on Hold:", label_style), _paragraph(record.get("quantity"), value_style)],
-        [Paragraph("Line / Factory Area:", label_style), _paragraph(record.get("line_area"), value_style)],
+        [Paragraph("Location:", label_style), _paragraph(record.get("line_area"), value_style)],
     ]
     table = Table(rows, colWidths=[1.62 * inch, 5.08 * inch])
     table.setStyle(TableStyle([
