@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import uuid
+import os
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +16,60 @@ from app_core.company_activity import DeletionReason, delete_with_reason
 
 
 router = APIRouter(prefix="/api", tags=["audit-runs"])
+
+
+class DemoAuditDateUpdate(BaseModel):
+    started_at: datetime
+    completed_at: datetime
+
+
+@router.put("/run-audits/{run_id}/demo-dates")
+async def set_demo_audit_dates(
+    run_id: str,
+    data: DemoAuditDateUpdate,
+    user: dict = Depends(legacy.get_current_user),
+):
+    """Temporarily enabled, system-admin-only demonstration data backdating.
+
+    Real timestamps are preserved separately and the demo flag is permanent.
+    """
+    if not legacy.is_system_admin(user):
+        raise HTTPException(status_code=403, detail="System administrator required")
+    if os.environ.get("DEMO_AUDIT_DATES_ENABLED", "").lower() not in {"1", "true", "yes"}:
+        raise HTTPException(status_code=404, detail="Demo date editing is disabled")
+    if data.started_at.tzinfo is None or data.completed_at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="Dates must include timezone offsets")
+    start = data.started_at.astimezone(timezone.utc)
+    end = data.completed_at.astimezone(timezone.utc)
+    if end < start:
+        raise HTTPException(status_code=422, detail="Completion cannot precede start")
+    if end > datetime.now(timezone.utc):
+        raise HTTPException(status_code=422, detail="Demo completion cannot be in the future")
+    async with legacy.db.transaction("audit:" + run_id):
+        run = await legacy.db.run_audits.find_one({"id": run_id}, {"_id": 0})
+        if not run:
+            raise HTTPException(status_code=404, detail="Audit not found")
+        if not run.get("completed") or run.get("closed_at"):
+            raise HTTPException(status_code=409, detail="Only completed audits can be dated for demonstration")
+        if not run.get("demo_record") and not run.get("demo_original_timestamps"):
+            originals = {
+                "started_at": run.get("started_at"),
+                "completed_at": run.get("completed_at"),
+                "recorded_at": legacy.get_uk_time_iso(),
+            }
+        else:
+            originals = run.get("demo_original_timestamps") or {}
+        uk = ZoneInfo("Europe/London")
+        update = {
+            "demo_record": True,
+            "demo_original_timestamps": originals,
+            "demo_date_changed_by": user.get("id"),
+            "demo_date_changed_at": legacy.get_uk_time_iso(),
+            "started_at": start.astimezone(uk).isoformat(),
+            "completed_at": end.astimezone(uk).isoformat(),
+        }
+        await legacy.db.run_audits.update_one({"id": run_id}, {"$set": update})
+    return {"id": run_id, **update}
 
 
 class AuditCancellation(BaseModel):
