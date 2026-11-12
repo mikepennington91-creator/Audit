@@ -2060,12 +2060,17 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
                     # Phone cameras commonly store portrait photos as landscape pixels plus
                     # an EXIF orientation flag. ReportLab does not reliably apply that flag,
                     # so normalise the pixels before embedding them in the PDF.
+                    # Resize the actual pixels before ReportLab decodes the image.
+                    # _restrictSize below only changes its displayed dimensions.
                     normalised_image = ImageOps.exif_transpose(source_image)
+                    normalised_image.thumbnail((1400, 1400), PILImage.Resampling.LANCZOS)
                     if normalised_image.mode not in ("RGB", "L"):
                         normalised_image = normalised_image.convert("RGB")
                     normalised_buffer = io.BytesIO()
-                    normalised_image.save(normalised_buffer, format="JPEG", quality=90)
+                    normalised_image.save(normalised_buffer, format="JPEG", quality=75, optimize=True)
                     normalised_buffer.seek(0)
+                    if normalised_image is not source_image:
+                        normalised_image.close()
                 photo_img = RLImage(normalised_buffer)
                 photo_img._restrictSize(5.5 * inch, 3.5 * inch)
                 story.append(Spacer(1, 0.08*inch))
