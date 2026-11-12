@@ -23,6 +23,14 @@ class DemoAuditDateUpdate(BaseModel):
     completed_at: datetime
 
 
+@router.get("/demo-audit-dates/status")
+async def demo_audit_dates_status(user: dict = Depends(legacy.get_current_user)):
+    """Expose availability only to system administrators."""
+    if not legacy.is_system_admin(user):
+        raise HTTPException(status_code=403, detail="System administrator required")
+    return {"enabled": os.environ.get("DEMO_AUDIT_DATES_ENABLED", "").lower() in {"1", "true", "yes"}}
+
+
 @router.put("/run-audits/{run_id}/demo-dates")
 async def set_demo_audit_dates(
     run_id: str,
