@@ -69,7 +69,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const AuditOverview = () => {
   const { auditId } = useParams();
   const navigate = useNavigate();
-  const { isAuditCreator, isAdmin } = useAuth();
+  const { isAuditCreator, isAdmin, user } = useAuth();
 
   const [deleteRecord, setDeleteRecord] = useState(null);
   const [audit, setAudit] = useState(null);
@@ -88,6 +88,50 @@ const AuditOverview = () => {
   const [downloadingPdf, setDownloadingPdf] = useState(null);
   const [emailRunId, setEmailRunId] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [demoEnabled, setDemoEnabled] = useState(false);
+  const [demoRun, setDemoRun] = useState(null);
+  const [demoStart, setDemoStart] = useState("");
+  const [demoEnd, setDemoEnd] = useState("");
+  const [savingDemo, setSavingDemo] = useState(false);
+  useEffect(() => {
+    if (user?.role !== "system_admin") return;
+    axios.get(`${API}/demo-audit-dates/status`)
+      .then(({ data }) => setDemoEnabled(Boolean(data.enabled)))
+      .catch(() => setDemoEnabled(false));
+  }, [user?.role]);
+  const toLocalDateTime = (value) => {
+    const date = new Date(value);
+    if (!value || Number.isNaN(date.getTime())) return "";
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  const editDemoDates = (run) => {
+    setDemoRun(run);
+    setDemoStart(toLocalDateTime(run.started_at));
+    setDemoEnd(toLocalDateTime(run.completed_at));
+  };
+  const saveDemoDates = async () => {
+    const start = new Date(demoStart), end = new Date(demoEnd);
+    if (!demoStart || !demoEnd || Number.isNaN(start.getTime()) ||
+        Number.isNaN(end.getTime()) || end < start || end > new Date()) {
+      toast.error("Choose valid dates: completion must follow the start and not be in the future");
+      return;
+    }
+    setSavingDemo(true);
+    try {
+      await axios.put(`${API}/run-audits/${demoRun.id}/demo-dates`, {
+        started_at: start.toISOString(), completed_at: end.toISOString(),
+      });
+      toast.success("Demonstration dates saved");
+      setDemoRun(null);
+      setSelectedRun(null);
+      setRunDetails(null);
+      await fetchAuditRuns(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Unable to save demonstration dates");
+    } finally {
+      setSavingDemo(false);
+    }
+  };
 
   useEffect(() => {
     fetchAuditRuns(false);
@@ -495,6 +539,12 @@ const AuditOverview = () => {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
+                            {demoEnabled && run.completed && !run.closed_at && (
+                              <Button variant="ghost" size="sm" title="Edit demonstration dates"
+                                onClick={(e) => { e.stopPropagation(); editDemoDates(run); }}>
+                                <CalendarIcon className="w-4 h-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"
@@ -917,6 +967,33 @@ const AuditOverview = () => {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={Boolean(demoRun)} onOpenChange={(open) => { if (!open && !savingDemo) setDemoRun(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Demonstration audit dates</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Demonstration data is permanently marked. Original timestamps and the actual
+            modification time remain in the audit trail. Use a dedicated demo company.
+          </p>
+          <div className="space-y-2">
+            <label htmlFor="demo-start" className="text-sm font-medium">Started</label>
+            <input id="demo-start" type="datetime-local" value={demoStart}
+              onChange={(e) => setDemoStart(e.target.value)}
+              className="w-full rounded-md border bg-background p-2" />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="demo-end" className="text-sm font-medium">Completed</label>
+            <input id="demo-end" type="datetime-local" value={demoEnd}
+              onChange={(e) => setDemoEnd(e.target.value)}
+              className="w-full rounded-md border bg-background p-2" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={savingDemo} onClick={() => setDemoRun(null)}>Cancel</Button>
+            <Button disabled={savingDemo || !demoStart || !demoEnd} onClick={saveDemoDates}>
+              {savingDemo ? "Saving..." : "Save dates"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!photoPreview} onOpenChange={() => setPhotoPreview(null)}>
         <DialogContent className="max-w-4xl p-0">
           <div className="relative">
