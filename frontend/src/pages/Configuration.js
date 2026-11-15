@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Skeleton } from '../components/ui/skeleton';
 import { toast } from 'sonner';
-import { Building2, FolderOpen, ImageIcon, Layers, Pencil, Plus, Settings, Trash2, Upload } from 'lucide-react';
+import { Building2, Copy, FolderOpen, ImageIcon, Layers, Pencil, Plus, Settings, Trash2, Upload } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -87,6 +87,16 @@ const Configuration = () => {
       await fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Unable to save company');
+    }
+  };
+
+  const copyCompanyId = async (company) => {
+    if (!isSystemAdmin || !company.id) return;
+    try {
+      await navigator.clipboard.writeText(String(company.id));
+      toast.success('Company ID copied');
+    } catch {
+      toast.error('Unable to copy automatically. Select and copy the Company ID shown beneath the company name.');
     }
   };
 
@@ -225,7 +235,7 @@ const Configuration = () => {
               <CardContent>
                 {loading ? <Skeleton className="h-32 w-full" /> : (
                   <Table><TableHeader><TableRow><TableHead>Company</TableHead><TableHead>Description</TableHead><TableHead>Created</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                    <TableBody>{companies.map((company) => <TableRow key={company.id}><TableCell className="font-medium">{company.name}</TableCell><TableCell className="text-muted-foreground">{company.description || '-'}</TableCell><TableCell>{formatUKDate(company.created_at)}</TableCell><TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => editCompany(company)}><Pencil className="w-4 h-4" /></Button><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => deleteCompany(company.id)}><Trash2 className="w-4 h-4" /></Button></TableCell></TableRow>)}</TableBody>
+                    <TableBody>{companies.map((company) => <TableRow key={company.id}><TableCell className="font-medium">{company.name}<div className="mt-1 font-mono text-xs text-muted-foreground break-all select-all">{company.id}</div></TableCell><TableCell className="text-muted-foreground">{company.description || '-'}</TableCell><TableCell>{formatUKDate(company.created_at)}</TableCell><TableCell className="text-right"><Button variant="outline" size="sm" onClick={() => copyCompanyId(company)} title="Copy Company ID" aria-label={`Copy Company ID for ${company.name}`}><Copy className="w-4 h-4 mr-2" />Copy ID</Button><Button variant="ghost" size="sm" onClick={() => editCompany(company)}><Pencil className="w-4 h-4" /></Button><Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => deleteCompany(company.id)}><Trash2 className="w-4 h-4" /></Button></TableCell></TableRow>)}</TableBody>
                   </Table>
                 )}
               </CardContent>
