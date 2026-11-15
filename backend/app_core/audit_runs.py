@@ -23,12 +23,25 @@ class DemoAuditDateUpdate(BaseModel):
     completed_at: datetime
 
 
+def _demo_company_id():
+    return os.environ.get("DEMO_AUDIT_COMPANY_ID", "").strip()
+
+
+def _demo_dates_allowed(user: dict) -> bool:
+    company_id = _demo_company_id()
+    return bool(
+        company_id
+        and os.environ.get("DEMO_AUDIT_DATES_ENABLED", "").lower() in {"1", "true", "yes"}
+        and (
+            legacy.is_system_admin(user)
+            or (user.get("role") == "company_admin" and user.get("company_id") == company_id)
+        )
+    )
+
+
 @router.get("/demo-audit-dates/status")
 async def demo_audit_dates_status(user: dict = Depends(legacy.get_current_user)):
-    """Expose availability only to system administrators."""
-    if not legacy.is_system_admin(user):
-        raise HTTPException(status_code=403, detail="System administrator required")
-    return {"enabled": os.environ.get("DEMO_AUDIT_DATES_ENABLED", "").lower() in {"1", "true", "yes"}}
+    return {"enabled": _demo_dates_allowed(user)}
 
 
 @router.put("/run-audits/{run_id}/demo-dates")
@@ -37,14 +50,12 @@ async def set_demo_audit_dates(
     data: DemoAuditDateUpdate,
     user: dict = Depends(legacy.get_current_user),
 ):
-    """Temporarily enabled, system-admin-only demonstration data backdating.
+    """Temporarily enabled, company-scoped demonstration data backdating.
 
     Real timestamps are preserved separately and the demo flag is permanent.
     """
-    if not legacy.is_system_admin(user):
-        raise HTTPException(status_code=403, detail="System administrator required")
-    if os.environ.get("DEMO_AUDIT_DATES_ENABLED", "").lower() not in {"1", "true", "yes"}:
-        raise HTTPException(status_code=404, detail="Demo date editing is disabled")
+    if not _demo_dates_allowed(user):
+        raise HTTPException(status_code=403, detail="Demo date editing is not enabled for this account")
     if data.started_at.tzinfo is None or data.completed_at.tzinfo is None:
         raise HTTPException(status_code=422, detail="Dates must include timezone offsets")
     start = data.started_at.astimezone(timezone.utc)
@@ -54,7 +65,7 @@ async def set_demo_audit_dates(
     if end > datetime.now(timezone.utc):
         raise HTTPException(status_code=422, detail="Demo completion cannot be in the future")
     async with legacy.db.transaction("audit:" + run_id):
-        run = await legacy.db.run_audits.find_one({"id": run_id}, {"_id": 0})
+        run = await legacy.db.run_audits.find_one({"id": run_id, "company_id": _demo_company_id()}, {"_id": 0})
         if not run:
             raise HTTPException(status_code=404, detail="Audit not found")
         if not run.get("completed") or run.get("closed_at"):
@@ -76,7 +87,7 @@ async def set_demo_audit_dates(
             "started_at": start.astimezone(uk).isoformat(),
             "completed_at": end.astimezone(uk).isoformat(),
         }
-        await legacy.db.run_audits.update_one({"id": run_id}, {"$set": update})
+        await legacy.db.run_audits.update_one({"id": run_id, "company_id": _demo_company_id()}, {"$set": update})
     return {"id": run_id, **update}
 
 

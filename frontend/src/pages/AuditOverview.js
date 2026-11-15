@@ -94,11 +94,12 @@ const AuditOverview = () => {
   const [demoEnd, setDemoEnd] = useState("");
   const [savingDemo, setSavingDemo] = useState(false);
   useEffect(() => {
-    if (user?.role !== "system_admin") return;
+    setDemoEnabled(false);
+    if (!["system_admin", "company_admin"].includes(user?.role)) return;
     axios.get(`${API}/demo-audit-dates/status`)
       .then(({ data }) => setDemoEnabled(Boolean(data.enabled)))
       .catch(() => setDemoEnabled(false));
-  }, [user?.role]);
+  }, [user?.role, user?.company_id, user?.id]);
   const toLocalDateTime = (value) => {
     const date = new Date(value);
     if (!value || Number.isNaN(date.getTime())) return "";
