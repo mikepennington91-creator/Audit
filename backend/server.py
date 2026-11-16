@@ -1980,7 +1980,10 @@ async def export_audit_pdf(run_id: str, user: dict = Depends(require_feature("au
     if audit.get("company_id"):
         company = await db.companies.find_one({"id": audit.get("company_id")}, {"_id": 0})
     story.extend(build_company_pdf_header(company, f"Audit Report: {run_audit['audit_name']}", styles))
-    if run_audit.get("demo_record") and not (company and company.get("name", "").strip().casefold() == "demo company"):
+    demo_company_id = os.environ.get("DEMO_AUDIT_COMPANY_ID", "").strip()
+    if run_audit.get("demo_record") and not (
+        demo_company_id and run_audit.get("company_id") == demo_company_id
+    ):
         story.append(Paragraph("<b>DEMONSTRATION RECORD — NOT A LIVE AUDIT</b>", ParagraphStyle(
             "DemoMark", parent=styles["Normal"], textColor=HexColor("#a12424"),
             fontSize=11, alignment=TA_CENTER, spaceAfter=8)))
